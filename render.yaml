@@ -2,5 +2,5 @@ services:
   - type: web
     name: viral-atolyesi-server
     env: node
-    buildCommand: "pip install yt-dlp && npm install"
+    buildCommand: "npm install && pip3 install yt-dlp"
     startCommand: "node server.js"
