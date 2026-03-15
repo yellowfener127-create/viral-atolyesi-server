@@ -40,7 +40,7 @@ app.get('/search/tiktok', (req, res) => {
   const limit = req.query.limit || 20;
   if (!query) return res.status(400).json({ error: 'Sorgu gerekli' });
 
-  const cmd = `${YTDLP_PATH} "https://www.tiktok.com/search/video?q=${encodeURIComponent(query)}" --flat-playlist --print "%(id)s|%(title)s|%(duration)s|%(view_count)s|%(like_count)s|%(thumbnail)s|%(webpage_url)s" --playlist-end ${limit} --no-warnings 2>/dev/null`;
+  const cmd = `${YTDLP_PATH} --cookies "${path.join(__dirname, 'tiktok.com_cookies.txt')}" "https://www.tiktok.com/search/video?q=${encodeURIComponent(query)}" --flat-playlist --print "%(id)s|%(title)s|%(duration)s|%(view_count)s|%(like_count)s|%(thumbnail)s|%(webpage_url)s" --playlist-end ${limit} --no-warnings 2>/dev/null`;
 
   exec(cmd, { timeout: 60000 }, (error, stdout, stderr) => {
     if (error) return res.status(500).json({ error: 'TikTok arama hatası' });
@@ -58,7 +58,7 @@ app.get('/search/instagram', (req, res) => {
   const limit = req.query.limit || 20;
   if (!query) return res.status(400).json({ error: 'Sorgu gerekli' });
 
-  const cmd = `${YTDLP_PATH} "https://www.instagram.com/explore/tags/${encodeURIComponent(query)}/" --flat-playlist --print "%(id)s|%(title)s|%(duration)s|%(view_count)s|%(like_count)s|%(thumbnail)s|%(webpage_url)s" --playlist-end ${limit} --no-warnings 2>/dev/null`;
+  const cmd = `${YTDLP_PATH} --cookies "${path.join(__dirname, 'instagram.com_cookies.txt')}" "https://www.instagram.com/explore/tags/${encodeURIComponent(query)}/" --flat-playlist --print "%(id)s|%(title)s|%(duration)s|%(view_count)s|%(like_count)s|%(thumbnail)s|%(webpage_url)s" --playlist-end ${limit} --no-warnings 2>/dev/null`;
 
   exec(cmd, { timeout: 60000 }, (error, stdout, stderr) => {
     if (error) return res.status(500).json({ error: 'Instagram arama hatası' });
