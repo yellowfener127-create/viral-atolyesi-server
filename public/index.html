@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Viral Atölyesi</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@300;400;500;600;700;900&display=swap" rel="stylesheet"/>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0a0a0a;--surface:#141414;--card:#1c1c1c;
+    --border:#262626;--text:#f0f0f0;--muted:#555;
+    --accent:#ff4500;--green:#00c853;--blue:#2979ff;--gold:#ffc107;
+  }
+  body{background:var(--bg);font-family:'Outfit',sans-serif;color:var(--text);min-height:100vh}
+
+  /* HEADER */
+  .header{
+    background:linear-gradient(180deg,#141414,#0f0f0f);
+    border-bottom:1px solid var(--border);
+    padding:0 24px;height:60px;display:flex;align-items:center;
+    justify-content:space-between;position:sticky;top:0;z-index:50;gap:12px;
+  }
+  .logo-wrap{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .logo-icon{width:30px;height:30px;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px}
+  .logo{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px}
+  .logo span{color:var(--accent)}
+  .nav{display:flex;gap:6px}
+  .nav-btn{
+    padding:7px 16px;border-radius:20px;border:1px solid var(--border);
+    background:var(--surface);font-family:'Outfit',sans-serif;font-size:12px;
+    font-weight:600;cursor:pointer;transition:all 0.2s;color:var(--muted);
+  }
+  .nav-btn:hover{color:var(--text);border-color:#444}
+  .nav-btn.active{background:var(--accent);color:white;border-color:var(--accent)}
+  .day-badge{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:11px;color:var(--muted);flex-shrink:0}
+  .day-badge strong{color:var(--text)}
+
+  .wrap{max-width:1120px;margin:0 auto;padding:24px 16px}
+  .page{display:none}
+  .page.active{display:block}
+
+  /* API */
+  .api-section{
+    background:var(--surface);border:1px solid var(--border);
+    border-radius:14px;padding:18px 20px;margin-bottom:20px;
+    position:relative;overflow:hidden;
+  }
+  .api-section::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),transparent)}
+  .api-label{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+  .api-row{display:flex;gap:8px}
+  .api-input{
+    flex:1;padding:10px 13px;border:1px solid var(--border);
+    border-radius:9px;font-family:'Outfit',sans-serif;font-size:13px;
+    background:var(--card);outline:none;transition:border-color 0.2s;color:var(--text);
+  }
+  .api-input:focus{border-color:var(--accent)}
+  .api-input::placeholder{color:#333}
+  .save-btn{
+    padding:10px 18px;background:var(--accent);color:white;border:none;
+    border-radius:9px;font-family:'Outfit',sans-serif;font-size:13px;
+    font-weight:700;cursor:pointer;transition:all 0.2s;white-space:nowrap;
+  }
+  .save-btn:hover{background:#e03d00}
+  .save-btn.saved{background:var(--green)}
+  .api-meta{display:flex;align-items:center;justify-content:space-between;margin-top:7px;flex-wrap:wrap;gap:5px}
+  .api-hint{font-size:11px;color:var(--muted)}
+  .api-hint a{color:var(--accent);text-decoration:none}
+  .key-status{font-size:11px}
+  .key-status.active{color:var(--green)}
+  .key-status.empty{color:#ff9800}
+  .delete-key-btn{font-size:11px;background:none;border:none;color:#c0392b;cursor:pointer;font-family:'Outfit',sans-serif;text-decoration:underline;margin-left:5px}
+
+  /* SELECTORS */
+  .selector-group{margin-bottom:14px}
+  .selector-label{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+  .selector-row{display:flex;gap:8px;flex-wrap:wrap}
+  .sel-btn{
+    padding:9px 20px;border-radius:25px;border:1px solid var(--border);
+    background:var(--surface);font-family:'Outfit',sans-serif;font-size:13px;
+    font-weight:600;cursor:pointer;transition:all 0.2s;color:var(--muted);
+    display:flex;align-items:center;gap:6px;
+  }
+  .sel-btn:hover{border-color:#444;color:var(--text)}
+  .sel-btn.active{background:var(--accent);color:white;border-color:var(--accent)}
+  .sel-btn.soon{opacity:0.4;cursor:not-allowed}
+  .soon-badge{font-size:9px;background:rgba(255,255,255,0.15);padding:2px 6px;border-radius:4px}
+
+  .search-row{display:flex;justify-content:flex-end;margin-bottom:28px}
+  .search-btn{
+    padding:11px 28px;background:var(--accent);color:white;border:none;
+    border-radius:25px;font-family:'Outfit',sans-serif;font-size:13px;
+    font-weight:700;cursor:pointer;transition:all 0.2s;
+  }
+  .search-btn:hover{background:#e03d00;transform:translateY(-1px);box-shadow:0 4px 16px rgba(255,69,0,0.3)}
+  .search-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none;box-shadow:none}
+
+  .err{background:rgba(255,60,60,0.08);border:1px solid rgba(255,60,60,0.2);border-radius:10px;padding:11px 15px;font-size:13px;color:#ff6b6b;margin-bottom:18px;display:none}
+
+  /* SECTION */
+  .section-header{display:flex;align-items:center;gap:10px;margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+  .section-title{font-family:'Bebas Neue',sans-serif;font-size:19px;letter-spacing:2px}
+  .section-title.short{color:var(--gold)}
+  .section-count{background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:2px 9px;font-size:11px;color:var(--muted)}
+  .section-cache{font-size:11px;color:var(--green);margin-left:auto}
+  .section-sep{margin:32px 0 24px}
+
+  /* GRID */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+
+  /* CARD */
+  .vcard{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:transform 0.25s,box-shadow 0.25s,border-color 0.25s}
+  .vcard:hover{transform:translateY(-4px);box-shadow:0 14px 36px rgba(0,0,0,0.6);border-color:#383838}
+  .vcard.short-card{border-color:rgba(255,193,7,0.2)}
+  .vcard.short-card:hover{border-color:rgba(255,193,7,0.5)}
+  .thumb{position:relative;aspect-ratio:16/9;overflow:hidden;background:#111}
+  .thumb img{width:100%;height:100%;object-fit:cover;transition:transform 0.3s}
+  .vcard:hover .thumb img{transform:scale(1.05)}
+  .rank{position:absolute;top:9px;left:9px;background:rgba(0,0,0,0.85);color:white;font-size:11px;font-weight:700;padding:3px 9px;border-radius:5px}
+  .rank.top{background:var(--accent)}
+  .rank.gold{background:var(--gold);color:#000}
+  .views-ov{position:absolute;bottom:9px;right:9px;background:rgba(0,0,0,0.85);color:white;font-size:11px;font-weight:600;padding:3px 9px;border-radius:5px}
+  .dur-ov{position:absolute;bottom:9px;left:9px;background:rgba(0,0,0,0.85);color:white;font-size:11px;font-weight:600;padding:3px 9px;border-radius:5px}
+  .dur-ov.short{background:rgba(255,193,7,0.9);color:#000}
+  .card-body{padding:14px}
+  .cat-tag{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-bottom:9px}
+  .tag-animal{background:rgba(0,200,83,0.12);color:#00c853}
+  .tag-comedy{background:rgba(255,69,0,0.12);color:#ff6b35}
+  .tag-short{background:rgba(255,193,7,0.12);color:var(--gold)}
+  .card-title{font-size:13px;font-weight:600;line-height:1.4;margin-bottom:12px;color:#ddd;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .card-btns{display:flex;gap:7px;margin-bottom:9px}
+  .cbtn{
+    flex:1;padding:9px 4px;border-radius:8px;font-family:'Outfit',sans-serif;
+    font-size:11px;font-weight:700;cursor:pointer;text-align:center;
+    text-decoration:none;display:flex;align-items:center;justify-content:center;gap:4px;
+    transition:all 0.2s;border:1px solid var(--border);background:var(--surface);color:var(--muted);
+  }
+  .cbtn:hover{background:#252525;color:var(--text);border-color:#383838}
+  .cbtn.dl{background:rgba(41,121,255,0.1);color:#5b9aff;border-color:rgba(41,121,255,0.25)}
+  .cbtn.dl:hover{background:rgba(41,121,255,0.2)}
+  .copy-row{display:flex;gap:5px;align-items:center}
+  .copy-input{flex:1;padding:7px 9px;background:var(--bg);border:1px solid var(--border);border-radius:7px;font-size:11px;color:#444;font-family:'Outfit',sans-serif;outline:none;min-width:0}
+  .copy-btn{padding:7px 11px;background:var(--surface);border:1px solid var(--border);border-radius:7px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;font-family:'Outfit',sans-serif;transition:all 0.2s;white-space:nowrap}
+  .copy-btn:hover{background:#252525;color:var(--text)}
+  .copy-btn.copied{background:rgba(0,200,83,0.1);color:var(--green);border-color:rgba(0,200,83,0.3)}
+
+  /* SKELETON */
+  .skel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+  .skel-card{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+  .skel{background:linear-gradient(90deg,#1c1c1c 25%,#242424 50%,#1c1c1c 75%);background-size:200% 100%;animation:sh 1.6s infinite;border-radius:5px}
+  @keyframes sh{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+  /* EMPTY */
+  .empty{text-align:center;padding:70px 20px;color:var(--muted)}
+  .empty-icon{font-size:50px;margin-bottom:14px}
+  .empty-h{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:var(--text);margin-bottom:7px}
+  .reset-btn{margin-top:14px;padding:9px 20px;background:var(--accent);color:white;border:none;border-radius:9px;font-family:'Outfit',sans-serif;font-size:13px;font-weight:700;cursor:pointer}
+
+  /* TOOLS PAGE */
+  .tools-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+  .tool-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;position:relative;overflow:hidden}
+  .tool-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),transparent)}
+  .tool-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;margin-bottom:6px}
+  .tool-desc{font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.5}
+  .tool-input{width:100%;padding:10px 13px;border:1px solid var(--border);border-radius:9px;font-family:'Outfit',sans-serif;font-size:13px;background:var(--card);outline:none;transition:border-color 0.2s;color:var(--text);margin-bottom:10px}
+  .tool-input:focus{border-color:var(--accent)}
+  .tool-input::placeholder{color:#333}
+  .platform-select{width:100%;padding:10px 13px;border:1px solid var(--border);border-radius:9px;font-family:'Outfit',sans-serif;font-size:13px;background:var(--card);color:var(--text);outline:none;margin-bottom:10px;cursor:pointer}
+  .tool-btn{width:100%;padding:12px;background:var(--accent);color:white;border:none;border-radius:9px;font-family:'Outfit',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:background 0.2s}
+  .tool-btn:hover{background:#e03d00}
+  .tool-btn:disabled{opacity:0.5;cursor:not-allowed}
+  .tool-result{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-top:12px;font-size:13px;line-height:1.7;display:none;white-space:pre-wrap;color:var(--text)}
+  .tool-result.show{display:block}
+  .tool-copy-btn{width:100%;padding:9px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-family:'Outfit',sans-serif;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;margin-top:8px;transition:all 0.2s}
+  .tool-copy-btn:hover{background:#252525;color:var(--text)}
+  .soon-card{opacity:0.5}
+  .soon-card .tool-btn{cursor:not-allowed;background:var(--surface);color:var(--muted);border:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo-wrap">
+    <div class="logo-icon">🎬</div>
+    <div class="logo">Viral <span>Atölyesi</span></div>
+  </div>
+  <div class="nav">
+    <button class="nav-btn active" onclick="showPage('main')">🏠 Ana Sayfa</button>
+    <button class="nav-btn" onclick="showPage('tools')">🛠️ Araçlar</button>
+  </div>
+  <div class="day-badge" id="dayBadge">📅 <strong>—</strong></div>
+</div>
+
+<!-- ANA SAYFA -->
+<div class="page active" id="page-main">
+<div class="wrap">
+  <div class="api-section">
+    <div class="api-label">🔑 YouTube API Key</div>
+    <div class="api-row">
+      <input class="api-input" type="password" id="apiInput" placeholder="AIzaSy... API key'ini buraya yapıştır"/>
+      <button class="save-btn" id="saveBtn" onclick="saveKey()">Kaydet</button>
+    </div>
+    <div class="api-meta">
+      <div class="api-hint">Key yoksa → <a href="https://console.cloud.google.com" target="_blank">console.cloud.google.com</a> (YouTube Data API v3 — ücretsiz)</div>
+      <div class="key-status" id="keyStatus"></div>
+    </div>
+  </div>
+
+  <div class="err" id="errBox"></div>
+
+  <div class="selector-group">
+    <div class="selector-label">Kategori</div>
+    <div class="selector-row">
+      <button class="sel-btn active" id="cat-animal" onclick="setCat('animal')">🐾 Hayvan & Bebek</button>
+      <button class="sel-btn" id="cat-comedy" onclick="setCat('comedy')">😂 Komedi</button>
+    </div>
+  </div>
+
+  <div class="selector-group">
+    <div class="selector-label">Platform</div>
+    <div class="selector-row">
+      <button class="sel-btn active" id="plat-youtube" onclick="setPlat('youtube')">📺 YouTube</button>
+      <button class="sel-btn soon" onclick="soonAlert()">🎵 TikTok <span class="soon-badge">YAKINDA</span></button>
+      <button class="sel-btn soon" onclick="soonAlert()">📸 Instagram <span class="soon-badge">YAKINDA</span></button>
+    </div>
+  </div>
+
+  <div class="search-row">
+    <button class="search-btn" id="searchBtn" onclick="doSearch()">🔍 Videoları Getir</button>
+  </div>
+
+  <div id="results"></div>
+</div>
+</div>
+
+<!-- ARAÇLAR SAYFASI -->
+<div class="page" id="page-tools">
+<div class="wrap">
+  <div style="margin-bottom:24px">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;margin-bottom:6px">🛠️ Araçlar</div>
+    <div style="font-size:13px;color:var(--muted)">İçerik üretimine yardımcı araçlar</div>
+  </div>
+
+  <div class="tools-grid">
+
+    <!-- Caption Üretici -->
+    <div class="tool-card">
+      <div class="tool-title">✏️ Caption Üretici</div>
+      <div class="tool-desc">Video başlığını gir, platforma uygun Türkçe viral caption + hashtag üretir</div>
+      <input class="tool-input" type="text" id="captionTitle" placeholder="Video başlığını yaz (Türkçe veya İngilizce)"/>
+      <select class="platform-select" id="captionPlatform">
+        <option value="tiktok">🎵 TikTok</option>
+        <option value="reels">📸 Instagram Reels</option>
+        <option value="shorts">📺 YouTube Shorts</option>
+      </select>
+      <button class="tool-btn" id="captionBtn" onclick="generateCaption()">⚡ Caption Üret</button>
+      <div class="tool-result" id="captionResult"></div>
+      <button class="tool-copy-btn" id="captionCopyBtn" style="display:none" onclick="copyCaption()">📋 Kopyala</button>
+    </div>
+
+    <!-- Altyazı Çevirici - Yakında -->
+    <div class="tool-card soon-card">
+      <div class="tool-title">🎬 Altyazı Ekle & İndir</div>
+      <div class="tool-desc">Video linkini ver, otomatik altyazı çekilsin, Türkçeye çevrilsin, videoya eklensin</div>
+      <input class="tool-input" type="text" placeholder="YouTube linki..." disabled/>
+      <button class="tool-btn" disabled>🔜 Yakında</button>
+    </div>
+
+    <!-- Favori Listesi - Yakında -->
+    <div class="tool-card soon-card">
+      <div class="tool-title">⭐ Favori Listesi</div>
+      <div class="tool-desc">Beğendiğin videoları kaydet, istediğin zaman toplu indir</div>
+      <button class="tool-btn" disabled>🔜 Yakında</button>
+    </div>
+
+    <!-- Kara Liste - Yakında -->
+    <div class="tool-card soon-card">
+      <div class="tool-title">🚫 Kara Liste</div>
+      <div class="tool-desc">Beğenmediğin kanalları kara listeye al, bir daha önüne çıkmasın</div>
+      <button class="tool-btn" disabled>🔜 Yakında</button>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<script>
+let savedKey = "";
+/** Tüm backend istekleri (indirme, YouTube proxy, caption) bu köke gider */
+const BACKEND_ORIGIN = "https://viral-atolyesi-server.onrender.com";
+function backendUrl(path) {
+  const p = path.startsWith("/") ? path : "/" + path;
+  return BACKEND_ORIGIN + p;
+}
+let activeCat = "animal";
+let activePlat = "youtube";
+
+// SAYFA YÖNETİMİ
+function showPage(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  document.querySelectorAll('.nav-btn')[page === 'main' ? 0 : 1].classList.add('active');
+}
+
+function soonAlert() {
+  alert('Bu özellik yakında eklenecek! 🚀');
+}
+
+// TARİH
+window.onload = function() {
+  const d = new Date();
+  const days = ["Pazar","Pazartesi","Salı","Çarşamba","Perşembe","Cuma","Cumartesi"];
+  const months = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
+  document.getElementById("dayBadge").innerHTML = "📅 <strong>" + days[d.getDay()] + ", " + d.getDate() + " " + months[d.getMonth()] + "</strong>";
+
+  try {
+    const stored = localStorage.getItem("yt_api_key");
+    if (stored && stored.length > 10) {
+      savedKey = stored;
+      document.getElementById("apiInput").value = stored;
+      setKeyStatus(true);
+      document.getElementById("saveBtn").textContent = "✓ Kaydedildi";
+      document.getElementById("saveBtn").classList.add("saved");
+    } else { setKeyStatus(false); }
+  } catch(e) { setKeyStatus(false); }
+};
+
+function setKeyStatus(hasKey) {
+  const el = document.getElementById("keyStatus");
+  if (hasKey) {
+    el.className = "key-status active";
+    el.innerHTML = "✅ Key kayıtlı <button class='delete-key-btn' onclick='deleteKey()'>Sil</button>";
+  } else {
+    el.className = "key-status empty";
+    el.innerHTML = "⚠️ Key girilmedi";
+  }
+}
+
+function saveKey() {
+  const v = document.getElementById("apiInput").value.trim();
+  if (v.length > 10) {
+    savedKey = v;
+    try { localStorage.setItem("yt_api_key", v); } catch(e) {}
+    document.getElementById("saveBtn").textContent = "✓ Kaydedildi";
+    document.getElementById("saveBtn").classList.add("saved");
+    setKeyStatus(true);
+  }
+}
+
+function deleteKey() {
+  try { localStorage.removeItem("yt_api_key"); } catch(e) {}
+  savedKey = "";
+  document.getElementById("apiInput").value = "";
+  document.getElementById("saveBtn").textContent = "Kaydet";
+  document.getElementById("saveBtn").classList.remove("saved");
+  setKeyStatus(false);
+}
+
+function setCat(cat) {
+  activeCat = cat;
+  ["animal","comedy"].forEach(c => {
+    document.getElementById("cat-" + c).classList.toggle("active", c === cat);
+  });
+}
+
+function setPlat(plat) {
+  activePlat = plat;
+  document.getElementById("plat-youtube").classList.toggle("active", plat === "youtube");
+}
+
+// CACHE SİSTEMİ
+function getTodayKey() {
+  const d = new Date();
+  return d.getFullYear() + "-" + (d.getMonth()+1) + "-" + d.getDate();
+}
+
+function getCacheKey(cat, plat) {
+  return "cache_" + cat + "_" + plat + "_" + getTodayKey();
+}
+
+function getCached(cat, plat) {
+  try {
+    const data = localStorage.getItem(getCacheKey(cat, plat));
+    if (!data) return null;
+    return JSON.parse(data);
+  } catch(e) { return null; }
+}
+
+function setCache(cat, plat, main, short) {
+  try {
+    localStorage.setItem(getCacheKey(cat, plat), JSON.stringify({main, short, date: getTodayKey()}));
+  } catch(e) {}
+}
+
+// GÖRÜLEN VİDEOLAR
+function getSeenVideos(type) {
+  try { return JSON.parse(localStorage.getItem("seen_" + type) || "[]"); } catch(e) { return []; }
+}
+function addSeenVideos(type, ids) {
+  let seen = getSeenVideos(type);
+  seen = [...new Set([...seen, ...ids])];
+  if (seen.length > 500) seen = seen.slice(-500);
+  try { localStorage.setItem("seen_" + type, JSON.stringify(seen)); } catch(e) {}
+}
+function resetSeen() {
+  try {
+    localStorage.removeItem("seen_main");
+    localStorage.removeItem("seen_short");
+    // Bugünün cache'ini de sil
+    localStorage.removeItem(getCacheKey(activeCat, activePlat));
+  } catch(e) {}
+}
+
+// FİLTRELER
+const BLOCKED_KEYWORDS = [
+  "bollywood","hindi song","punjabi song","bhojpuri","tamil song","telugu song",
+  "kannada","malayalam song","marathi","gujarati","rajasthani","haryanvi",
+  "cricket","ipl","sharukh","salman khan","amitabh",
+  "korean","korea","kpop","k-pop","kdrama","k-drama",
+  "bts","blackpink","twice","exo","nct","stray kids","aespa","newjeans"
+];
+
+const BLOCKED_CHANNELS = [
+  "mrbeast","pewdiepie","markiplier","dude perfect","nastya","like nastya",
+  "cocomelon","pinkfong","t-series","set india","sony liv","zee tv","star plus",
+  "colors tv","sun tv","vijay tv","zee music","tips official","trade music",
+  "speed records","rajshri","shemaroo","saregama","eros now","yrf","dharma",
+  "red chillies","balaji telefilms","ultra bollywood","goldmines"
+];
+
+function isBlocked(title, channel) {
+  const t = (title + " " + channel).toLowerCase();
+  for (const kw of BLOCKED_CHANNELS) if (t.includes(kw)) return true;
+  for (const kw of BLOCKED_KEYWORDS) if (t.includes(kw)) return true;
+  return false;
+}
+
+// SORGULAR
+const ALL_QUERIES = {
+  animal: [
+    "cute animals funny moments","cute baby animals compilation","funny dogs and cats viral",
+    "adorable baby animals","funny animal fails","cute puppies kittens funny",
+    "baby animals being cute","funny pets compilation","animals doing funny things",
+    "cute baby moments funny","funniest animal videos","funny cat videos",
+    "dog funny moments","cute animal rescue","baby duck funny",
+    "funny hamster","cute rabbit funny","baby elephant funny","funny bird moments","cat vs dog funny"
+  ],
+  comedy: [
+    "funny moments caught on camera 2025","try not to laugh 2025","hilarious fails 2025",
+    "comedy shorts viral 2025","funny unexpected moments 2025","people being funny 2025",
+    "best funny clips 2025","viral comedy 2025","funny reactions 2025",
+    "hilarious moments 2025","funny street moments 2025","comedy viral 2025",
+    "funny fails 2025","unexpected moments funny 2025","laugh short 2025",
+    "funny prank 2025","hilarious video 2025","comedy clip 2025","funny moment 2025","viral funny 2025"
+  ]
+};
+
+function getDaySeed() {
+  const d = new Date();
+  return d.getFullYear() * 10000 + (d.getMonth()+1) * 100 + d.getDate();
+}
+
+function seededShuffle(arr, seed) {
+  const a = [...arr];
+  let s = seed;
+  for (let i = a.length-1; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    const j = Math.abs(s) % (i+1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function getTodayQueries(cat) {
+  const seed = getDaySeed();
+  return seededShuffle(ALL_QUERIES[cat], seed + cat.length * 7).slice(0, 8);
+}
+
+// YARDIMCI FONKSİYONLAR
+function parseDuration(iso) {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return 0;
+  return (parseInt(m[1]||0)*3600) + (parseInt(m[2]||0)*60) + parseInt(m[3]||0);
+}
+
+function formatDuration(sec) {
+  const m = Math.floor(sec/60), s = sec%60;
+  return m + ":" + String(s).padStart(2,"0");
+}
+
+function fmtViews(n) {
+  if (n >= 1000000) return (n/1000000).toFixed(1) + "M";
+  if (n >= 1000) return Math.floor(n/1000) + "K";
+  return n;
+}
+
+function calcScore(views, likes) {
+  const v = Math.min(views/3000000*60, 60);
+  const ratio = views > 0 ? likes/views : 0;
+  return Math.round(v + Math.min(ratio*1500*40, 40));
+}
+
+function showError(msg) {
+  const el = document.getElementById("errBox");
+  el.textContent = "⚠️ " + msg;
+  el.style.display = "block";
+}
+function hideError() { document.getElementById("errBox").style.display = "none"; }
+
+function showSkeleton() {
+  let html = '<div class="skel-grid">';
+  for (let i=0; i<6; i++) {
+    html += `<div class="skel-card">
+      <div class="skel" style="height:158px"></div>
+      <div style="padding:14px">
+        <div class="skel" style="height:11px;width:35%;margin-bottom:11px"></div>
+        <div class="skel" style="height:13px;margin-bottom:5px"></div>
+        <div class="skel" style="height:13px;width:75%;margin-bottom:14px"></div>
+        <div style="display:flex;gap:7px;margin-bottom:9px">
+          <div class="skel" style="height:36px;flex:1;border-radius:8px"></div>
+          <div class="skel" style="height:36px;flex:1;border-radius:8px"></div>
+        </div>
+        <div class="skel" style="height:30px;border-radius:7px"></div>
+      </div>
+    </div>`;
+  }
+  html += '</div>';
+  document.getElementById("results").innerHTML = html;
+}
+
+function copyLink(btn, url) {
+  navigator.clipboard.writeText(url).then(() => {
+    btn.textContent = "✅ Kopyalandı";
+    btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = "📋 Kopyala"; btn.classList.remove("copied"); }, 2000);
+  }).catch(() => {
+    btn.textContent = "✅ Kopyalandı";
+    setTimeout(() => { btn.textContent = "📋 Kopyala"; }, 2000);
+  });
+}
+
+function startDownload(url, btn) {
+  try {
+    if (btn) {
+      btn.disabled = true;
+      const prev = btn.textContent;
+      btn.textContent = "⏳ İndiriliyor...";
+      setTimeout(() => { btn.disabled = false; btn.textContent = prev; }, 2200);
+    }
+
+    // Hidden iframe triggers the browser's download flow without navigation.
+    const iframe = document.createElement("iframe");
+    iframe.style.display = "none";
+    iframe.src = url;
+    document.body.appendChild(iframe);
+    setTimeout(() => iframe.remove(), 60000);
+  } catch (e) {
+    // Fallback: navigate (may replace current page)
+    window.location.href = url;
+  }
+}
+
+function buildCard(v, i, isShort) {
+  const cat = activeCat;
+  const ytLink = "https://www.youtube.com/watch?v=" + v.id;
+  const dlLink = backendUrl("/download?url=" + encodeURIComponent(ytLink));
+  const safeLink = ytLink.replace(/'/g, "\\'");
+  const safeDlLink = dlLink.replace(/'/g, "\\'");
+  const tagClass = isShort ? "tag-short" : (cat === "animal" ? "tag-animal" : "tag-comedy");
+  const tagText = isShort ? "⚡ Kısa" : (cat === "animal" ? "🐾 Hayvan & Bebek" : "😂 Komedi");
+  const rankClass = isShort ? (i===0?"gold":"") : (i===0?"top":"");
+
+  return `<div class="vcard ${isShort?"short-card":""}">
+    <div class="thumb">
+      <img src="${v.thumb}" alt="" loading="lazy"/>
+      <div class="rank ${rankClass}">#${i+1}</div>
+      <div class="dur-ov ${isShort?"short":""}">⏱ ${formatDuration(v.duration)}</div>
+      <div class="views-ov">👁 ${fmtViews(v.views)}</div>
+    </div>
+    <div class="card-body">
+      <span class="cat-tag ${tagClass}">${tagText}</span>
+      <div class="card-title">${v.title}</div>
+      <div class="card-btns">
+        <a class="cbtn" href="${ytLink}" target="_blank">▶ İzle</a>
+        <button class="cbtn dl" type="button" onclick="startDownload('${safeDlLink}', this)">⬇ İndir</button>
+      </div>
+      <div class="copy-row">
+        <input class="copy-input" type="text" value="${ytLink}" readonly onclick="this.select()"/>
+        <button class="copy-btn" onclick="copyLink(this,'${safeLink}')">📋 Kopyala</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderVideos(mainVideos, shortVideos, fromCache) {
+  const d = new Date();
+  const dateStr = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear();
+  const catLabel = activeCat === "animal" ? "🐾 Hayvan & Bebek" : "😂 Komedi";
+
+  if (mainVideos.length === 0 && shortVideos.length === 0) {
+    document.getElementById("results").innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">${activeCat==="animal"?"🐾":"😂"}</div>
+        <div class="empty-h">Video Bulunamadı</div>
+        <p style="font-size:13px;margin-bottom:14px">Tüm videolar gösterildi. Geçmişi sıfırla!</p>
+        <button class="reset-btn" onclick="resetSeen();doSearch()">🔄 Geçmişi Sıfırla ve Tekrar Ara</button>
+      </div>`;
+    return;
+  }
+
+  let html = "";
+  const cacheInfo = fromCache ? `<span style="color:var(--green);font-size:11px">✅ Bugünün listesi</span>` : `<span style="font-size:11px;color:var(--muted)">📅 ${dateStr}</span>`;
+
+  if (mainVideos.length > 0) {
+    html += `<div class="section-header">
+      <div class="section-title">${catLabel}</div>
+      <div class="section-count">${mainVideos.length} video</div>
+      <div class="section-cache">${cacheInfo}</div>
+    </div><div class="grid">`;
+    mainVideos.forEach((v,i) => { html += buildCard(v, i, false); });
+    html += '</div>';
+  }
+
+  if (shortVideos.length > 0) {
+    html += `<div class="section-sep">
+      <div class="section-header">
+        <div class="section-title short">⚡ 15 Saniye Altı</div>
+        <div class="section-count">${shortVideos.length} video</div>
+      </div>
+      <div class="grid">`;
+    shortVideos.forEach((v,i) => { html += buildCard(v, i, true); });
+    html += '</div></div>';
+  }
+
+  document.getElementById("results").innerHTML = html;
+}
+
+// TAKİPÇİ KONTROLÜ (5M+ engelle)
+async function getChannelSubscribers(channelIds) {
+  if (!channelIds.length) return {};
+  try {
+    const ids = channelIds.join(",");
+    const res = await fetch(backendUrl(`/youtube/channels?part=statistics&id=${encodeURIComponent(ids)}&key=${encodeURIComponent(savedKey)}`));
+    const data = await res.json();
+    const map = {};
+    (data.items || []).forEach(ch => {
+      map[ch.id] = parseInt(ch.statistics.subscriberCount || 0);
+    });
+    return map;
+  } catch(e) { return {}; }
+}
+
+async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {
+  const seenVideos = getSeenVideos(seenType);
+  const results = [];
+  const channelIds = new Set();
+  const rawItems = [];
+
+  for (const q of queries) {
+    try {
+      const sRes = await fetch(
+        backendUrl(`/youtube/search?part=snippet&q=${encodeURIComponent(q)}&type=video&videoDuration=short&order=relevance&maxResults=10&key=${encodeURIComponent(savedKey)}${afterParam}`)
+      );
+      const sData = await sRes.json();
+      if (sData.error) { showError("API Hatası: " + sData.error.message); return []; }
+
+      const ids = (sData.items||[]).map(i => i.id.videoId).join(",");
+      if (!ids) continue;
+
+      const vRes = await fetch(
+        backendUrl(`/youtube/videos?part=statistics,snippet,contentDetails&id=${encodeURIComponent(ids)}&key=${encodeURIComponent(savedKey)}`)
+      );
+      const vData = await vRes.json();
+
+      for (const item of (vData.items||[])) {
+        const views = parseInt(item.statistics.viewCount||0);
+        const likes = parseInt(item.statistics.likeCount||0);
+        const title = item.snippet.title;
+        const channel = item.snippet.channelTitle;
+        const channelId = item.snippet.channelId;
+        const duration = parseDuration(item.contentDetails?.duration || "PT0S");
+
+        if (views < 100000) continue;
+        if (duration < minDur || duration > maxDur) continue;
+        if (seenVideos.includes(item.id)) continue;
+        if (isBlocked(title, channel)) continue;
+
+        channelIds.add(channelId);
+        rawItems.push({
+          id: item.id, title, channel, channelId,
+          thumb: item.snippet.thumbnails?.medium?.url || "",
+          views, likes, duration,
+          score: calcScore(views, likes)
+        });
+      }
+    } catch(e) {}
+  }
+const filtered = rawItems;
+
+
+  filtered.sort((a,b) => b.score - a.score);
+  const seen = new Set();
+  return filtered.filter(v => {
+    if (seen.has(v.id)) return false;
+    seen.add(v.id); return true;
+  });
+}
+
+async function doSearch() {
+  if (!savedKey) { showError("Lütfen önce API key'ini gir ve kaydet."); return; }
+  hideError();
+
+  // Cache kontrolü — bugünün listesi varsa direkt göster
+  const cached = getCached(activeCat, activePlat);
+  if (cached) {
+    renderVideos(cached.main, cached.short, true);
+    return;
+  }
+
+  const btn = document.getElementById("searchBtn");
+  btn.textContent = "⏳ Aranıyor...";
+  btn.disabled = true;
+  showSkeleton();
+
+  const queries = getTodayQueries(activeCat);
+  let afterParam = "";
+  if (activeCat === "comedy") {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 6);
+    afterParam = "&publishedAfter=" + d.toISOString();
+  }
+
+  const mainAll = await fetchVideos(queries, afterParam, 15, 70, "main");
+  const shortAll = await fetchVideos(queries, afterParam, 1, 14, "short");
+
+  const mainVideos = mainAll.slice(0, 20);
+  const shortVideos = shortAll.slice(0, 10);
+
+  if (mainVideos.length > 0) addSeenVideos("main", mainVideos.map(v => v.id));
+  if (shortVideos.length > 0) addSeenVideos("short", shortVideos.map(v => v.id));
+
+  // Cache'e kaydet
+  setCache(activeCat, activePlat, mainVideos, shortVideos);
+
+  renderVideos(mainVideos, shortVideos, false);
+  btn.textContent = "🔍 Videoları Getir";
+  btn.disabled = false;
+}
+
+// CAPTION ÜRETİCİ
+async function generateCaption() {
+  const title = document.getElementById("captionTitle").value.trim();
+  const platform = document.getElementById("captionPlatform").value;
+  if (!title) { alert("Video başlığını gir!"); return; }
+
+  const btn = document.getElementById("captionBtn");
+  const resultEl = document.getElementById("captionResult");
+  const copyBtn = document.getElementById("captionCopyBtn");
+
+  btn.disabled = true;
+  btn.textContent = "⏳ Üretiliyor...";
+  resultEl.style.display = "none";
+  copyBtn.style.display = "none";
+
+  const platformNames = { tiktok: "TikTok", reels: "Instagram Reels", shorts: "YouTube Shorts" };
+
+  try {
+    const res = await fetch(backendUrl("/anthropic/messages"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 500,
+        messages: [{
+          role: "user",
+          content: `Şu video başlığı için ${platformNames[platform]} platformuna özel Türkçe viral bir caption yaz:
+
+"${title}"
+
+Kurallar:
+- Merak uyandıran, kısa ve akılda kalıcı olsun
+- Emoji kullan (ama abartma, 3-5 tane)
+- Türk kullanıcıları için samimi ve doğal olsun
+- Yorum yazdıracak, kaydettirecek bir cümle ekle
+- Son satırda platforma uygun 5-7 hashtag ekle (Türkçe + İngilizce karışık)
+- Toplam 4-6 satır olsun
+
+Sadece caption metnini yaz, başka hiçbir şey ekleme.`
+        }]
+      })
+    });
+
+    const data = await res.json();
+    const text = data.content?.map(b => b.text || "").join("") || "";
+
+    if (text) {
+      resultEl.textContent = text;
+      resultEl.classList.add("show");
+      resultEl.style.display = "block";
+      copyBtn.style.display = "block";
+    }
+  } catch(e) {
+    resultEl.textContent = "Hata oluştu, tekrar dene.";
+    resultEl.style.display = "block";
+    resultEl.classList.add("show");
+  }
+
+  btn.disabled = false;
+  btn.textContent = "⚡ Caption Üret";
+}
+
+function copyCaption() {
+  const text = document.getElementById("captionResult").textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById("captionCopyBtn");
+    btn.textContent = "✅ Kopyalandı!";
+    setTimeout(() => { btn.textContent = "📋 Kopyala"; }, 2000);
+  });
+}
+</script>
+</body>
+</html>

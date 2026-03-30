@@ -4,9 +4,12 @@ const { exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const os = require('os');
 
 const app = express();
-app.use(cors());
+app.use(express.static('public'));
+app.use(cors({ exposedHeaders: ['Content-Disposition'] }));
+app.use(express.json({ limit: '1mb' }));
 
 const YTDLP_PATH = path.join(__dirname, 'yt-dlp');
 const COOKIES_PATH = path.join(__dirname, 'youtube.com_cookies.txt');
@@ -20,18 +23,108 @@ function installYtDlp() {
 }
 
 // YouTube indirme
-app.get('/download', (req, res) => {
-  const url = req.query.url;
+app.all('/download', (req, res) => {
+  const url = req.query?.url || req.body?.url || req.body?.videoUrl || req.body?.link;
   if (!url) return res.status(400).json({ error: 'URL gerekli' });
+
   const filename = `video_${Date.now()}.mp4`;
-  const filepath = path.join('/tmp', filename);
+  const filepath = path.join(os.tmpdir(), filename);
   const cookieFlag = fs.existsSync(COOKIES_PATH) ? `--cookies "${COOKIES_PATH}"` : '';
   const cmd = `${YTDLP_PATH} ${cookieFlag} --no-check-certificate -f "best[ext=mp4][height<=720]/best[ext=mp4]/best" --no-playlist -o "${filepath}" "${url}"`;
+
   exec(cmd, { timeout: 180000 }, (error, stdout, stderr) => {
-    if (error) return res.status(500).json({ error: 'İndirme hatası: ' + stderr });
+    if (error) return res.status(500).json({ error: 'İndirme hatası: ' + (stderr || error.message) });
     if (!fs.existsSync(filepath)) return res.status(500).json({ error: 'Dosya oluşturulamadı' });
-    res.download(filepath, 'video.mp4', (err) => { fs.unlink(filepath, () => {}); });
+
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', `attachment; filename="video.mp4"`);
+
+    res.download(filepath, 'video.mp4', () => {
+      fs.unlink(filepath, () => {});
+    });
   });
+});
+
+// YouTube Data API proxy (kanal istatistikleri vb.) — anahtar: query ?key= veya YOUTUBE_API_KEY
+app.get('/youtube/channels', (req, res) => {
+  const part = req.query.part || 'statistics';
+  const id = req.query.id;
+  const key = req.query.key || process.env.YOUTUBE_API_KEY;
+  if (!id) return res.status(400).json({ error: 'id gerekli' });
+  if (!key) return res.status(400).json({ error: 'API key gerekli' });
+
+  const apiPath = `/youtube/v3/channels?part=${encodeURIComponent(part)}&id=${encodeURIComponent(id)}&key=${encodeURIComponent(key)}`;
+  const request = https.request(
+    { hostname: 'www.googleapis.com', path: apiPath, method: 'GET' },
+    (upstream) => {
+      let data = '';
+      upstream.on('data', (chunk) => { data += chunk; });
+      upstream.on('end', () => {
+        const ct = upstream.headers['content-type'];
+        if (ct) res.setHeader('Content-Type', ct);
+        res.status(upstream.statusCode || 502).send(data);
+      });
+    }
+  );
+  request.on('error', (e) => res.status(502).json({ error: e.message }));
+  request.end();
+});
+
+function proxyYoutubeV3(req, res, resource) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(req.query)) {
+    if (Array.isArray(v)) v.forEach((x) => qs.append(k, x));
+    else if (v != null) qs.append(k, String(v));
+  }
+  const apiPath = `/youtube/v3/${resource}?${qs.toString()}`;
+  const request = https.request(
+    { hostname: 'www.googleapis.com', path: apiPath, method: 'GET' },
+    (upstream) => {
+      let data = '';
+      upstream.on('data', (chunk) => { data += chunk; });
+      upstream.on('end', () => {
+        const ct = upstream.headers['content-type'];
+        if (ct) res.setHeader('Content-Type', ct);
+        res.status(upstream.statusCode || 502).send(data);
+      });
+    }
+  );
+  request.on('error', (e) => res.status(502).json({ error: e.message }));
+  request.end();
+}
+
+app.get('/youtube/search', (req, res) => proxyYoutubeV3(req, res, 'search'));
+app.get('/youtube/videos', (req, res) => proxyYoutubeV3(req, res, 'videos'));
+
+// Anthropic (caption) — ANTHROPIC_API_KEY sunucuda; istemci sadece bu adrese POST atar
+app.post('/anthropic/messages', (req, res) => {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return res.status(501).json({ error: 'Anthropic API anahtarı sunucuda tanımlı değil (ANTHROPIC_API_KEY)' });
+
+  const body = JSON.stringify(req.body);
+  const opts = {
+    hostname: 'api.anthropic.com',
+    path: '/v1/messages',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01'
+    }
+  };
+  const request = https.request(opts, (upstream) => {
+    let data = '';
+    upstream.on('data', (chunk) => { data += chunk; });
+    upstream.on('end', () => {
+      const ct = upstream.headers['content-type'];
+      if (ct) res.setHeader('Content-Type', ct);
+      res.status(upstream.statusCode || 502).send(data);
+    });
+  });
+  request.on('error', (e) => res.status(502).json({ error: e.message }));
+  request.write(body);
+  request.end();
 });
 
 // TikTok arama - RapidAPI
@@ -129,7 +222,11 @@ app.get('/search/instagram', (req, res) => {
 // Uyku modu engelleme
 app.get('/ping', (req, res) => { res.json({ status: 'alive' }); });
 
-app.get('/', (req, res) => { res.json({ status: 'Viral Atölyesi Sunucu Çalışıyor!' }); });
+app.get('/status', (req, res) => {
+  res.json({ status: 'Viral Atölyesi Sunucu Çalışıyor!' });
+});
+
+app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;
 installYtDlp().then(() => {
