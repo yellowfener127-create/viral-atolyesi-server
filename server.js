@@ -21,33 +21,77 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 
 function installYtDlp() {
   return new Promise((resolve) => {
-    if (fs.existsSync(YTDLP_PATH)) return resolve();
-    exec(`curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ${YTDLP_PATH} && chmod +x ${YTDLP_PATH}`, (err) => resolve());
+    exec(
+      `curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o "${YTDLP_PATH}" && chmod +x "${YTDLP_PATH}"`,
+      () => resolve()
+    );
   });
 }
 
-// YouTube indirme
+function guessMimeFromPath(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.mp4' || ext === '.m4v') return 'video/mp4';
+  if (ext === '.webm') return 'video/webm';
+  if (ext === '.mkv') return 'video/x-matroska';
+  if (ext === '.mov') return 'video/quicktime';
+  return 'application/octet-stream';
+}
+
+function findYtDlpOutput(outBase) {
+  const dir = path.dirname(outBase);
+  const prefix = path.basename(outBase);
+  if (!fs.existsSync(dir)) return null;
+  const files = fs.readdirSync(dir).filter((f) => f.startsWith(prefix + '.'));
+  if (!files.length) return null;
+  return path.join(dir, files[0]);
+}
+
+// YouTube / TikTok / Instagram indirme (yt-dlp; ffmpeg gerekmez — tek parça "best")
 app.all('/download', (req, res) => {
   const url = req.query?.url || req.body?.url || req.body?.videoUrl || req.body?.link;
   if (!url) return res.status(400).json({ error: 'URL gerekli' });
 
-  const filename = `video_${Date.now()}.mp4`;
-  const filepath = path.join(os.tmpdir(), filename);
   const cookieFlag = fs.existsSync(COOKIES_PATH) ? `--cookies "${COOKIES_PATH}"` : '';
-  const cmd = `${YTDLP_PATH} ${cookieFlag} --no-check-certificate -f "best[ext=mp4][height<=720]/best[ext=mp4]/best" --no-playlist -o "${filepath}" "${url}"`;
+  const isYt = /youtube\.com|youtu\.be/i.test(url);
+  const ytAndroid = isYt ? ' --extractor-args "youtube:player_client=android"' : '';
+  const execOpts = { timeout: 300000, maxBuffer: 12 * 1024 * 1024 };
 
-  exec(cmd, { timeout: 180000 }, (error, stdout, stderr) => {
-    if (error) return res.status(500).json({ error: 'İndirme hatası: ' + (stderr || error.message) });
-    if (!fs.existsSync(filepath)) return res.status(500).json({ error: 'Dosya oluşturulamadı' });
+  const outBase1 = path.join(os.tmpdir(), `va_${Date.now()}_a`);
+  const cmd1 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytAndroid} -f best -o "${outBase1}.%(ext)s" "${url}"`;
 
-    res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Content-Disposition', `attachment; filename="video.mp4"`);
+  exec(cmd1, execOpts, (err1, so1, se1) => {
+    let filepath = findYtDlpOutput(outBase1);
+    if (filepath && fs.existsSync(filepath)) return sendDownloadedFile(res, filepath);
 
-    res.download(filepath, 'video.mp4', () => {
-      fs.unlink(filepath, () => {});
+    const outBase2 = path.join(os.tmpdir(), `va_${Date.now()}_b`);
+    const ytWeb = isYt ? ' --extractor-args "youtube:player_client=web"' : '';
+    const cmd2 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytWeb} -f best -o "${outBase2}.%(ext)s" "${url}"`;
+
+    exec(cmd2, execOpts, (err2, so2, se2) => {
+      filepath = findYtDlpOutput(outBase2);
+      if (filepath && fs.existsSync(filepath)) return sendDownloadedFile(res, filepath);
+
+      const outBase3 = path.join(os.tmpdir(), `va_${Date.now()}_c`);
+      const cmd3 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist -f best -o "${outBase3}.%(ext)s" "${url}"`;
+      exec(cmd3, execOpts, (err3, so3, se3) => {
+        filepath = findYtDlpOutput(outBase3);
+        if (filepath && fs.existsSync(filepath)) return sendDownloadedFile(res, filepath);
+        const msg = se3 || se2 || se1 || err3?.message || err2?.message || err1?.message || 'Dosya oluşturulamadı';
+        res.status(500).json({ error: 'İndirme hatası: ' + msg });
+      });
     });
   });
 });
+
+function sendDownloadedFile(res, filepath) {
+  const mime = guessMimeFromPath(filepath);
+  const base = path.basename(filepath);
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Content-Disposition', `attachment; filename="${base.replace(/"/g, '')}"`);
+  res.download(filepath, base, () => {
+    fs.unlink(filepath, () => {});
+  });
+}
 
 // YouTube Data API proxy (kanal istatistikleri vb.) — anahtar: query ?key= veya YOUTUBE_API_KEY
 app.get('/youtube/channels', (req, res) => {
@@ -131,15 +175,29 @@ app.post('/anthropic/messages', (req, res) => {
   request.end();
 });
 
+function tiktokRawItems(parsed) {
+  if (Array.isArray(parsed)) return parsed;
+  return (
+    parsed.data?.item_list ||
+    parsed.item_list ||
+    parsed.aweme_list ||
+    parsed.data?.aweme_list ||
+    parsed.items ||
+    parsed.data?.items ||
+    []
+  );
+}
+
 // TikTok arama - RapidAPI
 app.get('/search/tiktok', (req, res) => {
+  if (!RAPIDAPI_KEY) return res.status(503).json({ error: 'RAPIDAPI_KEY tanımlı değil' });
   const query = req.query.q;
   if (!query) return res.status(400).json({ error: 'Sorgu gerekli' });
 
   const options = {
     method: 'GET',
     hostname: 'tiktok-scraper7.p.rapidapi.com',
-    path: '/trending/feed?region=TR&count=20',
+    path: '/trending/feed?region=TR&count=30',
     headers: {
       'x-rapidapi-key': RAPIDAPI_KEY,
       'x-rapidapi-host': 'tiktok-scraper7.p.rapidapi.com'
@@ -152,20 +210,28 @@ app.get('/search/tiktok', (req, res) => {
     response.on('end', () => {
       try {
         const parsed = JSON.parse(data);
-        const items = parsed.data?.item_list || parsed.item_list || [];
-        const videos = items.map(item => ({
-          id: item.id,
-          title: item.desc || 'TikTok Video',
-          channel: item.author?.uniqueId || item.author?.nickname || '',
-          duration: item.video?.duration || 0,
-          views: item.stats?.playCount || 0,
-          likes: item.stats?.diggCount || 0,
-          thumb: item.video?.cover || '',
-          url: `https://www.tiktok.com/@${item.author?.uniqueId}/video/${item.id}`,
-          platform: 'tiktok'
-        })).filter(v => v.duration >= 1 && v.duration <= 120 && v.views >= 500);
+        const items = tiktokRawItems(parsed);
+        const videos = items
+          .map((item) => {
+            const uid = item.author?.uniqueId || item.author?.unique_id || 'user';
+            const vid = item.id || item.aweme_id || item.video?.id || item.stats?.videoId;
+            if (!vid) return null;
+            return {
+              id: String(vid),
+              title: item.desc || item.title || 'TikTok Video',
+              channel: uid,
+              duration: item.video?.duration || item.duration || 0,
+              views: item.stats?.playCount || item.stats?.play_count || item.play_count || 0,
+              likes: item.stats?.diggCount || item.stats?.digg_count || 0,
+              thumb: item.video?.cover || item.video?.originCover || item.cover || '',
+              url: `https://www.tiktok.com/@${uid}/video/${vid}`,
+              platform: 'tiktok'
+            };
+          })
+          .filter(Boolean)
+          .filter((v) => v.duration >= 1 && v.duration <= 180 && v.views >= 0);
         res.json(videos);
-      } catch(e) {
+      } catch (e) {
         res.status(500).json({ error: 'TikTok parse hatası: ' + e.message });
       }
     });
@@ -177,8 +243,20 @@ app.get('/search/tiktok', (req, res) => {
   request.end();
 });
 
+function instagramRawItems(parsed) {
+  return parsed.data?.items || parsed.items || parsed.data?.media || parsed.media || [];
+}
+
+function isIgVideo(item) {
+  if (item.media_type === 2) return true;
+  if (item.type === 'VIDEO' || item.media_type === 'VIDEO') return true;
+  if (item.video_versions || item.video_duration) return true;
+  return false;
+}
+
 // Instagram arama - RapidAPI
 app.get('/search/instagram', (req, res) => {
+  if (!RAPIDAPI_KEY) return res.status(503).json({ error: 'RAPIDAPI_KEY tanımlı değil' });
   const query = req.query.q;
   if (!query) return res.status(400).json({ error: 'Sorgu gerekli' });
 
@@ -198,22 +276,28 @@ app.get('/search/instagram', (req, res) => {
     response.on('end', () => {
       try {
         const parsed = JSON.parse(data);
-        const items = parsed.data?.items || [];
+        const items = instagramRawItems(parsed);
         const videos = items
-          .filter(item => item.media_type === 2)
-          .map(item => ({
-            id: item.id,
-            title: item.caption?.text || 'Instagram Reels',
-            channel: item.user?.username || item.caption?.user?.username || '',
-            duration: item.video_duration || 0,
-            views: item.view_count || item.play_count || 0,
-            likes: item.like_count || 0,
-            thumb: item.image_versions2?.candidates?.[0]?.url || '',
-            url: `https://www.instagram.com/reel/${item.code}/`,
-            platform: 'instagram'
-          })).filter(v => v.duration >= 1 && v.duration <= 90);
+          .filter((item) => isIgVideo(item))
+          .map((item) => {
+            const code = item.code || item.shortcode || item.media_code;
+            if (!code) return null;
+            return {
+              id: String(item.id || code),
+              title: typeof item.caption === 'string' ? item.caption : (item.caption?.text || 'Instagram Reels'),
+              channel: item.user?.username || item.owner?.username || '',
+              duration: item.video_duration || 0,
+              views: item.view_count || item.play_count || item.video_view_count || 0,
+              likes: item.like_count || 0,
+              thumb: item.image_versions2?.candidates?.[0]?.url || item.thumbnail_url || '',
+              url: `https://www.instagram.com/reel/${code}/`,
+              platform: 'instagram'
+            };
+          })
+          .filter(Boolean)
+          .filter((v) => v.duration >= 0 && v.duration <= 120);
         res.json(videos);
-      } catch(e) {
+      } catch (e) {
         res.status(500).json({ error: 'Instagram parse hatası: ' + e.message });
       }
     });
@@ -236,9 +320,9 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
-installYtDlp();
-
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Sunucu ${PORT} portunda çalışıyor`);
+installYtDlp().then(() => {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Sunucu ${PORT} portunda çalışıyor`);
+  });
 });

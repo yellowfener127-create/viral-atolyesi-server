@@ -138,8 +138,6 @@
   .cbtn:hover{background:#252525;color:var(--text);border-color:#383838}
   .cbtn.dl{background:rgba(41,121,255,0.1);color:#5b9aff;border-color:rgba(41,121,255,0.25)}
   .cbtn.dl:hover{background:rgba(41,121,255,0.2)}
-  .fav-btn{background:none;border:none;font-size:16px;cursor:pointer;padding:4px;line-height:1;opacity:0.85}
-  .fav-btn:hover{opacity:1;transform:scale(1.1)}
   .copy-row{display:flex;gap:5px;align-items:center}
   .copy-input{flex:1;padding:7px 9px;background:var(--bg);border:1px solid var(--border);border-radius:7px;font-size:11px;color:#444;font-family:'Outfit',sans-serif;outline:none;min-width:0}
   .copy-btn{padding:7px 11px;background:var(--surface);border:1px solid var(--border);border-radius:7px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;font-family:'Outfit',sans-serif;transition:all 0.2s;white-space:nowrap}
@@ -263,30 +261,10 @@
     <!-- Video URL ile MP4 indir -->
     <div class="tool-card">
       <div class="tool-title">🎬 Video URL → MP4 indir</div>
-      <div class="tool-desc">YouTube / TikTok / Instagram reel linkini yapıştır; sunucu videoyu MP4 olarak indirir</div>
+      <div class="tool-desc">YouTube / TikTok / Instagram reel linkini yapıştır; sunucu videoyu indirir</div>
       <input class="tool-input" type="url" id="toolDownloadUrl" placeholder="https://www.youtube.com/watch?v=..."/>
       <button class="tool-btn" type="button" id="toolDownloadBtn" onclick="downloadFromToolInput()">⬇ MP4 İndir</button>
       <div class="tool-result" id="toolDownloadMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
-    </div>
-
-    <!-- Favori Listesi -->
-    <div class="tool-card">
-      <div class="tool-title">⭐ Favori Listesi</div>
-      <div class="tool-desc">Ana sayfadaki ★ ile eklediğin videolar; sırayla indirme başlat</div>
-      <div id="favoritesToolList" style="font-size:12px;color:var(--muted);max-height:180px;overflow:auto;margin-bottom:10px"></div>
-      <button class="tool-btn" type="button" onclick="batchDownloadFavorites()">⬇ Favorileri sırayla indir</button>
-      <button class="tool-copy-btn" type="button" onclick="clearFavorites()">🗑 Favorileri temizle</button>
-    </div>
-
-    <!-- Kara Liste -->
-    <div class="tool-card">
-      <div class="tool-title">🚫 Kara Liste</div>
-      <div class="tool-desc">Kanal adı veya @kullanıcı yaz; bu kanallar listelerde gösterilmez</div>
-      <div class="api-row" style="margin-bottom:10px">
-        <input class="tool-input" type="text" id="blacklistInput" placeholder="ör. kanal adı veya @user" style="margin:0"/>
-        <button class="save-btn" type="button" onclick="addBlacklistEntry()" style="padding:10px 14px">Ekle</button>
-      </div>
-      <div id="blacklistToolList" style="font-size:12px;color:var(--muted);max-height:140px;overflow:auto"></div>
     </div>
 
   </div>
@@ -310,10 +288,6 @@ function showPage(page) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('page-' + page).classList.add('active');
   document.querySelectorAll('.nav-btn')[page === 'main' ? 0 : 1].classList.add('active');
-  if (page === 'tools') {
-    renderFavoritesTool();
-    renderBlacklistTool();
-  }
 }
 
 // TARİH
@@ -447,87 +421,6 @@ function isBlocked(title, channel) {
   for (const kw of BLOCKED_CHANNELS) if (t.includes(kw)) return true;
   for (const kw of BLOCKED_KEYWORDS) if (t.includes(kw)) return true;
   return false;
-}
-
-function getBlacklist() {
-  try { return JSON.parse(localStorage.getItem("va_blacklist") || "[]"); } catch(e) { return []; }
-}
-function setBlacklist(arr) {
-  try { localStorage.setItem("va_blacklist", JSON.stringify(arr.slice(0, 100))); } catch(e) {}
-}
-function isUserBlacklisted(channel) {
-  if (!channel) return false;
-  const t = String(channel).toLowerCase();
-  return getBlacklist().some(b => t.includes(String(b).toLowerCase()));
-}
-function addBlacklistEntry() {
-  const el = document.getElementById("blacklistInput");
-  const v = (el && el.value || "").trim();
-  if (!v) return;
-  const list = getBlacklist();
-  if (!list.some(x => x.toLowerCase() === v.toLowerCase())) list.push(v);
-  setBlacklist(list);
-  el.value = "";
-  renderBlacklistTool();
-}
-function removeBlacklistEntry(val) {
-  const list = getBlacklist().filter(x => x !== val);
-  setBlacklist(list);
-  renderBlacklistTool();
-}
-function renderBlacklistTool() {
-  const box = document.getElementById("blacklistToolList");
-  if (!box) return;
-  const list = getBlacklist();
-  if (!list.length) { box.innerHTML = "<em>Henüz kayıt yok</em>"; return; }
-  box.innerHTML = list.map(b => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)"><span>${escHtml(b)}</span><button type="button" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:11px" onclick='removeBlacklistEntry(${JSON.stringify(b)})'>Sil</button></div>`).join("");
-}
-
-function getFavorites() {
-  try { return JSON.parse(localStorage.getItem("va_favorites") || "[]"); } catch(e) { return []; }
-}
-function setFavorites(arr) {
-  try { localStorage.setItem("va_favorites", JSON.stringify(arr.slice(0, 200))); } catch(e) {}
-}
-function isFavorite(id) {
-  return getFavorites().some(f => String(f.id) === String(id));
-}
-function toggleFavoritePayload(btn) {
-  let o;
-  try { o = JSON.parse(decodeURIComponent(btn.getAttribute("data-payload"))); } catch(e) { return; }
-  let favs = getFavorites();
-  const i = favs.findIndex(f => String(f.id) === String(o.id));
-  if (i >= 0) favs.splice(i, 1);
-  else favs.unshift({ ...o, t: Date.now() });
-  setFavorites(favs);
-  btn.textContent = i >= 0 ? "☆" : "★";
-  renderFavoritesTool();
-}
-function clearFavorites() {
-  if (!confirm("Tüm favoriler silinsin mi?")) return;
-  setFavorites([]);
-  renderFavoritesTool();
-}
-function renderFavoritesTool() {
-  const box = document.getElementById("favoritesToolList");
-  if (!box) return;
-  const favs = getFavorites();
-  if (!favs.length) { box.innerHTML = "<em>Henüz favori yok — ana sayfada ★ kullan</em>"; return; }
-  box.innerHTML = favs.slice(0, 50).map(f => `<div style="padding:6px 0;border-bottom:1px solid var(--border);line-height:1.35">${escHtml(f.title || f.id).slice(0, 80)}${(f.title||"").length > 80 ? "…" : ""}<br/><span style="font-size:10px;color:var(--muted)">${escHtml(f.platform || "")}</span></div>`).join("");
-}
-let batchDlRunning = false;
-async function batchDownloadFavorites() {
-  if (batchDlRunning) return;
-  const favs = getFavorites();
-  if (!favs.length) { alert("Önce favori ekle."); return; }
-  batchDlRunning = true;
-  for (const f of favs) {
-    const u = backendUrl("/download?url=" + encodeURIComponent(f.url));
-    await startDownload(u, null);
-    await new Promise(r => setTimeout(r, 800));
-  }
-  batchDlRunning = false;
-  alert("Sıra tamamlandı (tarayıcı her dosyayı ayrı indirebilir).");
 }
 
 function escHtml(s) {
@@ -697,19 +590,10 @@ async function startDownload(url, btn) {
 
 function buildCard(v, i, isShort) {
   const cat = activeCat;
-  const plat = v.platform || activePlat;
   const watchLink = v.url || ("https://www.youtube.com/watch?v=" + v.id);
   const dlLink = backendUrl("/download?url=" + encodeURIComponent(watchLink));
   const safeLink = watchLink.replace(/'/g, "\\'");
   const safeDlLink = dlLink.replace(/'/g, "\\'");
-  const payload = encodeURIComponent(JSON.stringify({
-    id: String(v.id),
-    title: v.title || "",
-    url: watchLink,
-    thumb: v.thumb || "",
-    platform: plat
-  }));
-  const favStar = isFavorite(v.id) ? "★" : "☆";
   const tagClass = isShort ? "tag-short" : (cat === "animal" ? "tag-animal" : "tag-comedy");
   const tagText = isShort ? "⚡ Kısa" : (cat === "animal" ? "🐾 Hayvan & Bebek" : "😂 Komedi");
   const rankClass = isShort ? (i===0?"gold":"") : (i===0?"top":"");
@@ -722,10 +606,7 @@ function buildCard(v, i, isShort) {
       <div class="views-ov">👁 ${fmtViews(v.views)}</div>
     </div>
     <div class="card-body">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
-        <span class="cat-tag ${tagClass}">${tagText}</span>
-        <button type="button" class="fav-btn" data-payload="${payload}" onclick="toggleFavoritePayload(this)" title="Favori">${favStar}</button>
-      </div>
+      <span class="cat-tag ${tagClass}">${tagText}</span>
       <div class="card-title">${escHtml(v.title)}</div>
       <div class="card-btns">
         <a class="cbtn" href="${escHtml(watchLink)}" target="_blank" rel="noopener">▶ İzle</a>
@@ -801,8 +682,9 @@ async function fetchTikTokFeed() {
   const q = getTodayQueries(activeCat)[0] || "viral";
   const res = await fetch(backendUrl("/search/tiktok?q=" + encodeURIComponent(q)));
   const data = await res.json();
-  if (!Array.isArray(data)) return [];
-  return data.filter(v => !isBlocked(v.title, v.channel || "") && !isUserBlacklisted(v.channel || ""));
+  if (!res.ok) throw new Error((data && data.error) || res.statusText || "TikTok API");
+  if (!Array.isArray(data)) throw new Error((data && data.error) || "TikTok yanıtı geçersiz");
+  return data.filter(v => !isBlocked(v.title, v.channel || ""));
 }
 
 async function fetchInstagramFeed() {
@@ -813,14 +695,15 @@ async function fetchInstagramFeed() {
     try {
       const res = await fetch(backendUrl("/search/instagram?q=" + encodeURIComponent(tag)));
       const arr = await res.json();
+      if (!res.ok) throw new Error(arr.error || res.statusText);
       if (Array.isArray(arr)) raw.push(...arr);
-    } catch(e) {}
+    } catch(e) { console.warn(e); }
   }
   const seen = new Set();
   return raw.filter(v => {
     if (seen.has(v.id)) return false;
     seen.add(v.id);
-    return !isBlocked(v.title, v.channel || "") && !isUserBlacklisted(v.channel || "");
+    return !isBlocked(v.title, v.channel || "");
   });
 }
 
@@ -858,8 +741,6 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {
         if (duration < minDur || duration > maxDur) continue;
         if (seenVideos.includes(item.id)) continue;
         if (isBlocked(title, channel)) continue;
-        if (isUserBlacklisted(channel)) continue;
-
         channelIds.add(channelId);
         rawItems.push({
           id: item.id, title, channel, channelId,
@@ -940,6 +821,11 @@ async function doSearch() {
   btn.disabled = false;
 }
 
+function captionFallback(title, platform) {
+  const tags = { tiktok: "#fyp #viral #keşfet #trend", reels: "#reels #instagram #keşfet", shorts: "#shorts #youtube #viral" };
+  return `🔥 ${title}\n\nBu içerik seni düşündürdü mü? Yorumda yaz 👇\n\n${tags[platform] || "#viral #trend"}`;
+}
+
 // CAPTION ÜRETİCİ
 async function generateCaption() {
   const title = document.getElementById("captionTitle").value.trim();
@@ -962,7 +848,7 @@ async function generateCaption() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-3-5-sonnet-20241022",
         max_tokens: 500,
         messages: [{
           role: "user",
@@ -984,18 +870,20 @@ Sadece caption metnini yaz, başka hiçbir şey ekleme.`
     });
 
     const data = await res.json();
-    const text = data.content?.map(b => b.text || "").join("") || "";
+    if (!res.ok) throw new Error(data.error || res.statusText);
 
-    if (text) {
-      resultEl.textContent = text;
-      resultEl.classList.add("show");
-      resultEl.style.display = "block";
-      copyBtn.style.display = "block";
-    }
-  } catch(e) {
-    resultEl.textContent = "Hata oluştu, tekrar dene.";
-    resultEl.style.display = "block";
+    let text = data.content?.map(b => b.text || "").join("") || "";
+    if (!text) text = captionFallback(title, platform);
+
+    resultEl.textContent = text;
     resultEl.classList.add("show");
+    resultEl.style.display = "block";
+    copyBtn.style.display = "block";
+  } catch(e) {
+    resultEl.textContent = captionFallback(title, platform);
+    resultEl.classList.add("show");
+    resultEl.style.display = "block";
+    copyBtn.style.display = "block";
   }
 
   btn.disabled = false;
