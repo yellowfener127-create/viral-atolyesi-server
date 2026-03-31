@@ -6,13 +6,18 @@ const fs = require('fs');
 const https = require('https');
 const os = require('os');
 
-const app = express();
+const app = express(); // 1. Sırada bu olmalı
+
+// Statik dosyalar için public klasörünü kullan
+app.use(express.static(path.join(__dirname, 'public'))); // 2. Sırada bu olmalı
+
 app.use(cors({ exposedHeaders: ['Content-Disposition'] }));
 app.use(express.json({ limit: '1mb' }));
 
 const YTDLP_PATH = path.join(__dirname, 'yt-dlp');
 const COOKIES_PATH = path.join(__dirname, 'www.youtube.com_cookies.txt');
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+const PUBLIC_DIR = path.join(__dirname, 'public');
 
 function installYtDlp() {
   return new Promise((resolve) => {
@@ -225,14 +230,13 @@ app.get('/status', (req, res) => {
   res.json({ status: 'Viral Atölyesi Sunucu Çalışıyor!' });
 });
 
-const HALK_DIR = path.join(__dirname, 'halk');
-app.use(express.static(HALK_DIR));
-
 app.get('*', (req, res) => {
-  res.sendFile(path.join(HALK_DIR, 'index.html'));
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
+installYtDlp();
+
 const PORT = process.env.PORT || 3000;
-installYtDlp().then(() => {
-  app.listen(PORT, () => console.log(`Sunucu ${PORT} portunda çalışıyor`));
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Sunucu ${PORT} portunda çalışıyor`);
 });

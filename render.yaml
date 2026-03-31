@@ -5,5 +5,5 @@ services:
     runtime: node
     branch: main
     buildCommand: npm install
-    startCommand: node sunucu.js
+    startCommand: node server.js
     autoDeploy: true
