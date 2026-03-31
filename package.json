@@ -1,9 +1,9 @@
 {
   "name": "viral-atolyesi-server",
   "version": "1.0.0",
-  "main": "sunucu.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node sunucu.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
