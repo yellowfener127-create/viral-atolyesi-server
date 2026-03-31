@@ -156,13 +156,14 @@ app.get('/search/tiktok', (req, res) => {
         const videos = items.map(item => ({
           id: item.id,
           title: item.desc || 'TikTok Video',
+          channel: item.author?.uniqueId || item.author?.nickname || '',
           duration: item.video?.duration || 0,
           views: item.stats?.playCount || 0,
           likes: item.stats?.diggCount || 0,
           thumb: item.video?.cover || '',
           url: `https://www.tiktok.com/@${item.author?.uniqueId}/video/${item.id}`,
           platform: 'tiktok'
-        })).filter(v => v.duration >= 1 && v.duration <= 70 && v.views >= 50000);
+        })).filter(v => v.duration >= 1 && v.duration <= 120 && v.views >= 500);
         res.json(videos);
       } catch(e) {
         res.status(500).json({ error: 'TikTok parse hatası: ' + e.message });
@@ -203,13 +204,14 @@ app.get('/search/instagram', (req, res) => {
           .map(item => ({
             id: item.id,
             title: item.caption?.text || 'Instagram Reels',
+            channel: item.user?.username || item.caption?.user?.username || '',
             duration: item.video_duration || 0,
             views: item.view_count || item.play_count || 0,
             likes: item.like_count || 0,
             thumb: item.image_versions2?.candidates?.[0]?.url || '',
             url: `https://www.instagram.com/reel/${item.code}/`,
             platform: 'instagram'
-          })).filter(v => v.duration >= 1 && v.duration <= 70);
+          })).filter(v => v.duration >= 1 && v.duration <= 90);
         res.json(videos);
       } catch(e) {
         res.status(500).json({ error: 'Instagram parse hatası: ' + e.message });

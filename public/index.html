@@ -138,6 +138,8 @@
   .cbtn:hover{background:#252525;color:var(--text);border-color:#383838}
   .cbtn.dl{background:rgba(41,121,255,0.1);color:#5b9aff;border-color:rgba(41,121,255,0.25)}
   .cbtn.dl:hover{background:rgba(41,121,255,0.2)}
+  .fav-btn{background:none;border:none;font-size:16px;cursor:pointer;padding:4px;line-height:1;opacity:0.85}
+  .fav-btn:hover{opacity:1;transform:scale(1.1)}
   .copy-row{display:flex;gap:5px;align-items:center}
   .copy-input{flex:1;padding:7px 9px;background:var(--bg);border:1px solid var(--border);border-radius:7px;font-size:11px;color:#444;font-family:'Outfit',sans-serif;outline:none;min-width:0}
   .copy-btn{padding:7px 11px;background:var(--surface);border:1px solid var(--border);border-radius:7px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;font-family:'Outfit',sans-serif;transition:all 0.2s;white-space:nowrap}
@@ -220,8 +222,8 @@
     <div class="selector-label">Platform</div>
     <div class="selector-row">
       <button class="sel-btn active" id="plat-youtube" onclick="setPlat('youtube')">📺 YouTube</button>
-      <button class="sel-btn soon" onclick="soonAlert()">🎵 TikTok <span class="soon-badge">YAKINDA</span></button>
-      <button class="sel-btn soon" onclick="soonAlert()">📸 Instagram <span class="soon-badge">YAKINDA</span></button>
+      <button class="sel-btn" id="plat-tiktok" onclick="setPlat('tiktok')">🎵 TikTok</button>
+      <button class="sel-btn" id="plat-instagram" onclick="setPlat('instagram')">📸 Instagram</button>
     </div>
   </div>
 
@@ -258,26 +260,33 @@
       <button class="tool-copy-btn" id="captionCopyBtn" style="display:none" onclick="copyCaption()">📋 Kopyala</button>
     </div>
 
-    <!-- Altyazı Çevirici - Yakında -->
-    <div class="tool-card soon-card">
-      <div class="tool-title">🎬 Altyazı Ekle & İndir</div>
-      <div class="tool-desc">Video linkini ver, otomatik altyazı çekilsin, Türkçeye çevrilsin, videoya eklensin</div>
-      <input class="tool-input" type="text" placeholder="YouTube linki..." disabled/>
-      <button class="tool-btn" disabled>🔜 Yakında</button>
+    <!-- Video URL ile MP4 indir -->
+    <div class="tool-card">
+      <div class="tool-title">🎬 Video URL → MP4 indir</div>
+      <div class="tool-desc">YouTube / TikTok / Instagram reel linkini yapıştır; sunucu videoyu MP4 olarak indirir</div>
+      <input class="tool-input" type="url" id="toolDownloadUrl" placeholder="https://www.youtube.com/watch?v=..."/>
+      <button class="tool-btn" type="button" id="toolDownloadBtn" onclick="downloadFromToolInput()">⬇ MP4 İndir</button>
+      <div class="tool-result" id="toolDownloadMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
     </div>
 
-    <!-- Favori Listesi - Yakında -->
-    <div class="tool-card soon-card">
+    <!-- Favori Listesi -->
+    <div class="tool-card">
       <div class="tool-title">⭐ Favori Listesi</div>
-      <div class="tool-desc">Beğendiğin videoları kaydet, istediğin zaman toplu indir</div>
-      <button class="tool-btn" disabled>🔜 Yakında</button>
+      <div class="tool-desc">Ana sayfadaki ★ ile eklediğin videolar; sırayla indirme başlat</div>
+      <div id="favoritesToolList" style="font-size:12px;color:var(--muted);max-height:180px;overflow:auto;margin-bottom:10px"></div>
+      <button class="tool-btn" type="button" onclick="batchDownloadFavorites()">⬇ Favorileri sırayla indir</button>
+      <button class="tool-copy-btn" type="button" onclick="clearFavorites()">🗑 Favorileri temizle</button>
     </div>
 
-    <!-- Kara Liste - Yakında -->
-    <div class="tool-card soon-card">
+    <!-- Kara Liste -->
+    <div class="tool-card">
       <div class="tool-title">🚫 Kara Liste</div>
-      <div class="tool-desc">Beğenmediğin kanalları kara listeye al, bir daha önüne çıkmasın</div>
-      <button class="tool-btn" disabled>🔜 Yakında</button>
+      <div class="tool-desc">Kanal adı veya @kullanıcı yaz; bu kanallar listelerde gösterilmez</div>
+      <div class="api-row" style="margin-bottom:10px">
+        <input class="tool-input" type="text" id="blacklistInput" placeholder="ör. kanal adı veya @user" style="margin:0"/>
+        <button class="save-btn" type="button" onclick="addBlacklistEntry()" style="padding:10px 14px">Ekle</button>
+      </div>
+      <div id="blacklistToolList" style="font-size:12px;color:var(--muted);max-height:140px;overflow:auto"></div>
     </div>
 
   </div>
@@ -301,10 +310,10 @@ function showPage(page) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('page-' + page).classList.add('active');
   document.querySelectorAll('.nav-btn')[page === 'main' ? 0 : 1].classList.add('active');
-}
-
-function soonAlert() {
-  alert('Bu özellik yakında eklenecek! 🚀');
+  if (page === 'tools') {
+    renderFavoritesTool();
+    renderBlacklistTool();
+  }
 }
 
 // TARİH
@@ -367,6 +376,10 @@ function setCat(cat) {
 function setPlat(plat) {
   activePlat = plat;
   document.getElementById("plat-youtube").classList.toggle("active", plat === "youtube");
+  const pt = document.getElementById("plat-tiktok");
+  const pi = document.getElementById("plat-instagram");
+  if (pt) pt.classList.toggle("active", plat === "tiktok");
+  if (pi) pi.classList.toggle("active", plat === "instagram");
 }
 
 // CACHE SİSTEMİ
@@ -434,6 +447,113 @@ function isBlocked(title, channel) {
   for (const kw of BLOCKED_CHANNELS) if (t.includes(kw)) return true;
   for (const kw of BLOCKED_KEYWORDS) if (t.includes(kw)) return true;
   return false;
+}
+
+function getBlacklist() {
+  try { return JSON.parse(localStorage.getItem("va_blacklist") || "[]"); } catch(e) { return []; }
+}
+function setBlacklist(arr) {
+  try { localStorage.setItem("va_blacklist", JSON.stringify(arr.slice(0, 100))); } catch(e) {}
+}
+function isUserBlacklisted(channel) {
+  if (!channel) return false;
+  const t = String(channel).toLowerCase();
+  return getBlacklist().some(b => t.includes(String(b).toLowerCase()));
+}
+function addBlacklistEntry() {
+  const el = document.getElementById("blacklistInput");
+  const v = (el && el.value || "").trim();
+  if (!v) return;
+  const list = getBlacklist();
+  if (!list.some(x => x.toLowerCase() === v.toLowerCase())) list.push(v);
+  setBlacklist(list);
+  el.value = "";
+  renderBlacklistTool();
+}
+function removeBlacklistEntry(val) {
+  const list = getBlacklist().filter(x => x !== val);
+  setBlacklist(list);
+  renderBlacklistTool();
+}
+function renderBlacklistTool() {
+  const box = document.getElementById("blacklistToolList");
+  if (!box) return;
+  const list = getBlacklist();
+  if (!list.length) { box.innerHTML = "<em>Henüz kayıt yok</em>"; return; }
+  box.innerHTML = list.map(b => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)"><span>${escHtml(b)}</span><button type="button" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:11px" onclick='removeBlacklistEntry(${JSON.stringify(b)})'>Sil</button></div>`).join("");
+}
+
+function getFavorites() {
+  try { return JSON.parse(localStorage.getItem("va_favorites") || "[]"); } catch(e) { return []; }
+}
+function setFavorites(arr) {
+  try { localStorage.setItem("va_favorites", JSON.stringify(arr.slice(0, 200))); } catch(e) {}
+}
+function isFavorite(id) {
+  return getFavorites().some(f => String(f.id) === String(id));
+}
+function toggleFavoritePayload(btn) {
+  let o;
+  try { o = JSON.parse(decodeURIComponent(btn.getAttribute("data-payload"))); } catch(e) { return; }
+  let favs = getFavorites();
+  const i = favs.findIndex(f => String(f.id) === String(o.id));
+  if (i >= 0) favs.splice(i, 1);
+  else favs.unshift({ ...o, t: Date.now() });
+  setFavorites(favs);
+  btn.textContent = i >= 0 ? "☆" : "★";
+  renderFavoritesTool();
+}
+function clearFavorites() {
+  if (!confirm("Tüm favoriler silinsin mi?")) return;
+  setFavorites([]);
+  renderFavoritesTool();
+}
+function renderFavoritesTool() {
+  const box = document.getElementById("favoritesToolList");
+  if (!box) return;
+  const favs = getFavorites();
+  if (!favs.length) { box.innerHTML = "<em>Henüz favori yok — ana sayfada ★ kullan</em>"; return; }
+  box.innerHTML = favs.slice(0, 50).map(f => `<div style="padding:6px 0;border-bottom:1px solid var(--border);line-height:1.35">${escHtml(f.title || f.id).slice(0, 80)}${(f.title||"").length > 80 ? "…" : ""}<br/><span style="font-size:10px;color:var(--muted)">${escHtml(f.platform || "")}</span></div>`).join("");
+}
+let batchDlRunning = false;
+async function batchDownloadFavorites() {
+  if (batchDlRunning) return;
+  const favs = getFavorites();
+  if (!favs.length) { alert("Önce favori ekle."); return; }
+  batchDlRunning = true;
+  for (const f of favs) {
+    const u = backendUrl("/download?url=" + encodeURIComponent(f.url));
+    await startDownload(u, null);
+    await new Promise(r => setTimeout(r, 800));
+  }
+  batchDlRunning = false;
+  alert("Sıra tamamlandı (tarayıcı her dosyayı ayrı indirebilir).");
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+}
+
+function parseFilenameFromContentDisposition(header) {
+  if (!header) return "video.mp4";
+  const star = /filename\*=(?:UTF-8'')?([^;]+)/i.exec(header);
+  if (star) return decodeURIComponent(star[1].trim().replace(/^"+|"+$/g, ""));
+  const plain = /filename="([^"]+)"/i.exec(header);
+  if (plain) return plain[1];
+  const p2 = /filename=([^;]+)/i.exec(header);
+  if (p2) return p2[1].trim().replace(/^"+|"+$/g, "");
+  return "video.mp4";
+}
+
+async function downloadFromToolInput() {
+  const inp = document.getElementById("toolDownloadUrl");
+  const msg = document.getElementById("toolDownloadMsg");
+  const btn = document.getElementById("toolDownloadBtn");
+  const url = (inp && inp.value || "").trim();
+  if (!url) { alert("Video linkini gir."); return; }
+  if (msg) { msg.style.display = "block"; msg.textContent = "İndiriliyor…"; }
+  await startDownload(backendUrl("/download?url=" + encodeURIComponent(url)), btn);
+  if (msg) msg.textContent = "İşlem bitti — indirme penceresi veya yeni sekme kontrol et.";
 }
 
 // SORGULAR
@@ -540,53 +660,79 @@ function copyLink(btn, url) {
   });
 }
 
-function startDownload(url, btn) {
+async function startDownload(url, btn) {
+  const prev = btn ? btn.textContent : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "⏳ İndiriliyor...";
+  }
   try {
-    if (btn) {
-      btn.disabled = true;
-      const prev = btn.textContent;
-      btn.textContent = "⏳ İndiriliyor...";
-      setTimeout(() => { btn.disabled = false; btn.textContent = prev; }, 2200);
+    const res = await fetch(url, { method: "GET", mode: "cors" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || res.status + " " + res.statusText);
     }
-
-    // Hidden iframe triggers the browser's download flow without navigation.
-    const iframe = document.createElement("iframe");
-    iframe.style.display = "none";
-    iframe.src = url;
-    document.body.appendChild(iframe);
-    setTimeout(() => iframe.remove(), 60000);
+    const blob = await res.blob();
+    const name = parseFilenameFromContentDisposition(res.headers.get("Content-Disposition"));
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
   } catch (e) {
-    // Fallback: navigate (may replace current page)
-    window.location.href = url;
+    try {
+      window.open(url, "_blank", "noopener");
+    } catch (e2) {
+      alert("İndirme hatası: " + (e.message || e));
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = prev || "⬇ İndir";
+    }
   }
 }
 
 function buildCard(v, i, isShort) {
   const cat = activeCat;
-  const ytLink = "https://www.youtube.com/watch?v=" + v.id;
-  const dlLink = backendUrl("/download?url=" + encodeURIComponent(ytLink));
-  const safeLink = ytLink.replace(/'/g, "\\'");
+  const plat = v.platform || activePlat;
+  const watchLink = v.url || ("https://www.youtube.com/watch?v=" + v.id);
+  const dlLink = backendUrl("/download?url=" + encodeURIComponent(watchLink));
+  const safeLink = watchLink.replace(/'/g, "\\'");
   const safeDlLink = dlLink.replace(/'/g, "\\'");
+  const payload = encodeURIComponent(JSON.stringify({
+    id: String(v.id),
+    title: v.title || "",
+    url: watchLink,
+    thumb: v.thumb || "",
+    platform: plat
+  }));
+  const favStar = isFavorite(v.id) ? "★" : "☆";
   const tagClass = isShort ? "tag-short" : (cat === "animal" ? "tag-animal" : "tag-comedy");
   const tagText = isShort ? "⚡ Kısa" : (cat === "animal" ? "🐾 Hayvan & Bebek" : "😂 Komedi");
   const rankClass = isShort ? (i===0?"gold":"") : (i===0?"top":"");
 
   return `<div class="vcard ${isShort?"short-card":""}">
     <div class="thumb">
-      <img src="${v.thumb}" alt="" loading="lazy"/>
+      <img src="${escHtml(v.thumb)}" alt="" loading="lazy"/>
       <div class="rank ${rankClass}">#${i+1}</div>
       <div class="dur-ov ${isShort?"short":""}">⏱ ${formatDuration(v.duration)}</div>
       <div class="views-ov">👁 ${fmtViews(v.views)}</div>
     </div>
     <div class="card-body">
-      <span class="cat-tag ${tagClass}">${tagText}</span>
-      <div class="card-title">${v.title}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+        <span class="cat-tag ${tagClass}">${tagText}</span>
+        <button type="button" class="fav-btn" data-payload="${payload}" onclick="toggleFavoritePayload(this)" title="Favori">${favStar}</button>
+      </div>
+      <div class="card-title">${escHtml(v.title)}</div>
       <div class="card-btns">
-        <a class="cbtn" href="${ytLink}" target="_blank">▶ İzle</a>
+        <a class="cbtn" href="${escHtml(watchLink)}" target="_blank" rel="noopener">▶ İzle</a>
         <button class="cbtn dl" type="button" onclick="startDownload('${safeDlLink}', this)">⬇ İndir</button>
       </div>
       <div class="copy-row">
-        <input class="copy-input" type="text" value="${ytLink}" readonly onclick="this.select()"/>
+        <input class="copy-input" type="text" value="${escHtml(watchLink)}" readonly onclick="this.select()"/>
         <button class="copy-btn" onclick="copyLink(this,'${safeLink}')">📋 Kopyala</button>
       </div>
     </div>
@@ -651,6 +797,33 @@ async function getChannelSubscribers(channelIds) {
   } catch(e) { return {}; }
 }
 
+async function fetchTikTokFeed() {
+  const q = getTodayQueries(activeCat)[0] || "viral";
+  const res = await fetch(backendUrl("/search/tiktok?q=" + encodeURIComponent(q)));
+  const data = await res.json();
+  if (!Array.isArray(data)) return [];
+  return data.filter(v => !isBlocked(v.title, v.channel || "") && !isUserBlacklisted(v.channel || ""));
+}
+
+async function fetchInstagramFeed() {
+  const queries = getTodayQueries(activeCat);
+  const raw = [];
+  for (const q of queries.slice(0, 4)) {
+    const tag = q.split(/\s+/)[0].replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ]/g, "").slice(0, 80) || "viral";
+    try {
+      const res = await fetch(backendUrl("/search/instagram?q=" + encodeURIComponent(tag)));
+      const arr = await res.json();
+      if (Array.isArray(arr)) raw.push(...arr);
+    } catch(e) {}
+  }
+  const seen = new Set();
+  return raw.filter(v => {
+    if (seen.has(v.id)) return false;
+    seen.add(v.id);
+    return !isBlocked(v.title, v.channel || "") && !isUserBlacklisted(v.channel || "");
+  });
+}
+
 async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {
   const seenVideos = getSeenVideos(seenType);
   const results = [];
@@ -685,13 +858,16 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {
         if (duration < minDur || duration > maxDur) continue;
         if (seenVideos.includes(item.id)) continue;
         if (isBlocked(title, channel)) continue;
+        if (isUserBlacklisted(channel)) continue;
 
         channelIds.add(channelId);
         rawItems.push({
           id: item.id, title, channel, channelId,
           thumb: item.snippet.thumbnails?.medium?.url || "",
           views, likes, duration,
-          score: calcScore(views, likes)
+          score: calcScore(views, likes),
+          url: "https://www.youtube.com/watch?v=" + item.id,
+          platform: "youtube"
         });
       }
     } catch(e) {}
@@ -708,10 +884,12 @@ const filtered = rawItems;
 }
 
 async function doSearch() {
-  if (!savedKey) { showError("Lütfen önce API key'ini gir ve kaydet."); return; }
+  if (activePlat === "youtube" && !savedKey) {
+    showError("Lütfen önce API key'ini gir ve kaydet.");
+    return;
+  }
   hideError();
 
-  // Cache kontrolü — bugünün listesi varsa direkt göster
   const cached = getCached(activeCat, activePlat);
   if (cached) {
     renderVideos(cached.main, cached.short, true);
@@ -723,27 +901,41 @@ async function doSearch() {
   btn.disabled = true;
   showSkeleton();
 
-  const queries = getTodayQueries(activeCat);
-  let afterParam = "";
-  if (activeCat === "comedy") {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 6);
-    afterParam = "&publishedAfter=" + d.toISOString();
+  try {
+    if (activePlat === "youtube") {
+      const queries = getTodayQueries(activeCat);
+      let afterParam = "";
+      if (activeCat === "comedy") {
+        const d = new Date();
+        d.setMonth(d.getMonth() - 6);
+        afterParam = "&publishedAfter=" + d.toISOString();
+      }
+      const mainAll = await fetchVideos(queries, afterParam, 15, 70, "main");
+      const shortAll = await fetchVideos(queries, afterParam, 1, 14, "short");
+      const mainVideos = mainAll.slice(0, 20);
+      const shortVideos = shortAll.slice(0, 10);
+      if (mainVideos.length > 0) addSeenVideos("main", mainVideos.map(v => v.id));
+      if (shortVideos.length > 0) addSeenVideos("short", shortVideos.map(v => v.id));
+      setCache(activeCat, activePlat, mainVideos, shortVideos);
+      renderVideos(mainVideos, shortVideos, false);
+    } else if (activePlat === "tiktok") {
+      const list = await fetchTikTokFeed();
+      const mainVideos = list.filter(v => (v.duration || 0) >= 15).slice(0, 20);
+      const shortVideos = list.filter(v => (v.duration || 0) < 15).slice(0, 10);
+      setCache(activeCat, activePlat, mainVideos, shortVideos);
+      renderVideos(mainVideos, shortVideos, false);
+    } else {
+      const list = await fetchInstagramFeed();
+      const mainVideos = list.filter(v => (v.duration || 0) >= 15).slice(0, 20);
+      const shortVideos = list.filter(v => (v.duration || 0) < 15).slice(0, 10);
+      setCache(activeCat, activePlat, mainVideos, shortVideos);
+      renderVideos(mainVideos, shortVideos, false);
+    }
+  } catch (e) {
+    showError("Arama hatası: " + (e.message || e));
+    document.getElementById("results").innerHTML = "";
   }
 
-  const mainAll = await fetchVideos(queries, afterParam, 15, 70, "main");
-  const shortAll = await fetchVideos(queries, afterParam, 1, 14, "short");
-
-  const mainVideos = mainAll.slice(0, 20);
-  const shortVideos = shortAll.slice(0, 10);
-
-  if (mainVideos.length > 0) addSeenVideos("main", mainVideos.map(v => v.id));
-  if (shortVideos.length > 0) addSeenVideos("short", shortVideos.map(v => v.id));
-
-  // Cache'e kaydet
-  setCache(activeCat, activePlat, mainVideos, shortVideos);
-
-  renderVideos(mainVideos, shortVideos, false);
   btn.textContent = "🔍 Videoları Getir";
   btn.disabled = false;
 }
