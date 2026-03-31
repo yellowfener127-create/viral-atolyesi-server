@@ -7,12 +7,11 @@ const https = require('https');
 const os = require('os');
 
 const app = express();
-app.use(express.static('public'));
 app.use(cors({ exposedHeaders: ['Content-Disposition'] }));
 app.use(express.json({ limit: '1mb' }));
 
 const YTDLP_PATH = path.join(__dirname, 'yt-dlp');
-const COOKIES_PATH = path.join(__dirname, 'youtube.com_cookies.txt');
+const COOKIES_PATH = path.join(__dirname, 'www.youtube.com_cookies.txt');
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 
 function installYtDlp() {
@@ -134,11 +133,11 @@ app.get('/search/tiktok', (req, res) => {
 
   const options = {
     method: 'GET',
-    hostname: 'tiktok-api23.p.rapidapi.com',
-    path: `/api/search/general?keyword=${encodeURIComponent(query)}&count=20&cursor=0`,
+    hostname: 'tiktok-scraper7.p.rapidapi.com',
+    path: '/trending/feed?region=TR&count=20',
     headers: {
       'x-rapidapi-key': RAPIDAPI_KEY,
-      'x-rapidapi-host': 'tiktok-api23.p.rapidapi.com'
+      'x-rapidapi-host': 'tiktok-scraper7.p.rapidapi.com'
     }
   };
 
@@ -226,7 +225,12 @@ app.get('/status', (req, res) => {
   res.json({ status: 'Viral Atölyesi Sunucu Çalışıyor!' });
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+const HALK_DIR = path.join(__dirname, 'halk');
+app.use(express.static(HALK_DIR));
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(HALK_DIR, 'index.html'));
+});
 
 const PORT = process.env.PORT || 3000;
 installYtDlp().then(() => {

@@ -1,6 +1,9 @@
+# Repo kökünde olmalı. Otomatik deploy: Git bağlantısı + doğru branch + Dashboard’da Auto-Deploy açık.
 services:
   - type: web
     name: viral-atolyesi-server
-    env: node
-    buildCommand: "npm install"
-    startCommand: "node server.js"
+    runtime: node
+    branch: main
+    buildCommand: npm install
+    startCommand: node sunucu.js
+    autoDeploy: true
