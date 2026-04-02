@@ -616,9 +616,15 @@ async function startDownload(url, btn) {
   }
   try {
     // GitHub Pages -> Render büyük dosya indirmede fetch(blob) sık sık "Failed to fetch" verir.
-    // Bu ortamda indirmeyi tarayıcıya bırakıyoruz (yeni sekme). İndirilenler listesinde görünmesi için en stabil yöntem.
+    // Bu ortamda indirmeyi tarayıcıya bırakıyoruz (popup'sız <a> click).
     if (typeof location !== "undefined" && /github\.io$/i.test(location.hostname || "")) {
-      window.open(url, "_blank", "noopener");
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       return;
     }
 
@@ -752,7 +758,7 @@ async function fetchTikTokFeed() {
       }
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((data && (data.message || data.error)) || ("TikTok RapidAPI " + res.status));
+    if (!res.ok) throw new Error("TikTok: " + ((data && (data.message || data.error)) || ("HTTP " + res.status)));
     const items = data?.data?.item_list || data?.item_list || data?.aweme_list || data?.data?.aweme_list || [];
     return (items || []).map((item, idx) => {
       const uid = item.author?.uniqueId || item.author?.unique_id || "user";
@@ -796,7 +802,7 @@ async function fetchInstagramFeed() {
           }
         });
         const arr = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error((arr && (arr.message || arr.error)) || ("Instagram RapidAPI " + res.status));
+        if (!res.ok) throw new Error("Instagram: " + ((arr && (arr.message || arr.error)) || ("HTTP " + res.status)));
         const items = arr?.data?.items || arr?.items || [];
         const vids = (items || []).map((item) => {
           const code = item.code || item.shortcode || item.media_code;
