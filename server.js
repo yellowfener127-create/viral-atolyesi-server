@@ -63,6 +63,16 @@ function ensureCookieFileFromEnv(envName, filePath) {
   }
 }
 
+function cookieFileInfo(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return { exists: false, bytes: 0 };
+    const st = fs.statSync(filePath);
+    return { exists: true, bytes: st.size || 0 };
+  } catch {
+    return { exists: false, bytes: 0 };
+  }
+}
+
 function installYtDlp() {
   // Render ortamında curl her zaman yok; Node ile indir (redirect destekli, EBADF'siz).
   const startUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
@@ -584,6 +594,15 @@ installYtDlp().then(() => {
   ensureCookieFileFromEnv('YT_COOKIES_B64', COOKIES_PATH);
   ensureCookieFileFromEnv('TT_COOKIES_B64', COOKIES_TIKTOK_PATH);
   ensureCookieFileFromEnv('IG_COOKIES_B64', COOKIES_INSTAGRAM_PATH);
+
+  console.log('Cookie files:', {
+    yt: cookieFileInfo(COOKIES_PATH),
+    tt: cookieFileInfo(COOKIES_TIKTOK_PATH),
+    ig: cookieFileInfo(COOKIES_INSTAGRAM_PATH),
+    yt_env: !!process.env.YT_COOKIES_B64,
+    tt_env: !!process.env.TT_COOKIES_B64,
+    ig_env: !!process.env.IG_COOKIES_B64
+  });
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Sunucu ${PORT} portunda çalışıyor`);
