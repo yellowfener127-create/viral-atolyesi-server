@@ -560,6 +560,17 @@ async function startDownload(url, btn) {
     btn.textContent = "⏳ İndiriliyor...";
   }
   try {
+    // GitHub Pages -> Render büyük dosya indirmede fetch(blob) sık sık "Failed to fetch" verir.
+    // Bu ortamda indirmeyi tarayıcıya bırakıyoruz (iframe ile).
+    if (typeof location !== "undefined" && /github\.io$/i.test(location.hostname || "")) {
+      const iframe = document.createElement("iframe");
+      iframe.style.display = "none";
+      iframe.src = url;
+      document.body.appendChild(iframe);
+      setTimeout(() => iframe.remove(), 60000);
+      return;
+    }
+
     const res = await fetch(url, { method: "GET", mode: "cors", cache: "no-store" });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -700,12 +711,14 @@ async function fetchInstagramFeed() {
     } catch(e) { console.warn(e); }
   }
   const seen = new Set();
-  return raw.filter(v => {
+  const out = raw.filter(v => {
     if (!v) return false;
     if (seen.has(v.id)) return false;
     seen.add(v.id);
     return true;
   });
+  if (!out.length) throw new Error("Instagram: API boş sonuç döndürüyor (abonelik/limit/yanıt formatı).");
+  return out;
 }
 
 async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {

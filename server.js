@@ -254,6 +254,13 @@ app.get('/search/tiktok', (req, res) => {
     response.on('end', () => {
       try {
         if (response.statusCode && response.statusCode >= 400) {
+          // RapidAPI abonelik/plan hatalarını kullanıcıya net göster
+          const msg = String(data || '');
+          if (/not subscribed/i.test(msg) || /You are not subscribed/i.test(msg)) {
+            return res.status(402).json({
+              error: 'TikTok API aboneliği yok. RapidAPI panelinden bu API’ye Subscribe olmalısın (tiktok-scraper7).'
+            });
+          }
           return res.status(response.statusCode).json({ error: 'TikTok upstream hata: ' + data });
         }
         const parsed = JSON.parse(data);
