@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const os = require('os');
+const { pipeline } = require('stream/promises');
 
 const app = express(); // 1. Sırada bu olmalı
 
@@ -51,56 +52,46 @@ const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || 'fa585a7e00mshd7e15329a3e4fe2p1
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 function installYtDlp() {
-  return new Promise((resolve) => {
+  // Render ortamında curl her zaman yok; Node ile indir (redirect destekli, EBADF'siz).
+  const startUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+
+  function getWithRedirect(url, redirectsLeft = 5) {
+    return new Promise((resolve, reject) => {
+      const req = https.get(url, (res) => {
+        const code = res.statusCode || 0;
+        if (code >= 300 && code < 400 && res.headers.location && redirectsLeft > 0) {
+          res.resume();
+          resolve(getWithRedirect(res.headers.location, redirectsLeft - 1));
+          return;
+        }
+        if (code >= 400) {
+          const err = new Error(`yt-dlp download HTTP ${code}`);
+          res.resume();
+          reject(err);
+          return;
+        }
+        resolve(res);
+      });
+      req.on('error', reject);
+    });
+  }
+
+  return (async () => {
+    const tmp = path.join(os.tmpdir(), `yt-dlp_${Date.now()}`);
     try {
-      // Render ortamında curl her zaman yok; Node ile indir.
-      const url = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
-      const tmp = path.join(os.tmpdir(), `yt-dlp_${Date.now()}`);
-
-      const file = fs.createWriteStream(tmp);
-      https
-        .get(url, (r) => {
-          if (r.statusCode && r.statusCode >= 300 && r.statusCode < 400 && r.headers.location) {
-            // redirect
-            https.get(r.headers.location, (r2) => {
-              r2.pipe(file);
-              r2.on('end', () => {
-                try {
-                  fs.closeSync(file.fd);
-                } catch {}
-                try {
-                  fs.copyFileSync(tmp, YTDLP_PATH);
-                  fs.chmodSync(YTDLP_PATH, 0o755);
-                } catch {}
-                try {
-                  fs.unlinkSync(tmp);
-                } catch {}
-                resolve();
-              });
-            }).on('error', () => resolve());
-            return;
-          }
-
-          r.pipe(file);
-          r.on('end', () => {
-            try {
-              fs.closeSync(file.fd);
-            } catch {}
-            try {
-              fs.copyFileSync(tmp, YTDLP_PATH);
-              fs.chmodSync(YTDLP_PATH, 0o755);
-            } catch {}
-            try {
-              fs.unlinkSync(tmp);
-            } catch {}
-            resolve();
-          });
-        })
-        .on('error', () => resolve());
-    } catch {
-      resolve();
+      const res = await getWithRedirect(startUrl);
+      const out = fs.createWriteStream(tmp);
+      await pipeline(res, out);
+      fs.copyFileSync(tmp, YTDLP_PATH);
+      fs.chmodSync(YTDLP_PATH, 0o755);
+    } catch (e) {
+      console.error('installYtDlp failed:', e && e.message ? e.message : e);
+    } finally {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {}
     }
-  });
+  })();
 }
 
 function guessMimeFromPath(filePath) {
