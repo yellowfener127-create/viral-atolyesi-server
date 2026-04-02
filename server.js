@@ -126,8 +126,6 @@ function streamWithYtDlp(res, url, { cookieFile, format, extraArgs, filenameHint
     ...cookieFlag,
     '--no-check-certificate',
     '--no-playlist',
-    '--quiet',
-    '--no-warnings',
     '--newline',
     '-f',
     format || 'best',
@@ -138,13 +136,8 @@ function streamWithYtDlp(res, url, { cookieFile, format, extraArgs, filenameHint
   ];
 
   const base = safeFilename(filenameHint || 'video');
-  const extGuess = (format && /mp4/i.test(format)) ? 'mp4' : 'bin';
+  const extGuess = (forceMime === 'video/mp4' || (format && /mp4/i.test(format))) ? 'mp4' : 'bin';
   const downloadName = `${base}.${extGuess}`;
-
-  res.setHeader('Content-Type', forceMime || (extGuess === 'mp4' ? 'video/mp4' : 'application/octet-stream'));
-  res.setHeader('Content-Disposition', `attachment; filename="${downloadName.replace(/"/g, '')}"`);
-  // Proxy timeoutları için erken byte gönderimi önemli; chunked stream başlasın.
-  res.flushHeaders?.();
 
   const child = spawn(YTDLP_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -158,11 +151,23 @@ function streamWithYtDlp(res, url, { cookieFile, format, extraArgs, filenameHint
     else res.end();
   });
 
-  child.stdout.pipe(res);
+  // 0 KB dosya sorununu engelle: header'ları sadece ilk gerçek veri gelince gönder.
+  let started = false;
+  const onFirstData = (chunk) => {
+    if (started) return;
+    started = true;
+    res.setHeader('Content-Type', forceMime || (extGuess === 'mp4' ? 'video/mp4' : 'application/octet-stream'));
+    res.setHeader('Content-Disposition', `attachment; filename="${downloadName.replace(/"/g, '')}"`);
+    res.flushHeaders?.();
+    res.write(chunk);
+    child.stdout.pipe(res);
+  };
+  child.stdout.once('data', onFirstData);
+
   child.on('close', (code) => {
     if (code === 0) return;
     // Eğer stream başladıysa artık JSON dönemez; bağlantıyı bitir.
-    if (res.headersSent) {
+    if (started || res.headersSent) {
       console.error('yt-dlp stream failed:', stderr || `exit ${code}`);
       try { res.end(); } catch {}
       return;
@@ -199,11 +204,11 @@ app.all('/download', (req, res) => {
     : [];
 
   if (isYt) {
-    // YouTube: mp4 dene, olmazsa best'e düş.
+    // YouTube: ffmpeg istemeyen "progressive" formatı zorla (ses+video tek dosya).
     try {
       return streamWithYtDlp(res, url, {
         cookieFile,
-        format: 'best[ext=mp4]/best',
+        format: 'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best',
         extraArgs: ['--extractor-args', 'youtube:player_client=android', ...ytNetArgs],
         filenameHint: 'youtube_video',
         forceMime: 'video/mp4'
