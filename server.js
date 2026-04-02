@@ -224,19 +224,34 @@ app.get('/search/tiktok', (req, res) => {
         const parsed = JSON.parse(data);
         const items = tiktokRawItems(parsed);
         const videos = items
-          .map((item) => {
+          .map((item, idx) => {
             const uid = item.author?.uniqueId || item.author?.unique_id || 'user';
             const vid = item.id || item.aweme_id || item.video?.id || item.stats?.videoId;
-            if (!vid) return null;
+
+            const directUrl =
+              item.url ||
+              item.share_url ||
+              item.shareUrl ||
+              item.web_url ||
+              item.video?.url ||
+              item.video?.play_url ||
+              item.video?.download_url ||
+              '';
+
+            const computedUrl = uid && vid ? `https://www.tiktok.com/@${uid}/video/${vid}` : null;
+            const finalUrl = directUrl || computedUrl;
+            if (!finalUrl) return null;
+
+            const idVal = vid || item.id || item.aweme_id || item.video?.id || idx;
             return {
-              id: String(vid),
-              title: item.desc || item.title || 'TikTok Video',
+              id: String(idVal),
+              title: item.desc || item.title || item.caption || 'TikTok Video',
               channel: uid,
               duration: item.video?.duration || item.duration || 0,
               views: item.stats?.playCount || item.stats?.play_count || item.play_count || 0,
               likes: item.stats?.diggCount || item.stats?.digg_count || 0,
-              thumb: item.video?.cover || item.video?.originCover || item.cover || '',
-              url: `https://www.tiktok.com/@${uid}/video/${vid}`,
+              thumb: item.video?.cover || item.video?.originCover || item.cover || item.video?.originCoverUrl || '',
+              url: finalUrl,
               platform: 'tiktok'
             };
           })
@@ -290,24 +305,28 @@ app.get('/search/instagram', (req, res) => {
         const parsed = JSON.parse(data);
         const items = instagramRawItems(parsed);
         const videos = items
-          .filter((item) => isIgVideo(item))
           .map((item) => {
-            const code = item.code || item.shortcode || item.media_code;
+            const urlStr = item.url || item.link || item.web_url || '';
+            const codeFromUrl = typeof urlStr === 'string' ? ((urlStr.match(/reel\/([^/?#]+)/i) || [])[1]) : null;
+            const code = item.code || item.shortcode || item.media_code || codeFromUrl;
             if (!code) return null;
+            const finalUrl = (typeof urlStr === 'string' && urlStr.includes('instagram.com'))
+              ? urlStr
+              : `https://www.instagram.com/reel/${code}/`;
             return {
               id: String(item.id || code),
-              title: typeof item.caption === 'string' ? item.caption : (item.caption?.text || 'Instagram Reels'),
+              title: typeof item.caption === 'string' ? item.caption : (item.caption?.text || item.caption?.text?.value || 'Instagram Reels'),
               channel: item.user?.username || item.owner?.username || '',
               duration: item.video_duration || 0,
               views: item.view_count || item.play_count || item.video_view_count || 0,
               likes: item.like_count || 0,
               thumb: item.image_versions2?.candidates?.[0]?.url || item.thumbnail_url || '',
-              url: `https://www.instagram.com/reel/${code}/`,
+              url: finalUrl,
               platform: 'instagram'
             };
           })
           .filter(Boolean)
-          .filter((v) => v.duration >= 0 && v.duration <= 120);
+          .filter((v) => v && v.url);
         res.json(videos);
       } catch (e) {
         res.status(500).json({ error: 'Instagram parse hatası: ' + e.message });
