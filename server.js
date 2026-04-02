@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -52,10 +52,54 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 
 function installYtDlp() {
   return new Promise((resolve) => {
-    exec(
-      `curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o "${YTDLP_PATH}" && chmod +x "${YTDLP_PATH}"`,
-      () => resolve()
-    );
+    try {
+      // Render ortamında curl her zaman yok; Node ile indir.
+      const url = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+      const tmp = path.join(os.tmpdir(), `yt-dlp_${Date.now()}`);
+
+      const file = fs.createWriteStream(tmp);
+      https
+        .get(url, (r) => {
+          if (r.statusCode && r.statusCode >= 300 && r.statusCode < 400 && r.headers.location) {
+            // redirect
+            https.get(r.headers.location, (r2) => {
+              r2.pipe(file);
+              r2.on('end', () => {
+                try {
+                  fs.closeSync(file.fd);
+                } catch {}
+                try {
+                  fs.copyFileSync(tmp, YTDLP_PATH);
+                  fs.chmodSync(YTDLP_PATH, 0o755);
+                } catch {}
+                try {
+                  fs.unlinkSync(tmp);
+                } catch {}
+                resolve();
+              });
+            }).on('error', () => resolve());
+            return;
+          }
+
+          r.pipe(file);
+          r.on('end', () => {
+            try {
+              fs.closeSync(file.fd);
+            } catch {}
+            try {
+              fs.copyFileSync(tmp, YTDLP_PATH);
+              fs.chmodSync(YTDLP_PATH, 0o755);
+            } catch {}
+            try {
+              fs.unlinkSync(tmp);
+            } catch {}
+            resolve();
+          });
+        })
+        .on('error', () => resolve());
+    } catch {
+      resolve();
+    }
   });
 }
 
@@ -77,6 +121,65 @@ function findYtDlpOutput(outBase) {
   return path.join(dir, files[0]);
 }
 
+function safeFilename(name) {
+  return String(name || 'video')
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 180) || 'video';
+}
+
+function streamWithYtDlp(res, url, { cookieFile, format, extraArgs, filenameHint, forceMime } = {}) {
+  const cookieFlag = cookieFile && fs.existsSync(cookieFile) ? ['--cookies', cookieFile] : [];
+  const args = [
+    ...cookieFlag,
+    '--no-check-certificate',
+    '--no-playlist',
+    '--quiet',
+    '--no-warnings',
+    '--newline',
+    '-f',
+    format || 'best',
+    ...((extraArgs && Array.isArray(extraArgs)) ? extraArgs : []),
+    '-o',
+    '-',
+    url
+  ];
+
+  const base = safeFilename(filenameHint || 'video');
+  const extGuess = (format && /mp4/i.test(format)) ? 'mp4' : 'bin';
+  const downloadName = `${base}.${extGuess}`;
+
+  res.setHeader('Content-Type', forceMime || (extGuess === 'mp4' ? 'video/mp4' : 'application/octet-stream'));
+  res.setHeader('Content-Disposition', `attachment; filename="${downloadName.replace(/"/g, '')}"`);
+  // Proxy timeoutları için erken byte gönderimi önemli; chunked stream başlasın.
+  res.flushHeaders?.();
+
+  const child = spawn(YTDLP_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+  let stderr = '';
+  child.stderr.on('data', (d) => {
+    stderr += d.toString();
+    if (stderr.length > 60_000) stderr = stderr.slice(-60_000);
+  });
+  child.on('error', (e) => {
+    if (!res.headersSent) res.status(500).json({ error: 'yt-dlp spawn hatası: ' + e.message });
+    else res.end();
+  });
+
+  child.stdout.pipe(res);
+  child.on('close', (code) => {
+    if (code === 0) return;
+    // Eğer stream başladıysa artık JSON dönemez; bağlantıyı bitir.
+    if (res.headersSent) {
+      console.error('yt-dlp stream failed:', stderr || `exit ${code}`);
+      try { res.end(); } catch {}
+      return;
+    }
+    res.status(500).json({ error: 'İndirme hatası: ' + (stderr || `exit ${code}`) });
+  });
+}
+
 // YouTube / TikTok / Instagram indirme (yt-dlp; ffmpeg gerekmez — tek parça "best")
 app.all('/download', (req, res) => {
   const url = req.query?.url || req.body?.url || req.body?.videoUrl || req.body?.link;
@@ -91,40 +194,39 @@ app.all('/download', (req, res) => {
   else if (isTiktok) cookieFile = COOKIES_TIKTOK_PATH;
   else if (isInstagram) cookieFile = COOKIES_INSTAGRAM_PATH;
 
-  const cookieFlag = cookieFile && fs.existsSync(cookieFile) ? `--cookies "${cookieFile}"` : '';
-  const ytAndroid = isYt ? ' --extractor-args "youtube:player_client=android"' : '';
-  const ytNet = isYt ? ' --geo-bypass --force-ipv4 --referer "https://www.youtube.com/" --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"' : '';
-  const execOpts = { timeout: 300000, maxBuffer: 12 * 1024 * 1024 };
-  // YouTube'da bazen progressive mp4 yok; önce mp4 dener, yoksa best'e düşer.
-  const format = isYt ? 'best[ext=mp4]/best' : 'best';
+  // Render 502 sebebi genelde: indirme tamamlanana kadar response boş kalıyor ve proxy timeout oluyor.
+  // Çözüm: yt-dlp çıktısını doğrudan response'a stream et (ilk byte hemen gitsin).
+  const ytNetArgs = isYt
+    ? [
+        '--geo-bypass',
+        '--force-ipv4',
+        '--referer',
+        'https://www.youtube.com/',
+        '--user-agent',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+      ]
+    : [];
 
-  const outBase1 = path.join(os.tmpdir(), `va_${Date.now()}_a`);
-  const cmd1 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytAndroid}${ytNet} -f "${format}" -o "${outBase1}.%(ext)s" "${url}"`;
-
-  exec(cmd1, execOpts, (err1, so1, se1) => {
-    let filepath = findYtDlpOutput(outBase1);
-    if (filepath && fs.existsSync(filepath)) return sendDownloadedFile(res, filepath);
-
-    const outBase2 = path.join(os.tmpdir(), `va_${Date.now()}_b`);
-    const ytWeb = isYt ? ' --extractor-args "youtube:player_client=web"' : '';
-    const cmd2 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytWeb}${ytNet} -f "${format}" -o "${outBase2}.%(ext)s" "${url}"`;
-
-    exec(cmd2, execOpts, (err2, so2, se2) => {
-      filepath = findYtDlpOutput(outBase2);
-      if (filepath && fs.existsSync(filepath)) return sendDownloadedFile(res, filepath);
-
-      const outBase3 = path.join(os.tmpdir(), `va_${Date.now()}_c`);
-      // Son çare: herhangi bir format (YouTube'da mp4 şartını kaldır)
-      const lastFormat = isYt ? 'best' : format;
-      const cmd3 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytNet} -f "${lastFormat}" -o "${outBase3}.%(ext)s" "${url}"`;
-      exec(cmd3, execOpts, (err3, so3, se3) => {
-        filepath = findYtDlpOutput(outBase3);
-        if (filepath && fs.existsSync(filepath)) return sendDownloadedFile(res, filepath);
-        const msg = se3 || se2 || se1 || err3?.message || err2?.message || err1?.message || 'Dosya oluşturulamadı';
-        console.error('yt-dlp download failed:', msg);
-        res.status(500).json({ error: 'İndirme hatası: ' + msg });
+  if (isYt) {
+    // YouTube: mp4 dene, olmazsa best'e düş.
+    try {
+      return streamWithYtDlp(res, url, {
+        cookieFile,
+        format: 'best[ext=mp4]/best',
+        extraArgs: ['--extractor-args', 'youtube:player_client=android', ...ytNetArgs],
+        filenameHint: 'youtube_video',
+        forceMime: 'video/mp4'
       });
-    });
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  return streamWithYtDlp(res, url, {
+    cookieFile,
+    format: isYt ? 'best' : 'best',
+    extraArgs: ytNetArgs,
+    filenameHint: (isTiktok ? 'tiktok_video' : isInstagram ? 'instagram_video' : 'video')
   });
 });
 
