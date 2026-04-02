@@ -120,9 +120,9 @@ function safeFilename(name) {
     .slice(0, 180) || 'video';
 }
 
-function streamWithYtDlp(res, url, { cookieFile, format, extraArgs, filenameHint, forceMime } = {}) {
+function buildYtDlpArgs(url, { cookieFile, format, extraArgs } = {}) {
   const cookieFlag = cookieFile && fs.existsSync(cookieFile) ? ['--cookies', cookieFile] : [];
-  const args = [
+  return [
     ...cookieFlag,
     '--no-check-certificate',
     '--no-playlist',
@@ -134,45 +134,47 @@ function streamWithYtDlp(res, url, { cookieFile, format, extraArgs, filenameHint
     '-',
     url
   ];
+}
 
+async function attemptStreamToResponse(res, url, { cookieFile, format, extraArgs, filenameHint, forceExt } = {}) {
+  const args = buildYtDlpArgs(url, { cookieFile, format, extraArgs });
   const base = safeFilename(filenameHint || 'video');
-  const extGuess = (forceMime === 'video/mp4' || (format && /mp4/i.test(format))) ? 'mp4' : 'bin';
+  const extGuess = forceExt || ((format && /mp4/i.test(format)) ? 'mp4' : 'bin');
   const downloadName = `${base}.${extGuess}`;
 
-  const child = spawn(YTDLP_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  return await new Promise((resolve) => {
+    const child = spawn(YTDLP_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    let started = false;
 
-  let stderr = '';
-  child.stderr.on('data', (d) => {
-    stderr += d.toString();
-    if (stderr.length > 60_000) stderr = stderr.slice(-60_000);
-  });
-  child.on('error', (e) => {
-    if (!res.headersSent) res.status(500).json({ error: 'yt-dlp spawn hatası: ' + e.message });
-    else res.end();
-  });
+    child.stderr.on('data', (d) => {
+      stderr += d.toString();
+      if (stderr.length > 80_000) stderr = stderr.slice(-80_000);
+    });
 
-  // 0 KB dosya sorununu engelle: header'ları sadece ilk gerçek veri gelince gönder.
-  let started = false;
-  const onFirstData = (chunk) => {
-    if (started) return;
-    started = true;
-    res.setHeader('Content-Type', forceMime || (extGuess === 'mp4' ? 'video/mp4' : 'application/octet-stream'));
-    res.setHeader('Content-Disposition', `attachment; filename="${downloadName.replace(/"/g, '')}"`);
-    res.flushHeaders?.();
-    res.write(chunk);
-    child.stdout.pipe(res);
-  };
-  child.stdout.once('data', onFirstData);
+    child.on('error', (e) => {
+      resolve({ ok: false, started: false, stderr: 'yt-dlp spawn hatası: ' + e.message });
+    });
 
-  child.on('close', (code) => {
-    if (code === 0) return;
-    // Eğer stream başladıysa artık JSON dönemez; bağlantıyı bitir.
-    if (started || res.headersSent) {
-      console.error('yt-dlp stream failed:', stderr || `exit ${code}`);
-      try { res.end(); } catch {}
-      return;
-    }
-    res.status(500).json({ error: 'İndirme hatası: ' + (stderr || `exit ${code}`) });
+    child.stdout.once('data', (chunk) => {
+      started = true;
+      res.setHeader('Content-Type', extGuess === 'mp4' ? 'video/mp4' : 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${downloadName.replace(/"/g, '')}"`);
+      res.flushHeaders?.();
+      res.write(chunk);
+      child.stdout.pipe(res);
+      resolve({ ok: true, started: true, stderr: '' });
+    });
+
+    child.on('close', (code) => {
+      if (started) {
+        if (code !== 0) console.error('yt-dlp stream failed:', stderr || `exit ${code}`);
+        try { res.end(); } catch {}
+        return;
+      }
+      if (code === 0) return resolve({ ok: false, started: false, stderr: 'Boş çıktı (0 byte)' });
+      resolve({ ok: false, started: false, stderr: stderr || `exit ${code}` });
+    });
   });
 }
 
@@ -204,26 +206,48 @@ app.all('/download', (req, res) => {
     : [];
 
   if (isYt) {
-    // YouTube: ffmpeg istemeyen "progressive" formatı zorla (ses+video tek dosya).
-    try {
-      return streamWithYtDlp(res, url, {
+    (async () => {
+      const hasCookies = !!(cookieFile && fs.existsSync(cookieFile));
+      // Cookies varsa android client cookie desteklemediği için WEB kullan.
+      const ytClient = hasCookies ? 'youtube:player_client=web' : 'youtube:player_client=android';
+      const baseArgs = ['--extractor-args', ytClient, ...ytNetArgs];
+
+      // 1) Progressive MP4 (ses+video aynı dosya) dene
+      let r = await attemptStreamToResponse(res, url, {
         cookieFile,
-        format: 'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best',
-        extraArgs: ['--extractor-args', 'youtube:player_client=android', ...ytNetArgs],
+        format: 'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]',
+        extraArgs: baseArgs,
         filenameHint: 'youtube_video',
-        forceMime: 'video/mp4'
+        forceExt: 'mp4'
       });
-    } catch (e) {
-      console.error(e);
-    }
+      if (r.ok) return;
+
+      // 2) MP4 yoksa: best (webm vs) — en azından video insin
+      r = await attemptStreamToResponse(res, url, {
+        cookieFile,
+        format: 'best',
+        extraArgs: baseArgs,
+        filenameHint: 'youtube_video'
+      });
+      if (r.ok) return;
+
+      console.error('yt-dlp download failed:', r.stderr);
+      res.status(500).json({ error: 'İndirme hatası: ' + r.stderr });
+    })();
+    return;
   }
 
-  return streamWithYtDlp(res, url, {
-    cookieFile,
-    format: isYt ? 'best' : 'best',
-    extraArgs: ytNetArgs,
-    filenameHint: (isTiktok ? 'tiktok_video' : isInstagram ? 'instagram_video' : 'video')
-  });
+  (async () => {
+    const r = await attemptStreamToResponse(res, url, {
+      cookieFile,
+      format: 'best',
+      extraArgs: ytNetArgs,
+      filenameHint: (isTiktok ? 'tiktok_video' : isInstagram ? 'instagram_video' : 'video')
+    });
+    if (r.ok) return;
+    console.error('yt-dlp download failed:', r.stderr);
+    res.status(500).json({ error: 'İndirme hatası: ' + r.stderr });
+  })();
 });
 
 function sendDownloadedFile(res, filepath) {
