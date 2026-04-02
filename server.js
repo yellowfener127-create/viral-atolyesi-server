@@ -222,11 +222,31 @@ app.all('/download', (req, res) => {
       });
       if (r.ok) return;
 
+      // YouTube bazen web/consent/bot sayfası döndürür -> "Only images are available" vb.
+      // Bu durumda cookies'i kapatıp iOS client ile tekrar denemek çoğu zaman çalışır.
+      r = await attemptStreamToResponse(res, url, {
+        cookieFile: null,
+        format: 'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]',
+        extraArgs: ['--extractor-args', 'youtube:player_client=ios', ...ytNetArgs],
+        filenameHint: 'youtube_video',
+        forceExt: 'mp4'
+      });
+      if (r.ok) return;
+
       // 2) MP4 yoksa: best (webm vs) — en azından video insin
       r = await attemptStreamToResponse(res, url, {
         cookieFile,
         format: 'best',
         extraArgs: baseArgs,
+        filenameHint: 'youtube_video'
+      });
+      if (r.ok) return;
+
+      // 3) Son çare: cookies kapalı + android client + best (bazı videolarda web blocked iken çalışır)
+      r = await attemptStreamToResponse(res, url, {
+        cookieFile: null,
+        format: 'best',
+        extraArgs: ['--extractor-args', 'youtube:player_client=android', ...ytNetArgs],
         filenameHint: 'youtube_video'
       });
       if (r.ok) return;
