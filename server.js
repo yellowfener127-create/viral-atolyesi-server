@@ -94,6 +94,7 @@ app.all('/download', (req, res) => {
   const cookieFlag = cookieFile && fs.existsSync(cookieFile) ? `--cookies "${cookieFile}"` : '';
   const ytAndroid = isYt ? ' --extractor-args "youtube:player_client=android"' : '';
   const execOpts = { timeout: 300000, maxBuffer: 12 * 1024 * 1024 };
+  // YouTube'da bazen progressive mp4 yok; önce mp4 dener, yoksa best'e düşer.
   const format = isYt ? 'best[ext=mp4]/best' : 'best';
 
   const outBase1 = path.join(os.tmpdir(), `va_${Date.now()}_a`);
@@ -112,7 +113,9 @@ app.all('/download', (req, res) => {
       if (filepath && fs.existsSync(filepath)) return sendDownloadedFile(res, filepath);
 
       const outBase3 = path.join(os.tmpdir(), `va_${Date.now()}_c`);
-      const cmd3 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist -f "${format}" -o "${outBase3}.%(ext)s" "${url}"`;
+      // Son çare: herhangi bir format (YouTube'da mp4 şartını kaldır)
+      const lastFormat = isYt ? 'best' : format;
+      const cmd3 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist -f "${lastFormat}" -o "${outBase3}.%(ext)s" "${url}"`;
       exec(cmd3, execOpts, (err3, so3, se3) => {
         filepath = findYtDlpOutput(outBase3);
         if (filepath && fs.existsSync(filepath)) return sendDownloadedFile(res, filepath);
@@ -250,6 +253,9 @@ app.get('/search/tiktok', (req, res) => {
     response.on('data', (chunk) => { data += chunk; });
     response.on('end', () => {
       try {
+        if (response.statusCode && response.statusCode >= 400) {
+          return res.status(response.statusCode).json({ error: 'TikTok upstream hata: ' + data });
+        }
         const parsed = JSON.parse(data);
         const items = tiktokRawItems(parsed);
         const videos = items
@@ -346,6 +352,9 @@ app.get('/search/instagram', (req, res) => {
     response.on('data', (chunk) => { data += chunk; });
     response.on('end', () => {
       try {
+        if (response.statusCode && response.statusCode >= 400) {
+          return res.status(response.statusCode).json({ error: 'Instagram upstream hata: ' + data });
+        }
         const parsed = JSON.parse(data);
         const items = instagramRawItems(parsed);
         const videos = items
