@@ -51,16 +51,44 @@ const COOKIES_INSTAGRAM_PATH = path.join(__dirname, 'www.instagram.com_cookies.t
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || 'fa585a7e00mshd7e15329a3e4fe2p17ec23jsn54ade22ae56f';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
+function normalizeNetscapeCookies(text) {
+  let s = String(text || '').replace(/^\uFEFF/, '');
+  s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (!/#\s*Netscape HTTP Cookie File/i.test(s.split('\n', 1)[0] || '')) {
+    if (!s.trim().startsWith('#')) s = '# Netscape HTTP Cookie File\n' + s;
+  }
+  return s;
+}
+
 function ensureCookieFileFromEnv(envName, filePath) {
   const b64 = process.env[envName];
   if (!b64) return;
   try {
-    const decoded = Buffer.from(String(b64), 'base64').toString('utf8');
+    const trimmed = String(b64).trim().replace(/\s+/g, '');
+    const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
     if (!decoded || decoded.length < 50) return;
-    fs.writeFileSync(filePath, decoded, { encoding: 'utf8' });
+    const normalized = normalizeNetscapeCookies(decoded);
+    fs.writeFileSync(filePath, normalized, { encoding: 'utf8' });
   } catch (e) {
     console.error(`ensureCookieFileFromEnv failed (${envName}):`, e && e.message ? e.message : e);
   }
+}
+
+/** Render "Gizli Dosyalar" → /etc/secrets/<dosya> */
+const YT_COOKIES_SECRET = '/etc/secrets/www.youtube.com_cookies.txt';
+
+function resolveYoutubeCookieFile() {
+  if (fs.existsSync(YT_COOKIES_SECRET)) {
+    try {
+      if (fs.statSync(YT_COOKIES_SECRET).size > 100) return YT_COOKIES_SECRET;
+    } catch {}
+  }
+  if (fs.existsSync(COOKIES_PATH)) {
+    try {
+      if (fs.statSync(COOKIES_PATH).size > 100) return COOKIES_PATH;
+    } catch {}
+  }
+  return null;
 }
 
 function cookieFileInfo(filePath) {
@@ -158,16 +186,24 @@ function buildYtDlpArgs(url, { cookieFile, format, extraArgs } = {}) {
   ];
 }
 
-async function attemptStreamToResponse(res, url, { cookieFile, format, extraArgs, filenameHint, forceExt } = {}) {
+async function attemptStreamToResponse(res, url, { cookieFile, format, extraArgs, filenameHint, forceExt, timeoutMs } = {}) {
   const args = buildYtDlpArgs(url, { cookieFile, format, extraArgs });
   const base = safeFilename(filenameHint || 'video');
   const extGuess = forceExt || ((format && /mp4/i.test(format)) ? 'mp4' : 'bin');
   const downloadName = `${base}.${extGuess}`;
+  const maxWait = typeof timeoutMs === 'number' ? timeoutMs : 120000;
 
   return await new Promise((resolve) => {
     const child = spawn(YTDLP_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stderr = '';
     let started = false;
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      try { child.kill('SIGKILL'); } catch {}
+      stderr += '\n[timeout] yt-dlp ' + maxWait + 'ms içinde başlamadı veya takıldı.';
+    }, maxWait);
 
     child.stderr.on('data', (d) => {
       stderr += d.toString();
@@ -175,11 +211,16 @@ async function attemptStreamToResponse(res, url, { cookieFile, format, extraArgs
     });
 
     child.on('error', (e) => {
+      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
       resolve({ ok: false, started: false, stderr: 'yt-dlp spawn hatası: ' + e.message });
     });
 
     child.stdout.once('data', (chunk) => {
+      if (settled) return;
       started = true;
+      clearTimeout(timer);
       res.setHeader('Content-Type', extGuess === 'mp4' ? 'video/mp4' : 'application/octet-stream');
       res.setHeader('Content-Disposition', `attachment; filename="${downloadName.replace(/"/g, '')}"`);
       res.flushHeaders?.();
@@ -189,11 +230,14 @@ async function attemptStreamToResponse(res, url, { cookieFile, format, extraArgs
     });
 
     child.on('close', (code) => {
+      clearTimeout(timer);
       if (started) {
         if (code !== 0) console.error('yt-dlp stream failed:', stderr || `exit ${code}`);
         try { res.end(); } catch {}
         return;
       }
+      if (settled) return;
+      settled = true;
       if (code === 0) return resolve({ ok: false, started: false, stderr: 'Boş çıktı (0 byte)' });
       resolve({ ok: false, started: false, stderr: stderr || `exit ${code}` });
     });
@@ -210,76 +254,70 @@ app.all('/download', (req, res) => {
   const isInstagram = /instagram\.com|instagr\.am/i.test(url);
 
   let cookieFile = null;
-  if (isYt) cookieFile = COOKIES_PATH;
-  else if (isTiktok) cookieFile = COOKIES_TIKTOK_PATH;
-  else if (isInstagram) cookieFile = COOKIES_INSTAGRAM_PATH;
+  if (isYt) {
+    ensureCookieFileFromEnv('YT_COOKIES_B64', COOKIES_PATH);
+    cookieFile = resolveYoutubeCookieFile();
+  } else if (isTiktok) {
+    ensureCookieFileFromEnv('TT_COOKIES_B64', COOKIES_TIKTOK_PATH);
+    cookieFile = fs.existsSync(COOKIES_TIKTOK_PATH) ? COOKIES_TIKTOK_PATH : null;
+  } else if (isInstagram) {
+    ensureCookieFileFromEnv('IG_COOKIES_B64', COOKIES_INSTAGRAM_PATH);
+    cookieFile = fs.existsSync(COOKIES_INSTAGRAM_PATH) ? COOKIES_INSTAGRAM_PATH : null;
+  }
 
   // Render 502 sebebi genelde: indirme tamamlanana kadar response boş kalıyor ve proxy timeout oluyor.
   // Çözüm: yt-dlp çıktısını doğrudan response'a stream et (ilk byte hemen gitsin).
+  const ytUa =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36';
   const ytNetArgs = isYt
-    ? [
-        '--geo-bypass',
-        '--force-ipv4',
-        '--referer',
-        'https://www.youtube.com/',
-        '--user-agent',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
-      ]
+    ? ['--geo-bypass', '--force-ipv4', '--referer', 'https://www.youtube.com/', '--user-agent', ytUa]
+    : [];
+  const ytNetArgsNoForce4 = isYt
+    ? ['--geo-bypass', '--referer', 'https://www.youtube.com/', '--user-agent', ytUa]
     : [];
 
   if (isYt) {
     (async () => {
       const hasCookies = !!(cookieFile && fs.existsSync(cookieFile));
-      // Cookies varsa android client cookie desteklemediği için WEB kullan.
-      const ytClient = hasCookies ? 'youtube:player_client=web' : 'youtube:player_client=android';
-      const baseArgs = ['--extractor-args', ytClient, ...ytNetArgs];
+      const fmtProg =
+        'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]';
+      const fmtBest = 'best';
 
-      // 1) Progressive MP4 (ses+video aynı dosya) dene
-      let r = await attemptStreamToResponse(res, url, {
-        cookieFile,
-        format: 'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]',
-        extraArgs: baseArgs,
-        filenameHint: 'youtube_video',
-        forceExt: 'mp4'
-      });
-      if (r.ok) return;
+      const tries = [
+        { name: 'web+mp4', cookieFile, format: fmtProg, extra: ['--extractor-args', 'youtube:player_client=web', ...ytNetArgs], forceExt: 'mp4' },
+        { name: 'ios+mp4', cookieFile: hasCookies ? cookieFile : null, format: fmtProg, extra: ['--extractor-args', 'youtube:player_client=ios', ...ytNetArgs], forceExt: 'mp4' },
+        { name: 'tv_embedded+mp4', cookieFile, format: fmtProg, extra: ['--extractor-args', 'youtube:player_client=tv_embedded', ...ytNetArgs], forceExt: 'mp4' },
+        { name: 'mweb+mp4', cookieFile, format: fmtProg, extra: ['--extractor-args', 'youtube:player_client=mweb', ...ytNetArgs], forceExt: 'mp4' },
+        { name: 'web+best', cookieFile, format: fmtBest, extra: ['--extractor-args', 'youtube:player_client=web', ...ytNetArgs] },
+        { name: 'ios+best', cookieFile: hasCookies ? cookieFile : null, format: fmtBest, extra: ['--extractor-args', 'youtube:player_client=ios', ...ytNetArgs] },
+        { name: 'tv_embedded+best', cookieFile, format: fmtBest, extra: ['--extractor-args', 'youtube:player_client=tv_embedded', ...ytNetArgs] },
+        { name: 'web+mp4 (no force-ipv4)', cookieFile, format: fmtProg, extra: ['--extractor-args', 'youtube:player_client=web', ...ytNetArgsNoForce4], forceExt: 'mp4' },
+        { name: 'android no cookies', cookieFile: null, format: fmtBest, extra: ['--extractor-args', 'youtube:player_client=android', ...ytNetArgs] }
+      ];
 
-      // 2) Web client bazen bot/consent sayfasına takılır. iOS client çoğu zaman daha stabil.
-      // Cookies varsa iOS + cookies dene (android cookies desteklemiyor ama iOS destekler).
-      r = await attemptStreamToResponse(res, url, {
-        cookieFile: hasCookies ? cookieFile : null,
-        format: 'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]',
-        extraArgs: ['--extractor-args', 'youtube:player_client=ios', ...ytNetArgs],
-        filenameHint: 'youtube_video',
-        forceExt: 'mp4'
-      });
-      if (r.ok) return;
+      let lastErr = '';
+      for (const t of tries) {
+        const r = await attemptStreamToResponse(res, url, {
+          cookieFile: t.cookieFile,
+          format: t.format,
+          extraArgs: t.extra,
+          filenameHint: 'youtube_video',
+          forceExt: t.forceExt,
+          timeoutMs: 100000
+        });
+        if (r.ok) return;
+        lastErr = r.stderr || lastErr;
+        console.error(`yt-dlp try "${t.name}" failed`);
+      }
 
-      // 2) MP4 yoksa: best (webm vs) — en azından video insin
-      r = await attemptStreamToResponse(res, url, {
-        cookieFile,
-        format: 'best',
-        extraArgs: baseArgs,
-        filenameHint: 'youtube_video'
-      });
-      if (r.ok) return;
-
-      // 3) Son çare: cookies kapalı + android client + best (bazı videolarda web blocked iken çalışır)
-      r = await attemptStreamToResponse(res, url, {
-        cookieFile: null,
-        format: 'best',
-        extraArgs: ['--extractor-args', 'youtube:player_client=android', ...ytNetArgs],
-        filenameHint: 'youtube_video'
-      });
-      if (r.ok) return;
-
-      const errText = String(r.stderr || '');
+      const errText = String(lastErr || '');
       console.error('yt-dlp download failed:', errText);
-      if (/confirm you're not a bot|sign in|cookies-from-browser/i.test(errText)) {
+      if (/confirm you're not a bot|sign in|cookies-from-browser|oturum açın/i.test(errText)) {
         return res.status(403).json({
           error:
-            'YouTube indirme engellendi (bot doğrulaması / giriş gerekiyor). ' +
-            'Çözüm: `www.youtube.com_cookies.txt` dosyasını güncelle (Chrome’dan export, Netscape format) ve tekrar dene.'
+            'YouTube hâlâ bot doğrulaması istiyor. Olası nedenler: (1) Cookie dosyasında LOGIN_INFO / güncel oturum yok — ' +
+            'Chrome’da youtube.com’a giriş yapıp "Get cookies.txt LOCALLY" ile yeniden export et; Render’da YT_COOKIES_B64’ü güncelle. ' +
+            '(2) Bazı videolar veya Render IP’si sunucu tarafında bloklanır; o durumda indirmeyi kendi bilgisayarında yt-dlp ile yap.'
         });
       }
       res.status(500).json({ error: 'İndirme hatası: ' + errText });
@@ -588,6 +626,10 @@ app.get('/status', (req, res) => {
       yt: !!process.env.YT_COOKIES_B64,
       tt: !!process.env.TT_COOKIES_B64,
       ig: !!process.env.IG_COOKIES_B64
+    },
+    youtubeCookieSource: {
+      secretFile: fs.existsSync(YT_COOKIES_SECRET),
+      resolved: resolveYoutubeCookieFile() ? 'ok' : 'missing'
     }
   });
 });
