@@ -577,7 +577,19 @@ app.get('/search/instagram', (req, res) => {
 app.get('/ping', (req, res) => { res.json({ status: 'alive' }); });
 
 app.get('/status', (req, res) => {
-  res.json({ status: 'Viral Atölyesi Sunucu Çalışıyor!' });
+  res.json({
+    status: 'Viral Atölyesi Sunucu Çalışıyor!',
+    cookies: {
+      yt: cookieFileInfo(COOKIES_PATH),
+      tt: cookieFileInfo(COOKIES_TIKTOK_PATH),
+      ig: cookieFileInfo(COOKIES_INSTAGRAM_PATH)
+    },
+    env: {
+      yt: !!process.env.YT_COOKIES_B64,
+      tt: !!process.env.TT_COOKIES_B64,
+      ig: !!process.env.IG_COOKIES_B64
+    }
+  });
 });
 
 app.get('*', (req, res) => {
