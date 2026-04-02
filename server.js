@@ -222,10 +222,10 @@ app.all('/download', (req, res) => {
       });
       if (r.ok) return;
 
-      // YouTube bazen web/consent/bot sayfası döndürür -> "Only images are available" vb.
-      // Bu durumda cookies'i kapatıp iOS client ile tekrar denemek çoğu zaman çalışır.
+      // 2) Web client bazen bot/consent sayfasına takılır. iOS client çoğu zaman daha stabil.
+      // Cookies varsa iOS + cookies dene (android cookies desteklemiyor ama iOS destekler).
       r = await attemptStreamToResponse(res, url, {
-        cookieFile: null,
+        cookieFile: hasCookies ? cookieFile : null,
         format: 'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]',
         extraArgs: ['--extractor-args', 'youtube:player_client=ios', ...ytNetArgs],
         filenameHint: 'youtube_video',
@@ -251,8 +251,16 @@ app.all('/download', (req, res) => {
       });
       if (r.ok) return;
 
-      console.error('yt-dlp download failed:', r.stderr);
-      res.status(500).json({ error: 'İndirme hatası: ' + r.stderr });
+      const errText = String(r.stderr || '');
+      console.error('yt-dlp download failed:', errText);
+      if (/confirm you're not a bot|sign in|cookies-from-browser/i.test(errText)) {
+        return res.status(403).json({
+          error:
+            'YouTube indirme engellendi (bot doğrulaması / giriş gerekiyor). ' +
+            'Çözüm: `www.youtube.com_cookies.txt` dosyasını güncelle (Chrome’dan export, Netscape format) ve tekrar dene.'
+        });
+      }
+      res.status(500).json({ error: 'İndirme hatası: ' + errText });
     })();
     return;
   }
