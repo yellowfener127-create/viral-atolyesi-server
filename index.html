@@ -782,7 +782,8 @@ async function doSearch() {
   hideError();
 
   const cached = getCached(activeCat, activePlat);
-  if (cached && ((cached.main && cached.main.length) || (cached.short && cached.short.length))) {
+  // TikTok/Instagram için cache'i bypass ediyoruz: RapidAPI yanıtı bazen ilk denemede boş gelebiliyor ve bu boş cache'i kalıcı yapıyordu.
+  if (activePlat === "youtube" && cached && ((cached.main && cached.main.length) || (cached.short && cached.short.length))) {
     renderVideos(cached.main, cached.short, true);
     return;
   }
