@@ -782,7 +782,7 @@ async function doSearch() {
   hideError();
 
   const cached = getCached(activeCat, activePlat);
-  if (cached) {
+  if (cached && ((cached.main && cached.main.length) || (cached.short && cached.short.length))) {
     renderVideos(cached.main, cached.short, true);
     return;
   }

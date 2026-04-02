@@ -226,23 +226,38 @@ app.get('/search/tiktok', (req, res) => {
         const videos = items
           .map((item, idx) => {
             const uid = item.author?.uniqueId || item.author?.unique_id || 'user';
-            const vid = item.id || item.aweme_id || item.video?.id || item.stats?.videoId;
+            const vidCandidates = [
+              item.id,
+              item.aweme_id,
+              item.video?.id,
+              item.video_id,
+              item.video?.video_id,
+              item.stats?.videoId,
+              item.stats?.video_id,
+              item.aweme?.id,
+              idx
+            ].filter(Boolean);
+
+            const vid = vidCandidates[0];
 
             const directUrl =
               item.url ||
               item.share_url ||
               item.shareUrl ||
               item.web_url ||
+              item.link ||
               item.video?.url ||
               item.video?.play_url ||
               item.video?.download_url ||
+              item.play_url ||
+              item.download_url ||
               '';
 
             const computedUrl = uid && vid ? `https://www.tiktok.com/@${uid}/video/${vid}` : null;
             const finalUrl = directUrl || computedUrl;
             if (!finalUrl) return null;
 
-            const idVal = vid || item.id || item.aweme_id || item.video?.id || idx;
+            const idVal = vid || idx;
             return {
               id: String(idVal),
               title: item.desc || item.title || item.caption || 'TikTok Video',
