@@ -14,6 +14,16 @@ app.use(express.static(path.join(__dirname, 'public'))); // 2. Sırada bu olmal�
 app.use(cors({ exposedHeaders: ['Content-Disposition'] }));
 app.use(express.json({ limit: '1mb' }));
 
+// Request log (Render loglarında istekleri görebilmek için)
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    console.log(`${req.method} ${req.originalUrl} -> ${res.statusCode} (${ms}ms)`);
+  });
+  next();
+});
+
 const YTDLP_PATH = path.join(__dirname, 'yt-dlp');
 const COOKIES_PATH = path.join(__dirname, 'www.youtube.com_cookies.txt');
 const COOKIES_TIKTOK_PATH = path.join(__dirname, 'www.tiktok.com_cookies.txt');
