@@ -16,7 +16,11 @@ app.use(express.json({ limit: '1mb' }));
 
 const YTDLP_PATH = path.join(__dirname, 'yt-dlp');
 const COOKIES_PATH = path.join(__dirname, 'www.youtube.com_cookies.txt');
-const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+const COOKIES_TIKTOK_PATH = path.join(__dirname, 'www.tiktok.com_cookies.txt');
+const COOKIES_INSTAGRAM_PATH = path.join(__dirname, 'www.instagram.com_cookies.txt');
+// Render tarafında env set edilmese bile çalışabilsin diye fallback ekliyoruz.
+// Not: Bu key'i herkese açık repoya koyma; sadece kullandığın deploy ortamında kullan.
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || 'fa585a7e00mshd7e15329a3e4fe2p17ec23jsn54ade22ae56f';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 function installYtDlp() {
@@ -51,8 +55,16 @@ app.all('/download', (req, res) => {
   const url = req.query?.url || req.body?.url || req.body?.videoUrl || req.body?.link;
   if (!url) return res.status(400).json({ error: 'URL gerekli' });
 
-  const cookieFlag = fs.existsSync(COOKIES_PATH) ? `--cookies "${COOKIES_PATH}"` : '';
   const isYt = /youtube\.com|youtu\.be/i.test(url);
+  const isTiktok = /tiktok\.com/i.test(url);
+  const isInstagram = /instagram\.com|instagr\.am/i.test(url);
+
+  let cookieFile = null;
+  if (isYt) cookieFile = COOKIES_PATH;
+  else if (isTiktok) cookieFile = COOKIES_TIKTOK_PATH;
+  else if (isInstagram) cookieFile = COOKIES_INSTAGRAM_PATH;
+
+  const cookieFlag = cookieFile && fs.existsSync(cookieFile) ? `--cookies "${cookieFile}"` : '';
   const ytAndroid = isYt ? ' --extractor-args "youtube:player_client=android"' : '';
   const execOpts = { timeout: 300000, maxBuffer: 12 * 1024 * 1024 };
 
@@ -229,7 +241,7 @@ app.get('/search/tiktok', (req, res) => {
             };
           })
           .filter(Boolean)
-          .filter((v) => v.duration >= 1 && v.duration <= 180 && v.views >= 0);
+          .filter((v) => v && v.url);
         res.json(videos);
       } catch (e) {
         res.status(500).json({ error: 'TikTok parse hatası: ' + e.message });

@@ -568,15 +568,23 @@ async function startDownload(url, btn) {
     const blob = await res.blob();
     const name = parseFilenameFromContentDisposition(res.headers.get("Content-Disposition"));
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
+    const objectUrl = URL.createObjectURL(blob);
+    a.href = objectUrl;
     a.download = name;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(a.href);
+    // Hemen revoke etmek bazı tarayıcılarda indirmeyi kesebiliyor.
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
   } catch (e) {
     try {
-      window.open(url, "_blank", "noopener");
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
     } catch (e2) {
       alert("İndirme hatası: " + (e.message || e));
     }
@@ -801,14 +809,22 @@ async function doSearch() {
       renderVideos(mainVideos, shortVideos, false);
     } else if (activePlat === "tiktok") {
       const list = await fetchTikTokFeed();
-      const mainVideos = list.filter(v => (v.duration || 0) >= 15).slice(0, 20);
-      const shortVideos = list.filter(v => (v.duration || 0) < 15).slice(0, 10);
+      let mainVideos = list.filter(v => (v.duration || 0) >= 15).slice(0, 20);
+      let shortVideos = list.filter(v => (v.duration || 0) < 15).slice(0, 10);
+      if (mainVideos.length === 0 && shortVideos.length === 0) {
+        mainVideos = list.slice(0, 20);
+        shortVideos = list.slice(20, 30);
+      }
       setCache(activeCat, activePlat, mainVideos, shortVideos);
       renderVideos(mainVideos, shortVideos, false);
     } else {
       const list = await fetchInstagramFeed();
-      const mainVideos = list.filter(v => (v.duration || 0) >= 15).slice(0, 20);
-      const shortVideos = list.filter(v => (v.duration || 0) < 15).slice(0, 10);
+      let mainVideos = list.filter(v => (v.duration || 0) >= 15).slice(0, 20);
+      let shortVideos = list.filter(v => (v.duration || 0) < 15).slice(0, 10);
+      if (mainVideos.length === 0 && shortVideos.length === 0) {
+        mainVideos = list.slice(0, 20);
+        shortVideos = list.slice(20, 30);
+      }
       setCache(activeCat, activePlat, mainVideos, shortVideos);
       renderVideos(mainVideos, shortVideos, false);
     }
