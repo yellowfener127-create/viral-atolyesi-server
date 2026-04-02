@@ -51,6 +51,18 @@ const COOKIES_INSTAGRAM_PATH = path.join(__dirname, 'www.instagram.com_cookies.t
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || 'fa585a7e00mshd7e15329a3e4fe2p17ec23jsn54ade22ae56f';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
+function ensureCookieFileFromEnv(envName, filePath) {
+  const b64 = process.env[envName];
+  if (!b64) return;
+  try {
+    const decoded = Buffer.from(String(b64), 'base64').toString('utf8');
+    if (!decoded || decoded.length < 50) return;
+    fs.writeFileSync(filePath, decoded, { encoding: 'utf8' });
+  } catch (e) {
+    console.error(`ensureCookieFileFromEnv failed (${envName}):`, e && e.message ? e.message : e);
+  }
+}
+
 function installYtDlp() {
   // Render ortamında curl her zaman yok; Node ile indir (redirect destekli, EBADF'siz).
   const startUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
@@ -564,6 +576,15 @@ app.get('*', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 installYtDlp().then(() => {
+  // Cookies'leri repoya koymak yerine Render ENV üzerinden ver.
+  // Render Dashboard -> Environment:
+  // - YT_COOKIES_B64 : base64(Netscape cookies.txt)
+  // - TT_COOKIES_B64 : base64(...)
+  // - IG_COOKIES_B64 : base64(...)
+  ensureCookieFileFromEnv('YT_COOKIES_B64', COOKIES_PATH);
+  ensureCookieFileFromEnv('TT_COOKIES_B64', COOKIES_TIKTOK_PATH);
+  ensureCookieFileFromEnv('IG_COOKIES_B64', COOKIES_INSTAGRAM_PATH);
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Sunucu ${PORT} portunda çalışıyor`);
   });
