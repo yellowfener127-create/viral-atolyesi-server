@@ -14,6 +14,23 @@ app.use(express.static(path.join(__dirname, 'public'))); // 2. Sırada bu olmal�
 app.use(cors({ exposedHeaders: ['Content-Disposition'] }));
 app.use(express.json({ limit: '1mb' }));
 
+// API response caching/etag kapat (304 dönüp frontend'in json() kırılmasını engeller)
+app.set('etag', false);
+app.use((req, res, next) => {
+  if (
+    req.path === '/download' ||
+    req.path.startsWith('/search/') ||
+    req.path.startsWith('/youtube/') ||
+    req.path.startsWith('/anthropic/')
+  ) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+  }
+  next();
+});
+
 // Request log (Render loglarında istekleri görebilmek için)
 app.use((req, res, next) => {
   const start = Date.now();
@@ -99,6 +116,7 @@ app.all('/download', (req, res) => {
         filepath = findYtDlpOutput(outBase3);
         if (filepath && fs.existsSync(filepath)) return sendDownloadedFile(res, filepath);
         const msg = se3 || se2 || se1 || err3?.message || err2?.message || err1?.message || 'Dosya oluşturulamadı';
+        console.error('yt-dlp download failed:', msg);
         res.status(500).json({ error: 'İndirme hatası: ' + msg });
       });
     });

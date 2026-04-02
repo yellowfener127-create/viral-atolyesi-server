@@ -560,10 +560,11 @@ async function startDownload(url, btn) {
     btn.textContent = "⏳ İndiriliyor...";
   }
   try {
-    const res = await fetch(url, { method: "GET", mode: "cors" });
+    const res = await fetch(url, { method: "GET", mode: "cors", cache: "no-store" });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || res.status + " " + res.statusText);
+      alert(err.error || (res.status + " " + res.statusText));
+      return;
     }
     const blob = await res.blob();
     const name = parseFilenameFromContentDisposition(res.headers.get("Content-Disposition"));
@@ -688,7 +689,7 @@ async function getChannelSubscribers(channelIds) {
 
 async function fetchTikTokFeed() {
   const q = getTodayQueries(activeCat)[0] || "viral";
-  const res = await fetch(backendUrl("/search/tiktok?q=" + encodeURIComponent(q)));
+  const res = await fetch(backendUrl("/search/tiktok?q=" + encodeURIComponent(q)), { cache: "no-store" });
   const data = await res.json();
   if (!res.ok) throw new Error((data && data.error) || res.statusText || "TikTok API");
   if (!Array.isArray(data)) throw new Error((data && data.error) || "TikTok yanıtı geçersiz");
@@ -702,7 +703,7 @@ async function fetchInstagramFeed() {
   for (const q of queries.slice(0, 4)) {
     const tag = q.split(/\s+/)[0].replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ]/g, "").slice(0, 80) || "viral";
     try {
-      const res = await fetch(backendUrl("/search/instagram?q=" + encodeURIComponent(tag)));
+      const res = await fetch(backendUrl("/search/instagram?q=" + encodeURIComponent(tag)), { cache: "no-store" });
       const arr = await res.json();
       if (!res.ok) throw new Error(arr.error || res.statusText);
       if (Array.isArray(arr)) raw.push(...arr);
@@ -726,7 +727,8 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {
   for (const q of queries) {
     try {
       const sRes = await fetch(
-        backendUrl(`/youtube/search?part=snippet&q=${encodeURIComponent(q)}&type=video&videoDuration=short&order=relevance&maxResults=10&key=${encodeURIComponent(savedKey)}${afterParam}`)
+        backendUrl(`/youtube/search?part=snippet&q=${encodeURIComponent(q)}&type=video&videoDuration=short&order=relevance&maxResults=10&key=${encodeURIComponent(savedKey)}${afterParam}`),
+        { cache: "no-store" }
       );
       const sData = await sRes.json();
       if (sData.error) { showError("API Hatası: " + sData.error.message); return []; }
@@ -735,7 +737,8 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {
       if (!ids) continue;
 
       const vRes = await fetch(
-        backendUrl(`/youtube/videos?part=statistics,snippet,contentDetails&id=${encodeURIComponent(ids)}&key=${encodeURIComponent(savedKey)}`)
+        backendUrl(`/youtube/videos?part=statistics,snippet,contentDetails&id=${encodeURIComponent(ids)}&key=${encodeURIComponent(savedKey)}`),
+        { cache: "no-store" }
       );
       const vData = await vRes.json();
 
