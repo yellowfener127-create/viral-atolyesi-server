@@ -616,13 +616,9 @@ async function startDownload(url, btn) {
   }
   try {
     // GitHub Pages -> Render büyük dosya indirmede fetch(blob) sık sık "Failed to fetch" verir.
-    // Bu ortamda indirmeyi tarayıcıya bırakıyoruz (iframe ile).
+    // Bu ortamda indirmeyi tarayıcıya bırakıyoruz (yeni sekme). İndirilenler listesinde görünmesi için en stabil yöntem.
     if (typeof location !== "undefined" && /github\.io$/i.test(location.hostname || "")) {
-      const iframe = document.createElement("iframe");
-      iframe.style.display = "none";
-      iframe.src = url;
-      document.body.appendChild(iframe);
-      setTimeout(() => iframe.remove(), 60000);
+      window.open(url, "_blank", "noopener");
       return;
     }
 

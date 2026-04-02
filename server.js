@@ -93,12 +93,13 @@ app.all('/download', (req, res) => {
 
   const cookieFlag = cookieFile && fs.existsSync(cookieFile) ? `--cookies "${cookieFile}"` : '';
   const ytAndroid = isYt ? ' --extractor-args "youtube:player_client=android"' : '';
+  const ytNet = isYt ? ' --geo-bypass --force-ipv4 --referer "https://www.youtube.com/" --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"' : '';
   const execOpts = { timeout: 300000, maxBuffer: 12 * 1024 * 1024 };
   // YouTube'da bazen progressive mp4 yok; önce mp4 dener, yoksa best'e düşer.
   const format = isYt ? 'best[ext=mp4]/best' : 'best';
 
   const outBase1 = path.join(os.tmpdir(), `va_${Date.now()}_a`);
-  const cmd1 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytAndroid} -f "${format}" -o "${outBase1}.%(ext)s" "${url}"`;
+  const cmd1 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytAndroid}${ytNet} -f "${format}" -o "${outBase1}.%(ext)s" "${url}"`;
 
   exec(cmd1, execOpts, (err1, so1, se1) => {
     let filepath = findYtDlpOutput(outBase1);
@@ -106,7 +107,7 @@ app.all('/download', (req, res) => {
 
     const outBase2 = path.join(os.tmpdir(), `va_${Date.now()}_b`);
     const ytWeb = isYt ? ' --extractor-args "youtube:player_client=web"' : '';
-    const cmd2 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytWeb} -f "${format}" -o "${outBase2}.%(ext)s" "${url}"`;
+    const cmd2 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytWeb}${ytNet} -f "${format}" -o "${outBase2}.%(ext)s" "${url}"`;
 
     exec(cmd2, execOpts, (err2, so2, se2) => {
       filepath = findYtDlpOutput(outBase2);
@@ -115,7 +116,7 @@ app.all('/download', (req, res) => {
       const outBase3 = path.join(os.tmpdir(), `va_${Date.now()}_c`);
       // Son çare: herhangi bir format (YouTube'da mp4 şartını kaldır)
       const lastFormat = isYt ? 'best' : format;
-      const cmd3 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist -f "${lastFormat}" -o "${outBase3}.%(ext)s" "${url}"`;
+      const cmd3 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytNet} -f "${lastFormat}" -o "${outBase3}.%(ext)s" "${url}"`;
       exec(cmd3, execOpts, (err3, so3, se3) => {
         filepath = findYtDlpOutput(outBase3);
         if (filepath && fs.existsSync(filepath)) return sendDownloadedFile(res, filepath);
