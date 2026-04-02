@@ -578,17 +578,7 @@ async function startDownload(url, btn) {
     // Hemen revoke etmek bazı tarayıcılarda indirmeyi kesebiliyor.
     setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
   } catch (e) {
-    try {
-      const a = document.createElement("a");
-      a.href = url;
-      a.target = "_blank";
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch (e2) {
-      alert("İndirme hatası: " + (e.message || e));
-    }
+    alert("İndirme hatası: " + (e.message || e));
   } finally {
     if (btn) {
       btn.disabled = false;

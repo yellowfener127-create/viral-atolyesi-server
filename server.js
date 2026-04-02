@@ -94,9 +94,10 @@ app.all('/download', (req, res) => {
   const cookieFlag = cookieFile && fs.existsSync(cookieFile) ? `--cookies "${cookieFile}"` : '';
   const ytAndroid = isYt ? ' --extractor-args "youtube:player_client=android"' : '';
   const execOpts = { timeout: 300000, maxBuffer: 12 * 1024 * 1024 };
+  const format = isYt ? 'best[ext=mp4]/best' : 'best';
 
   const outBase1 = path.join(os.tmpdir(), `va_${Date.now()}_a`);
-  const cmd1 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytAndroid} -f best -o "${outBase1}.%(ext)s" "${url}"`;
+  const cmd1 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytAndroid} -f "${format}" -o "${outBase1}.%(ext)s" "${url}"`;
 
   exec(cmd1, execOpts, (err1, so1, se1) => {
     let filepath = findYtDlpOutput(outBase1);
@@ -104,14 +105,14 @@ app.all('/download', (req, res) => {
 
     const outBase2 = path.join(os.tmpdir(), `va_${Date.now()}_b`);
     const ytWeb = isYt ? ' --extractor-args "youtube:player_client=web"' : '';
-    const cmd2 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytWeb} -f best -o "${outBase2}.%(ext)s" "${url}"`;
+    const cmd2 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist${ytWeb} -f "${format}" -o "${outBase2}.%(ext)s" "${url}"`;
 
     exec(cmd2, execOpts, (err2, so2, se2) => {
       filepath = findYtDlpOutput(outBase2);
       if (filepath && fs.existsSync(filepath)) return sendDownloadedFile(res, filepath);
 
       const outBase3 = path.join(os.tmpdir(), `va_${Date.now()}_c`);
-      const cmd3 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist -f best -o "${outBase3}.%(ext)s" "${url}"`;
+      const cmd3 = `"${YTDLP_PATH}" ${cookieFlag} --no-check-certificate --no-playlist -f "${format}" -o "${outBase3}.%(ext)s" "${url}"`;
       exec(cmd3, execOpts, (err3, so3, se3) => {
         filepath = findYtDlpOutput(outBase3);
         if (filepath && fs.existsSync(filepath)) return sendDownloadedFile(res, filepath);
