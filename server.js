@@ -581,21 +581,29 @@ app.get('/search/tiktok', (req, res) => {
   if (cached) return res.json(cached);
 
   // Auto-adapter: birden fazla RapidAPI sağlayıcısını dener.
-  // 1) Kullanıcının abone olabileceği "tiktok-video-downloader-api" genelde /user/{username} endpoint'i sunar.
   const q = String(query || '').trim().replace(/^@+/, '');
+  const envHost = (process.env.RAPIDAPI_TIKTOK_HOST || '').trim();
+  const envHostIsScraper7 = envHost && /tiktok-scraper7\.p\.rapidapi\.com/i.test(envHost);
+
   const providers = [
-    // Provider A: user feed
-    {
-      name: 'tiktok-video-downloader-api',
-      host: process.env.RAPIDAPI_TIKTOK_HOST || 'tiktok-video-downloader-api.p.rapidapi.com',
-      path: `/user/${encodeURIComponent(q)}`
-    },
-    // Provider B: trending scraper (aboneysen çalışır)
-    {
-      name: 'tiktok-scraper7',
-      host: 'tiktok-scraper7.p.rapidapi.com',
-      path: '/trending/feed?region=TR&count=30'
-    }
+    // 1) Env ile verilen host (senin aboneliğin)
+    ...(envHost
+      ? [
+          {
+            name: 'env-host',
+            host: envHost,
+            path: envHostIsScraper7
+              ? '/trending/feed?region=TR&count=30'
+              : `/user/${encodeURIComponent(q)}`
+          }
+        ]
+      : []),
+
+    // 2) TikTok scraper7 (trending)
+    { name: 'tiktok-scraper7', host: 'tiktok-scraper7.p.rapidapi.com', path: '/trending/feed?region=TR&count=30' },
+
+    // 3) Downloader API (bazı hesaplarda user endpoint olabilir)
+    { name: 'tiktok-video-downloader-api', host: 'tiktok-video-downloader-api.p.rapidapi.com', path: `/user/${encodeURIComponent(q)}` }
   ];
 
   (function next(i, lastErr) {
@@ -648,14 +656,23 @@ app.get('/search/instagram', (req, res) => {
   const cached = cacheGet(cacheKey);
   if (cached) return res.json(cached);
 
-  const host = process.env.RAPIDAPI_INSTAGRAM_HOST || 'instagram-scraper-api2.p.rapidapi.com';
-  const path1 = `/v1/hashtag?hashtag=${encodeURIComponent(query)}`;
-  // Bazı sağlayıcılar query paramını farklı adla bekleyebiliyor; ikinci deneme.
-  const path2 = `/v1/hashtag?tag=${encodeURIComponent(query)}`;
+  const host = (process.env.RAPIDAPI_INSTAGRAM_HOST || 'instagram-scraper-api2.p.rapidapi.com').trim();
+  const tag = String(query).trim().replace(/^#/, '');
 
+  // RapidAPI'de IG sağlayıcıları path/param isimlerini çok değiştiriyor.
+  // Bu yüzden yaygın kombinasyonları sırayla deneriz ve "array yakalayıp" map'leriz.
   const providers = [
-    { name: 'instagram-host', host, path: path1 },
-    { name: 'instagram-host-alt', host, path: path2 }
+    // v1 style
+    { name: 'v1-hashtag-hashtag', host, path: `/v1/hashtag?hashtag=${encodeURIComponent(tag)}` },
+    { name: 'v1-hashtag-tag', host, path: `/v1/hashtag?tag=${encodeURIComponent(tag)}` },
+    // stable api'lerde bazen /hashtag veya /hashtag/posts olur
+    { name: 'hashtag-hashtag', host, path: `/hashtag?hashtag=${encodeURIComponent(tag)}` },
+    { name: 'hashtag-tag', host, path: `/hashtag?tag=${encodeURIComponent(tag)}` },
+    { name: 'hashtag-posts', host, path: `/hashtag/posts?hashtag=${encodeURIComponent(tag)}` },
+    { name: 'hashtag-feed', host, path: `/hashtag/feed?hashtag=${encodeURIComponent(tag)}` },
+    // generic query param
+    { name: 'search-q', host, path: `/search?query=${encodeURIComponent(tag)}` },
+    { name: 'search-q2', host, path: `/search?q=${encodeURIComponent(tag)}` }
   ];
 
   (function next(i, lastErr) {
