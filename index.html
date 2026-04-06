@@ -1,9 +1,6 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-<script>
-(function(){try{var m=localStorage.getItem("va_ui")||"nova";document.documentElement.setAttribute("data-ui",m);}catch(e){document.documentElement.setAttribute("data-ui","nova");}})();
-</script>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Viral Atölyesi</title>
@@ -12,22 +9,25 @@
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   :root{
-    --bg:#0a0a0a;--surface:#141414;--card:#1c1c1c;
-    --border:#262626;--text:#f0f0f0;--muted:#555;
+    --bg:#050505;--surface:#0e0e0e;--card:#141414;
+    --border:#242424;--text:#f0f0f0;--muted:#555;
     --accent:#ff4500;--green:#00c853;--blue:#2979ff;--gold:#ffc107;
   }
-  body{background:var(--bg);font-family:'Outfit',sans-serif;color:var(--text);min-height:100vh}
+  body{
+    background:radial-gradient(1200px 600px at 50% -10%,#151515 0%,#050505 55%);
+    font-family:'Outfit',sans-serif;color:var(--text);min-height:100vh;
+  }
 
   /* HEADER */
   .header{
-    background:linear-gradient(180deg,#141414,#0f0f0f);
-    border-bottom:1px solid var(--border);
-    padding:0 24px;height:60px;display:flex;align-items:center;
+    height:64px;border-bottom:1px solid #1f1f1f;
+    background:rgba(8,8,8,0.92);backdrop-filter:saturate(1.2) blur(10px);
+    padding:0 24px;display:flex;align-items:center;
     justify-content:space-between;position:sticky;top:0;z-index:50;gap:12px;
   }
   .logo-wrap{display:flex;align-items:center;gap:10px;flex-shrink:0;min-width:0}
   .brand-logo{
-    width:34px;height:34px;object-fit:contain;flex-shrink:0;display:block;
+    width:38px;height:38px;object-fit:contain;flex-shrink:0;display:block;
     filter:drop-shadow(0 2px 6px rgba(0,0,0,0.55));
   }
   .logo{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px}
@@ -43,14 +43,14 @@
   .day-badge{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:11px;color:var(--muted);flex-shrink:0}
   .day-badge strong{color:var(--text)}
 
-  .wrap{max-width:1120px;margin:0 auto;padding:24px 16px}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 18px}
   .page{display:none}
   .page.active{display:block}
 
   /* API */
   .api-section{
-    background:var(--surface);border:1px solid var(--border);
-    border-radius:14px;padding:18px 20px;margin-bottom:20px;
+    background:var(--surface);border:1px solid #222;
+    border-radius:18px;padding:22px 24px;margin-bottom:20px;
     position:relative;overflow:hidden;
   }
   .api-section::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),transparent)}
@@ -83,7 +83,7 @@
   .selector-label{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
   .selector-row{display:flex;gap:8px;flex-wrap:wrap}
   .sel-btn{
-    padding:9px 20px;border-radius:25px;border:1px solid var(--border);
+    padding:9px 20px;border-radius:999px;border:1px solid var(--border);
     background:var(--surface);font-family:'Outfit',sans-serif;font-size:13px;
     font-weight:600;cursor:pointer;transition:all 0.2s;color:var(--muted);
     display:flex;align-items:center;gap:6px;
@@ -95,8 +95,8 @@
 
   .search-row{display:flex;justify-content:flex-end;margin-bottom:28px}
   .search-btn{
-    padding:11px 28px;background:var(--accent);color:white;border:none;
-    border-radius:25px;font-family:'Outfit',sans-serif;font-size:13px;
+    padding:12px 32px;background:var(--accent);color:white;border:none;
+    border-radius:999px;font-family:'Outfit',sans-serif;font-size:13px;
     font-weight:700;cursor:pointer;transition:all 0.2s;
   }
   .search-btn:hover{background:#e03d00;transform:translateY(-1px);box-shadow:0 4px 16px rgba(255,69,0,0.3)}
@@ -116,7 +116,7 @@
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
 
   /* CARD */
-  .vcard{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:transform 0.25s,box-shadow 0.25s,border-color 0.25s}
+  .vcard{background:linear-gradient(180deg,#161616,#121212);border:1px solid #222;border-radius:18px;overflow:hidden;transition:transform 0.25s,box-shadow 0.25s,border-color 0.25s}
   .vcard:hover{transform:translateY(-4px);box-shadow:0 14px 36px rgba(0,0,0,0.6);border-color:#383838}
   .vcard.short-card{border-color:rgba(255,193,7,0.2)}
   .vcard.short-card:hover{border-color:rgba(255,193,7,0.5)}
@@ -134,7 +134,7 @@
   .tag-animal{background:rgba(0,200,83,0.12);color:#00c853}
   .tag-comedy{background:rgba(255,69,0,0.12);color:#ff6b35}
   .tag-short{background:rgba(255,193,7,0.12);color:var(--gold)}
-  .card-title{font-size:13px;font-weight:600;line-height:1.4;margin-bottom:12px;color:#ddd;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .card-title{font-size:14px;font-weight:600;line-height:1.4;margin-bottom:12px;color:#eaeaea;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .card-btns{display:flex;gap:7px;margin-bottom:9px}
   .cbtn{
     flex:1;padding:9px 4px;border-radius:8px;font-family:'Outfit',sans-serif;
@@ -192,30 +192,6 @@
     box-shadow:0 4px 12px rgba(0,0,0,0.5);
   }
 
-  /* —— Yeni arayüz (Nova) —— */
-  html[data-ui="nova"]{
-    --bg:#050505;--surface:#0e0e0e;--card:#141414;--border:#242424;
-  }
-  html[data-ui="nova"] body{background:radial-gradient(1200px 600px at 50% -10%,#151515 0%,#050505 55%)}
-  html[data-ui="nova"] .header{
-    height:64px;border-bottom:1px solid #1f1f1f;
-    background:rgba(8,8,8,0.92);backdrop-filter:saturate(1.2) blur(10px);
-  }
-  html[data-ui="nova"] .brand-logo{width:38px;height:38px}
-  html[data-ui="nova"] .wrap{max-width:1180px;padding:28px 18px}
-  html[data-ui="nova"] .api-section{border-radius:18px;border-color:#222;padding:22px 24px}
-  html[data-ui="nova"] .sel-btn{border-radius:999px}
-  html[data-ui="nova"] .search-btn{border-radius:999px;padding:12px 32px}
-  html[data-ui="nova"] .vcard{border-radius:18px;border-color:#222;background:linear-gradient(180deg,#161616,#121212)}
-  html[data-ui="nova"] .card-title{font-size:14px;color:#eaeaea}
-  html[data-ui="nova"] .ui-toggle{
-    font-size:11px;font-weight:700;padding:8px 14px;border-radius:999px;
-    border:1px solid var(--border);background:#111;color:#888;cursor:pointer;font-family:'Outfit',sans-serif;
-  }
-  html[data-ui="nova"] .ui-toggle:hover{color:var(--text);border-color:#444}
-
-  /* Klasik: eski yoğunluk */
-  html[data-ui="classic"] .ui-toggle{font-size:11px;padding:7px 12px;border-radius:20px}
 </style>
 </head>
 <body>
@@ -228,7 +204,6 @@
   <div class="nav">
     <button class="nav-btn active" onclick="showPage('main')">🏠 Ana Sayfa</button>
     <button class="nav-btn" onclick="showPage('tools')">🛠️ Araçlar</button>
-    <button type="button" class="ui-toggle" id="uiToggleBtn" onclick="toggleUiMode()" title="Arayüz değiştir">✨ Yeni / Klasik</button>
   </div>
   <div class="day-badge" id="dayBadge">📅 <strong>—</strong></div>
 </div>
@@ -332,20 +307,6 @@ function backendUrl(path) {
   return BACKEND_ORIGIN + p;
 }
 
-function getUiMode() {
-  try { return localStorage.getItem("va_ui") || "nova"; } catch (e) { return "nova"; }
-}
-function setUiMode(mode) {
-  localStorage.setItem("va_ui", mode);
-  document.documentElement.setAttribute("data-ui", mode);
-  const btn = document.getElementById("uiToggleBtn");
-  if (btn) btn.textContent = mode === "nova" ? "📻 Klasik görünüm" : "✨ Yeni görünüm";
-}
-function toggleUiMode() {
-  if (getUiMode() === "nova") setUiMode("classic");
-  else setUiMode("nova");
-}
-
 let activeCat = "animal";
 let activePlat = "youtube";
 
@@ -359,8 +320,6 @@ function showPage(page) {
 
 // TARİH
 window.onload = function() {
-  setUiMode(getUiMode());
-
   const d = new Date();
   const days = ["Pazar","Pazartesi","Salı","Çarşamba","Perşembe","Cuma","Cumartesi"];
   const months = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
