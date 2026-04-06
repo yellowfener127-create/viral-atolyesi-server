@@ -618,60 +618,37 @@ app.get('/search/instagram', (req, res) => {
   const query = req.query.q;
   if (!query) return res.status(400).json({ error: 'Sorgu gerekli' });
 
-  const options = {
-    method: 'GET',
-    hostname: 'instagram-scraper-api2.p.rapidapi.com',
-    path: `/v1/hashtag?hashtag=${encodeURIComponent(query)}`,
-    headers: {
-      'x-rapidapi-key': RAPIDAPI_KEY,
-      'x-rapidapi-host': 'instagram-scraper-api2.p.rapidapi.com'
+  const host = process.env.RAPIDAPI_INSTAGRAM_HOST || 'instagram-scraper-api2.p.rapidapi.com';
+  const path1 = `/v1/hashtag?hashtag=${encodeURIComponent(query)}`;
+  // Bazı sağlayıcılar query paramını farklı adla bekleyebiliyor; ikinci deneme.
+  const path2 = `/v1/hashtag?tag=${encodeURIComponent(query)}`;
+
+  const providers = [
+    { name: 'instagram-host', host, path: path1 },
+    { name: 'instagram-host-alt', host, path: path2 }
+  ];
+
+  (function next(i, lastErr) {
+    if (i >= providers.length) {
+      return res.status(502).json({ error: lastErr || 'Instagram: Uygun RapidAPI endpoint bulunamadı (abonelik/host).' });
     }
-  };
-
-  const request = https.request(options, (response) => {
-    let data = '';
-    response.on('data', (chunk) => { data += chunk; });
-    response.on('end', () => {
-      try {
-        if (response.statusCode && response.statusCode >= 400) {
-          return res.status(response.statusCode).json({ error: 'Instagram upstream hata: ' + data });
+    const p = providers[i];
+    rapidApiGet(p.host, p.path, (err, status, body) => {
+      if (err) return next(i + 1, `Instagram ${p.name} hata: ${err.message}`);
+      if (status >= 400) {
+        const msg = String(body || '');
+        if (/not subscribed/i.test(msg) || /You are not subscribed/i.test(msg)) {
+          return next(i + 1, `Instagram ${p.name}: RapidAPI aboneliği yok veya plan yetersiz.`);
         }
-        const parsed = JSON.parse(data);
-        const items = instagramRawItems(parsed);
-        const videos = items
-          .map((item) => {
-            const urlStr = item.url || item.link || item.web_url || '';
-            const codeFromUrl = typeof urlStr === 'string' ? ((urlStr.match(/reel\/([^/?#]+)/i) || [])[1]) : null;
-            const code = item.code || item.shortcode || item.media_code || codeFromUrl;
-            if (!code) return null;
-            const finalUrl = (typeof urlStr === 'string' && urlStr.includes('instagram.com'))
-              ? urlStr
-              : `https://www.instagram.com/reel/${code}/`;
-            return {
-              id: String(item.id || code),
-              title: typeof item.caption === 'string' ? item.caption : (item.caption?.text || item.caption?.text?.value || 'Instagram Reels'),
-              channel: item.user?.username || item.owner?.username || '',
-              duration: item.video_duration || 0,
-              views: item.view_count || item.play_count || item.video_view_count || 0,
-              likes: item.like_count || 0,
-              thumb: item.image_versions2?.candidates?.[0]?.url || item.thumbnail_url || '',
-              url: finalUrl,
-              platform: 'instagram'
-            };
-          })
-          .filter(Boolean)
-          .filter((v) => v && v.url);
-        res.json(videos);
-      } catch (e) {
-        res.status(500).json({ error: 'Instagram parse hatası: ' + e.message });
+        return next(i + 1, `Instagram ${p.name} upstream HTTP ${status}: ${msg.slice(0, 400)}`);
       }
+      const parsed = tryJsonParse(body) || {};
+      const items = anyArrayIn(parsed);
+      const mapped = mapToVideoList(items.length ? items : instagramRawItems(parsed), 'instagram');
+      if (mapped.length) return res.json(mapped);
+      return next(i + 1, `Instagram ${p.name}: boş sonuç (yanıt formatı farklı olabilir).`);
     });
-  });
-
-  request.on('error', (e) => {
-    res.status(500).json({ error: 'Instagram arama hatası: ' + e.message });
-  });
-  request.end();
+  })(0, '');
 });
 
 // Uyku modu engelleme
@@ -693,6 +670,11 @@ app.get('/status', (req, res) => {
     youtubeCookieSource: {
       secretFile: fs.existsSync(YT_COOKIES_SECRET),
       resolved: resolveYoutubeCookieFile() ? 'ok' : 'missing'
+    },
+    rapidapi: {
+      keySet: !!process.env.RAPIDAPI_KEY,
+      tiktokHost: process.env.RAPIDAPI_TIKTOK_HOST || 'tiktok-video-downloader-api.p.rapidapi.com (default)',
+      instagramHost: process.env.RAPIDAPI_INSTAGRAM_HOST || 'instagram-scraper-api2.p.rapidapi.com (default)'
     }
   });
 });
