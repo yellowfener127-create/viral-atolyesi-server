@@ -455,6 +455,10 @@ function tiktokRawItems(parsed) {
     parsed.aweme_list ||
     parsed.data?.aweme_list ||
     parsed.data?.data?.aweme_list ||
+    parsed.data?.feed ||
+    parsed.feed ||
+    parsed.data?.list ||
+    parsed.list ||
     parsed.data?.videos ||
     parsed.data?.data?.videos ||
     parsed.items ||
@@ -495,6 +499,8 @@ function anyArrayIn(obj) {
     obj.data?.item_list,
     obj.data?.data?.item_list,
     obj.item_list,
+    obj.data?.feed,
+    obj.feed,
     obj.data?.list,
     obj.data?.data?.list,
     obj.list,
@@ -655,7 +661,7 @@ app.get('/search/tiktok', (req, res) => {
   const q = String(query || '').trim().replace(/^@+/, '');
   const envHost = (process.env.RAPIDAPI_TIKTOK_HOST || '').trim();
   const envHostIsScraper7 = envHost && /tiktok-scraper7\.p\.rapidapi\.com/i.test(envHost);
-  const envPathTpl = (process.env.RAPIDAPI_TIKTOK_PATH_TEMPLATE || '').trim(); // e.g. /trending/feed?region=TR&count=30  OR /user/{q}
+  const envPathTpl = (process.env.RAPIDAPI_TIKTOK_PATH_TEMPLATE || '').trim(); // e.g. /feed/list?region=TR&count=30  OR /user/{q}
 
   const providers = [
     // 1) Env ile verilen host (senin aboneliğin)
@@ -666,13 +672,13 @@ app.get('/search/tiktok', (req, res) => {
             host: envHost,
             path: envPathTpl
               ? applyPathTemplate(envPathTpl, { q })
-              : (envHostIsScraper7 ? '/trending/feed?region=TR&count=30' : `/user/${encodeURIComponent(q)}`)
+              : (envHostIsScraper7 ? '/feed/list?region=TR&count=30' : `/user/${encodeURIComponent(q)}`)
           }
         ]
       : []),
 
-    // 2) TikTok scraper7 (trending)
-    { name: 'tiktok-scraper7', host: 'tiktok-scraper7.p.rapidapi.com', path: '/trending/feed?region=TR&count=30' },
+    // 2) TikTok scraper7 — RapidAPI playground: GET /feed/list?region=...&count=...
+    { name: 'tiktok-scraper7', host: 'tiktok-scraper7.p.rapidapi.com', path: '/feed/list?region=TR&count=30' },
 
     // 3) Downloader API (bazı hesaplarda user endpoint olabilir)
     { name: 'tiktok-video-downloader-api', host: 'tiktok-video-downloader-api.p.rapidapi.com', path: `/user/${encodeURIComponent(q)}` }
