@@ -415,6 +415,60 @@ function proxyYoutubeV3(req, res, resource) {
 app.get('/youtube/search', (req, res) => proxyYoutubeV3(req, res, 'search'));
 app.get('/youtube/videos', (req, res) => proxyYoutubeV3(req, res, 'videos'));
 
+function extractYoutubeVideoId(input) {
+  if (!input) return null;
+  const s = String(input).trim();
+  const fromUrl = s.match(/(?:v=|\/embed\/|youtu\.be\/|\/shorts\/)([0-9A-Za-z_-]{11})/);
+  if (fromUrl) return fromUrl[1];
+  if (/^[0-9A-Za-z_-]{11}$/.test(s)) return s;
+  return null;
+}
+
+// YouTube transcript (public altyazılar; video ID veya watch URL)
+app.get('/youtube/transcript', async (req, res) => {
+  const raw = req.query.videoId || req.query.url || req.query.v || '';
+  const id = extractYoutubeVideoId(raw);
+  if (!id) return res.status(400).json({ error: 'Geçerli videoId veya YouTube URL gerekli' });
+  try {
+    const { YoutubeTranscript } = require('youtube-transcript');
+    const chunks = await YoutubeTranscript.fetchTranscript(id);
+    const text = (chunks || []).map((c) => String(c.text || '').trim()).filter(Boolean).join(' ');
+    if (!text) return res.json({ videoId: id, available: false, error: 'Boş transcript' });
+    return res.json({ videoId: id, available: true, text, lineCount: chunks.length });
+  } catch (e) {
+    return res.json({ videoId: id, available: false, error: e.message || 'Transcript alınamadı' });
+  }
+});
+
+// Toplu: transcript var mı (liste sıralaması için; tam metin dönmez)
+app.post('/youtube/transcript/batch', async (req, res) => {
+  const idsIn = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const clean = [...new Set(idsIn.map((x) => extractYoutubeVideoId(x)).filter(Boolean))].slice(0, 30);
+  if (!clean.length) return res.status(400).json({ error: 'ids dizisi gerekli (max 30)' });
+  let YoutubeTranscript;
+  try {
+    YoutubeTranscript = require('youtube-transcript').YoutubeTranscript;
+  } catch (e) {
+    return res.status(501).json({ error: 'youtube-transcript paketi yüklü değil' });
+  }
+  const results = {};
+  const batch = 4;
+  for (let i = 0; i < clean.length; i += batch) {
+    const slice = clean.slice(i, i + batch);
+    await Promise.all(
+      slice.map(async (id) => {
+        try {
+          const chunks = await YoutubeTranscript.fetchTranscript(id);
+          results[id] = { available: !!(chunks && chunks.length) };
+        } catch {
+          results[id] = { available: false };
+        }
+      })
+    );
+  }
+  res.json({ results });
+});
+
 // Anthropic (caption) — ANTHROPIC_API_KEY sunucuda; istemci sadece bu adrese POST atar
 app.post('/anthropic/messages', (req, res) => {
   const key = process.env.ANTHROPIC_API_KEY;

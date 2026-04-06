@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
+<script>
+(function(){try{var m=localStorage.getItem("va_ui")||"nova";document.documentElement.setAttribute("data-ui",m);}catch(e){document.documentElement.setAttribute("data-ui","nova");}})();
+</script>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Viral Atölyesi</title>
@@ -175,6 +178,39 @@
   .tool-copy-btn:hover{background:#252525;color:var(--text)}
   .soon-card{opacity:0.5}
   .soon-card .tool-btn{cursor:not-allowed;background:var(--surface);color:var(--muted);border:1px solid var(--border)}
+
+  /* Transcript yıldızı */
+  .tx-star{
+    position:absolute;top:9px;right:9px;z-index:2;
+    width:28px;height:28px;border-radius:50%;
+    background:linear-gradient(145deg,#2a2a2a,#141414);
+    border:1px solid #3a3a3a;color:#ffd54f;font-size:14px;line-height:26px;text-align:center;
+    box-shadow:0 4px 12px rgba(0,0,0,0.5);
+  }
+
+  /* —— Yeni arayüz (Nova) —— */
+  html[data-ui="nova"]{
+    --bg:#050505;--surface:#0e0e0e;--card:#141414;--border:#242424;
+  }
+  html[data-ui="nova"] body{background:radial-gradient(1200px 600px at 50% -10%,#151515 0%,#050505 55%)}
+  html[data-ui="nova"] .header{
+    height:64px;border-bottom:1px solid #1f1f1f;
+    background:rgba(8,8,8,0.92);backdrop-filter:saturate(1.2) blur(10px);
+  }
+  html[data-ui="nova"] .wrap{max-width:1180px;padding:28px 18px}
+  html[data-ui="nova"] .api-section{border-radius:18px;border-color:#222;padding:22px 24px}
+  html[data-ui="nova"] .sel-btn{border-radius:999px}
+  html[data-ui="nova"] .search-btn{border-radius:999px;padding:12px 32px}
+  html[data-ui="nova"] .vcard{border-radius:18px;border-color:#222;background:linear-gradient(180deg,#161616,#121212)}
+  html[data-ui="nova"] .card-title{font-size:14px;color:#eaeaea}
+  html[data-ui="nova"] .ui-toggle{
+    font-size:11px;font-weight:700;padding:8px 14px;border-radius:999px;
+    border:1px solid var(--border);background:#111;color:#888;cursor:pointer;font-family:'Outfit',sans-serif;
+  }
+  html[data-ui="nova"] .ui-toggle:hover{color:var(--text);border-color:#444}
+
+  /* Klasik: eski yoğunluk */
+  html[data-ui="classic"] .ui-toggle{font-size:11px;padding:7px 12px;border-radius:20px}
 </style>
 </head>
 <body>
@@ -187,6 +223,7 @@
   <div class="nav">
     <button class="nav-btn active" onclick="showPage('main')">🏠 Ana Sayfa</button>
     <button class="nav-btn" onclick="showPage('tools')">🛠️ Araçlar</button>
+    <button type="button" class="ui-toggle" id="uiToggleBtn" onclick="toggleUiMode()" title="Arayüz değiştir">✨ Yeni / Klasik</button>
   </div>
   <div class="day-badge" id="dayBadge">📅 <strong>—</strong></div>
 </div>
@@ -280,6 +317,15 @@
       <div class="tool-result" id="toolDownloadMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
     </div>
 
+    <!-- YouTube transcript (sunucu) -->
+    <div class="tool-card">
+      <div class="tool-title">📝 YouTube Transcript</div>
+      <div class="tool-desc">Video ID veya watch URL. Sunucu public altyazıları çeker; metni aşağıdaki Caption alanına aktarır.</div>
+      <input class="tool-input" type="text" id="transcriptVideoInput" placeholder="video ID veya https://www.youtube.com/watch?v=..."/>
+      <button class="tool-btn" type="button" id="transcriptFetchBtn" onclick="fetchTranscriptToCaption()">Transcript çek → Caption alanına</button>
+      <div class="tool-result" id="transcriptToolMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
   </div>
 </div>
 </div>
@@ -293,6 +339,21 @@ function backendUrl(path) {
   const p = path.startsWith("/") ? path : "/" + path;
   return BACKEND_ORIGIN + p;
 }
+
+function getUiMode() {
+  try { return localStorage.getItem("va_ui") || "nova"; } catch (e) { return "nova"; }
+}
+function setUiMode(mode) {
+  localStorage.setItem("va_ui", mode);
+  document.documentElement.setAttribute("data-ui", mode);
+  const btn = document.getElementById("uiToggleBtn");
+  if (btn) btn.textContent = mode === "nova" ? "📻 Klasik görünüm" : "✨ Yeni görünüm";
+}
+function toggleUiMode() {
+  if (getUiMode() === "nova") setUiMode("classic");
+  else setUiMode("nova");
+}
+
 let activeCat = "animal";
 let activePlat = "youtube";
 
@@ -306,6 +367,8 @@ function showPage(page) {
 
 // TARİH
 window.onload = function() {
+  setUiMode(getUiMode());
+
   const d = new Date();
   const days = ["Pazar","Pazartesi","Salı","Çarşamba","Perşembe","Cuma","Cumartesi"];
   const months = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
@@ -682,10 +745,12 @@ function buildCard(v, i, isShort) {
   const tagText = isShort ? "⚡ Kısa" : (cat === "animal" ? "🐾 Hayvan & Bebek" : "😂 Komedi");
   const rankClass = isShort ? (i===0?"gold":"") : (i===0?"top":"");
 
+  const txStar = (v.platform === "youtube" && v.hasTranscript) ? `<div class="tx-star" title="Transcript / altyazı var">★</div>` : "";
   return `<div class="vcard ${isShort?"short-card":""}">
     <div class="thumb">
       <img src="${escHtml(v.thumb)}" alt="" loading="lazy"/>
       <div class="rank ${rankClass}">#${i+1}</div>
+      ${txStar}
       <div class="dur-ov ${isShort?"short":""}">⏱ ${formatDuration(v.duration)}</div>
       <div class="views-ov">👁 ${fmtViews(v.views)}</div>
     </div>
@@ -855,6 +920,60 @@ const filtered = rawItems;
   });
 }
 
+async function enrichYoutubeTranscripts(mainVideos, shortVideos) {
+  const m = mainVideos || [];
+  const s = shortVideos || [];
+  const ids = [...new Set([...m, ...s].map(v => v && v.id).filter(Boolean))].slice(0, 30);
+  if (!ids.length) return;
+  try {
+    const res = await fetch(backendUrl("/youtube/transcript/batch"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+      cache: "no-store"
+    });
+    const data = await res.json();
+    if (!res.ok) return;
+    const map = data.results || {};
+    const mark = (v) => {
+      if (!v || !v.id) return;
+      v.hasTranscript = !!(map[v.id] && map[v.id].available);
+    };
+    m.forEach(mark);
+    s.forEach(mark);
+    const sortFn = (a, b) => {
+      const hb = b.hasTranscript ? 1 : 0;
+      const ha = a.hasTranscript ? 1 : 0;
+      if (hb !== ha) return hb - ha;
+      return (b.score || 0) - (a.score || 0);
+    };
+    m.sort(sortFn);
+    s.sort(sortFn);
+  } catch (e) { console.warn(e); }
+}
+
+async function fetchTranscriptToCaption() {
+  const raw = document.getElementById("transcriptVideoInput").value.trim();
+  if (!raw) { alert("Video ID veya YouTube URL gir."); return; }
+  const btn = document.getElementById("transcriptFetchBtn");
+  const msgEl = document.getElementById("transcriptToolMsg");
+  btn.disabled = true;
+  msgEl.style.display = "none";
+  try {
+    const res = await fetch(backendUrl("/youtube/transcript?url=" + encodeURIComponent(raw)), { cache: "no-store" });
+    const data = await res.json();
+    if (!data.available) throw new Error(data.error || "Transcript yok");
+    document.getElementById("captionTranscript").value = data.text || "";
+    msgEl.style.display = "block";
+    msgEl.textContent = "✅ Transcript yüklendi (" + (data.lineCount || "?") + " satır). Caption üreticiden caption alabilirsin.";
+  } catch (e) {
+    msgEl.style.display = "block";
+    msgEl.textContent = "Hata: " + (e.message || e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function doSearch() {
   if (activePlat === "youtube" && !savedKey) {
     showError("Lütfen önce API key'ini gir ve kaydet.");
@@ -865,7 +984,13 @@ async function doSearch() {
   const cached = getCached(activeCat, activePlat);
   // TikTok/Instagram için cache'i bypass ediyoruz: RapidAPI yanıtı bazen ilk denemede boş gelebiliyor ve bu boş cache'i kalıcı yapıyordu.
   if (activePlat === "youtube" && cached && ((cached.main && cached.main.length) || (cached.short && cached.short.length))) {
+    const btn0 = document.getElementById("searchBtn");
+    btn0.textContent = "⏳ Transcript kontrol...";
+    btn0.disabled = true;
+    await enrichYoutubeTranscripts(cached.main || [], cached.short || []);
     renderVideos(cached.main, cached.short, true);
+    btn0.textContent = "🔍 Videoları Getir";
+    btn0.disabled = false;
     return;
   }
 
@@ -887,6 +1012,8 @@ async function doSearch() {
       const shortAll = await fetchVideos(queries, afterParam, 1, 14, "short");
       const mainVideos = mainAll.slice(0, 20);
       const shortVideos = shortAll.slice(0, 10);
+      btn.textContent = "⏳ Transcript kontrol...";
+      await enrichYoutubeTranscripts(mainVideos, shortVideos);
       if (mainVideos.length > 0) addSeenVideos("main", mainVideos.map(v => v.id));
       if (shortVideos.length > 0) addSeenVideos("short", shortVideos.map(v => v.id));
       setCache(activeCat, activePlat, mainVideos, shortVideos);
