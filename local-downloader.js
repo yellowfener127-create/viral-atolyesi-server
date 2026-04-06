@@ -1,6 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const { spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const app = express();
 app.use(cors());
@@ -19,20 +22,26 @@ function safeName(s) {
 async function runYtDlpToResponse(res, url) {
   // Requires: yt-dlp installed on user's machine (in PATH)
   // This avoids server-side bot blocks by running from the user's own network/session.
+  const base = safeName('video');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'va_local_'));
+  const outBase = path.join(dir, `${base}_%(id)s.%(ext)s`);
+
+  // Local'de timeout yok, o yüzden dosyaya indirip gerçek uzantıyla gönderiyoruz (mp4/webm/mkv).
   const args = [
     '--no-playlist',
     '--newline',
+    '--no-part',
+    '--no-mtime',
     // Prefer a single-file progressive mp4 when possible; otherwise fallback to best.
     '-f',
     'best[ext=mp4][acodec!=none][vcodec!=none]/best',
     '-o',
-    '-',
+    outBase,
     url
   ];
 
-  const child = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn('yt-dlp', args, { stdio: ['ignore', 'ignore', 'pipe'] });
   let stderr = '';
-  let started = false;
 
   child.stderr.on('data', (d) => {
     stderr += d.toString();
@@ -43,22 +52,28 @@ async function runYtDlpToResponse(res, url) {
     res.status(500).json({ error: 'yt-dlp çalıştırılamadı: ' + e.message });
   });
 
-  child.stdout.once('data', (chunk) => {
-    started = true;
-    const name = safeName('video');
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${name}.mp4"`);
-    res.write(chunk);
-    child.stdout.pipe(res);
-  });
-
   child.on('close', (code) => {
-    if (started) {
-      try { res.end(); } catch {}
-      return;
+    try {
+      if (code !== 0) return res.status(500).json({ error: stderr || `yt-dlp exit ${code}` });
+
+      const files = fs.readdirSync(dir).map((f) => path.join(dir, f));
+      const picked = files.find((f) => fs.statSync(f).size > 0);
+      if (!picked) return res.status(500).json({ error: 'Dosya bulunamadı (0 byte)' });
+
+      const filename = path.basename(picked);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename.replace(/"/g, '')}"`);
+      const rs = fs.createReadStream(picked);
+      rs.on('error', (e) => res.status(500).json({ error: e.message }));
+      rs.pipe(res);
+      res.on('finish', () => {
+        try { fs.unlinkSync(picked); } catch {}
+        try { fs.rmdirSync(dir); } catch {}
+      });
+    } catch (e) {
+      try { fs.rmdirSync(dir, { recursive: true }); } catch {}
+      res.status(500).json({ error: (e && e.message) ? e.message : String(e) });
     }
-    if (code === 0) return res.status(500).json({ error: 'Boş çıktı (0 byte)' });
-    res.status(500).json({ error: stderr || `yt-dlp exit ${code}` });
   });
 }
 
