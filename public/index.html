@@ -622,20 +622,9 @@ async function startDownload(url, btn) {
       const h = await fetch("http://127.0.0.1:8787/health", { cache: "no-store" }).then(r => r.ok).catch(() => false);
       if (h) {
         const resLocal = await fetch(localUrl, { method: "GET", cache: "no-store" });
-        if (!resLocal.ok) {
-          const err = await resLocal.json().catch(() => ({}));
-          throw new Error(err.error || ("Local downloader " + resLocal.status));
-        }
-        const blob = await resLocal.blob();
-        const name = parseFilenameFromContentDisposition(resLocal.headers.get("Content-Disposition")) || "video.mp4";
-        const a = document.createElement("a");
-        const objectUrl = URL.createObjectURL(blob);
-        a.href = objectUrl;
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+        const data = await resLocal.json().catch(() => ({}));
+        if (!resLocal.ok) throw new Error(data.error || ("Local downloader " + resLocal.status));
+        alert("✅ Video kaydedildi:\n" + (data.savedTo || "—") + "\n\nDosya: " + (data.file || "—"));
         return;
       }
     } catch (e) {
