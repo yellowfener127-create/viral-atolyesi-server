@@ -473,6 +473,13 @@ function asArray(x) {
   return [];
 }
 
+function pickFirstNonEmpty(...arrs) {
+  for (const a of arrs) {
+    if (Array.isArray(a) && a.length) return a;
+  }
+  return [];
+}
+
 function anyArrayIn(obj) {
   if (!obj || typeof obj !== 'object') return [];
   const candidates = [
@@ -547,6 +554,10 @@ function deepFindItems(root, predicate, maxDepth = 4, maxNodes = 2000) {
     for (const val of Object.values(v)) q.push({ v: val, d: d + 1 });
   }
   return out;
+}
+
+function applyPathTemplate(tpl, vars) {
+  return String(tpl || '').replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(vars[k] ?? ''));
 }
 
 function mapToVideoList(items, platform) {
@@ -644,6 +655,7 @@ app.get('/search/tiktok', (req, res) => {
   const q = String(query || '').trim().replace(/^@+/, '');
   const envHost = (process.env.RAPIDAPI_TIKTOK_HOST || '').trim();
   const envHostIsScraper7 = envHost && /tiktok-scraper7\.p\.rapidapi\.com/i.test(envHost);
+  const envPathTpl = (process.env.RAPIDAPI_TIKTOK_PATH_TEMPLATE || '').trim(); // e.g. /trending/feed?region=TR&count=30  OR /user/{q}
 
   const providers = [
     // 1) Env ile verilen host (senin aboneliğin)
@@ -652,9 +664,9 @@ app.get('/search/tiktok', (req, res) => {
           {
             name: 'env-host',
             host: envHost,
-            path: envHostIsScraper7
-              ? '/trending/feed?region=TR&count=30'
-              : `/user/${encodeURIComponent(q)}`
+            path: envPathTpl
+              ? applyPathTemplate(envPathTpl, { q })
+              : (envHostIsScraper7 ? '/trending/feed?region=TR&count=30' : `/user/${encodeURIComponent(q)}`)
           }
         ]
       : []),
@@ -684,14 +696,23 @@ app.get('/search/tiktok', (req, res) => {
         return next(i + 1, `TikTok ${p.name} upstream HTTP ${status}: ${msg.slice(0, 400)}`);
       }
       const parsed = tryJsonParse(body) || {};
-      const items =
-        anyArrayIn(parsed) ||
-        tiktokRawItems(parsed) ||
-        deepFindItems(parsed, looksLikeTikTokItem);
+      const items = pickFirstNonEmpty(
+        anyArrayIn(parsed),
+        tiktokRawItems(parsed),
+        deepFindItems(parsed, looksLikeTikTokItem)
+      );
       const videos = mapToVideoList(items, 'tiktok');
       if (videos.length) {
         cacheSet(cacheKey, videos);
         return res.json(videos);
+      }
+      // Eğer env-host tiktok-scraper7 ise downloader'a düşmek çoğu zaman yanıltıcı; direkt net hata ver.
+      if (p.name === 'env-host' && envHostIsScraper7) {
+        return res.status(502).json({
+          error:
+            `TikTok ${p.name}: boş sonuç (yanıt formatı farklı). ` +
+            `RAPIDAPI_TIKTOK_PATH_TEMPLATE ayarlayıp (RapidAPI playground'daki path) tekrar dene.`
+        });
       }
       return next(i + 1, `TikTok ${p.name}: boş sonuç (yanıt formatı farklı olabilir).`);
     });
@@ -721,10 +742,12 @@ app.get('/search/instagram', (req, res) => {
 
   const host = (process.env.RAPIDAPI_INSTAGRAM_HOST || 'instagram-scraper-api2.p.rapidapi.com').trim();
   const tag = String(query).trim().replace(/^#/, '');
+  const envPathTpl = (process.env.RAPIDAPI_INSTAGRAM_PATH_TEMPLATE || '').trim(); // e.g. /v1/hashtag?hashtag={tag}
 
   // RapidAPI'de IG sağlayıcıları path/param isimlerini çok değiştiriyor.
   // Bu yüzden yaygın kombinasyonları sırayla deneriz ve "array yakalayıp" map'leriz.
   const providers = [
+    ...(envPathTpl ? [{ name: 'env-path', host, path: applyPathTemplate(envPathTpl, { tag }) }] : []),
     // v1 style
     { name: 'v1-hashtag-hashtag', host, path: `/v1/hashtag?hashtag=${encodeURIComponent(tag)}` },
     { name: 'v1-hashtag-tag', host, path: `/v1/hashtag?tag=${encodeURIComponent(tag)}` },
@@ -733,6 +756,7 @@ app.get('/search/instagram', (req, res) => {
     { name: 'hashtag-tag', host, path: `/hashtag?tag=${encodeURIComponent(tag)}` },
     { name: 'hashtag-posts', host, path: `/hashtag/posts?hashtag=${encodeURIComponent(tag)}` },
     { name: 'hashtag-feed', host, path: `/hashtag/feed?hashtag=${encodeURIComponent(tag)}` },
+    { name: 'hashtag-path', host, path: `/hashtag/${encodeURIComponent(tag)}` },
     // generic query param
     { name: 'search-q', host, path: `/search?query=${encodeURIComponent(tag)}` },
     { name: 'search-q2', host, path: `/search?q=${encodeURIComponent(tag)}` }
@@ -759,10 +783,11 @@ app.get('/search/instagram', (req, res) => {
         return next(i + 1, `Instagram ${p.name} upstream HTTP ${status}: ${msg.slice(0, 400)}`);
       }
       const parsed = tryJsonParse(body) || {};
-      const items =
-        anyArrayIn(parsed) ||
-        instagramRawItems(parsed) ||
-        deepFindItems(parsed, looksLikeInstagramItem);
+      const items = pickFirstNonEmpty(
+        anyArrayIn(parsed),
+        instagramRawItems(parsed),
+        deepFindItems(parsed, looksLikeInstagramItem)
+      );
       const mapped = mapToVideoList(items, 'instagram');
       if (mapped.length) {
         cacheSet(cacheKey, mapped);
@@ -796,7 +821,9 @@ app.get('/status', (req, res) => {
     rapidapi: {
       keySet: !!process.env.RAPIDAPI_KEY,
       tiktokHost: process.env.RAPIDAPI_TIKTOK_HOST || 'tiktok-video-downloader-api.p.rapidapi.com (default)',
-      instagramHost: process.env.RAPIDAPI_INSTAGRAM_HOST || 'instagram-scraper-api2.p.rapidapi.com (default)'
+      instagramHost: process.env.RAPIDAPI_INSTAGRAM_HOST || 'instagram-scraper-api2.p.rapidapi.com (default)',
+      tiktokPathTemplateSet: !!process.env.RAPIDAPI_TIKTOK_PATH_TEMPLATE,
+      instagramPathTemplateSet: !!process.env.RAPIDAPI_INSTAGRAM_PATH_TEMPLATE
     }
   });
 });
