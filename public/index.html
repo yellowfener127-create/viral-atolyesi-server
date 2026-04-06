@@ -248,18 +248,6 @@
     </div>
   </div>
 
-  <div class="api-section">
-    <div class="api-label">🔑 RapidAPI Key (TikTok / Instagram)</div>
-    <div class="api-row">
-      <input class="api-input" type="password" id="rapidInput" placeholder="RapidAPI key'ini buraya yapıştır"/>
-      <button class="save-btn" id="rapidSaveBtn" onclick="saveRapidKey()">Kaydet</button>
-    </div>
-    <div class="api-meta">
-      <div class="api-hint">Not: RapidAPI tarayıcıdan çağrılırsa key görünür. Ayrıca API’nin CORS izin vermesi ve abonelik gerekir.</div>
-      <div class="key-status" id="rapidStatus"></div>
-    </div>
-  </div>
-
   <div class="err" id="errBox"></div>
 
   <div class="selector-group">
@@ -337,7 +325,6 @@
 
 <script>
 let savedKey = "";
-let rapidKey = "";
 /** Tüm backend istekleri (indirme, YouTube proxy, caption) bu köke gider */
 const BACKEND_ORIGIN = "https://viral-atolyesi-server.onrender.com";
 function backendUrl(path) {
@@ -389,17 +376,6 @@ window.onload = function() {
       document.getElementById("saveBtn").classList.add("saved");
     } else { setKeyStatus(false); }
   } catch(e) { setKeyStatus(false); }
-
-  try {
-    const r = localStorage.getItem("rapid_api_key");
-    if (r && r.length > 10) {
-      rapidKey = r;
-      document.getElementById("rapidInput").value = r;
-      setRapidStatus(true);
-      document.getElementById("rapidSaveBtn").textContent = "✓ Kaydedildi";
-      document.getElementById("rapidSaveBtn").classList.add("saved");
-    } else { setRapidStatus(false); }
-  } catch(e) { setRapidStatus(false); }
 };
 
 function setKeyStatus(hasKey) {
@@ -431,37 +407,6 @@ function deleteKey() {
   document.getElementById("saveBtn").textContent = "Kaydet";
   document.getElementById("saveBtn").classList.remove("saved");
   setKeyStatus(false);
-}
-
-function setRapidStatus(hasKey) {
-  const el = document.getElementById("rapidStatus");
-  if (hasKey) {
-    el.className = "key-status active";
-    el.innerHTML = "✅ Key kayıtlı <button class='delete-key-btn' onclick='deleteRapidKey()'>Sil</button>";
-  } else {
-    el.className = "key-status empty";
-    el.innerHTML = "⚠️ Key girilmedi";
-  }
-}
-
-function saveRapidKey() {
-  const v = document.getElementById("rapidInput").value.trim();
-  if (v.length > 10) {
-    rapidKey = v;
-    try { localStorage.setItem("rapid_api_key", v); } catch(e) {}
-    document.getElementById("rapidSaveBtn").textContent = "✓ Kaydedildi";
-    document.getElementById("rapidSaveBtn").classList.add("saved");
-    setRapidStatus(true);
-  }
-}
-
-function deleteRapidKey() {
-  try { localStorage.removeItem("rapid_api_key"); } catch(e) {}
-  rapidKey = "";
-  document.getElementById("rapidInput").value = "";
-  document.getElementById("rapidSaveBtn").textContent = "Kaydet";
-  document.getElementById("rapidSaveBtn").classList.remove("saved");
-  setRapidStatus(false);
 }
 
 function setCat(cat) {
