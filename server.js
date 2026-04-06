@@ -443,99 +443,162 @@ function tiktokRawItems(parsed) {
   );
 }
 
+function tryJsonParse(s) {
+  try { return JSON.parse(s); } catch { return null; }
+}
+
+function asArray(x) {
+  if (Array.isArray(x)) return x;
+  return [];
+}
+
+function anyArrayIn(obj) {
+  if (!obj || typeof obj !== 'object') return [];
+  const candidates = [
+    obj.items,
+    obj.data?.items,
+    obj.data?.videos,
+    obj.videos,
+    obj.aweme_list,
+    obj.data?.aweme_list,
+    obj.data?.item_list,
+    obj.item_list,
+    obj.data?.list,
+    obj.list,
+    obj.data
+  ];
+  for (const c of candidates) {
+    if (Array.isArray(c)) return c;
+  }
+  return [];
+}
+
+function mapToVideoList(items, platform) {
+  return asArray(items)
+    .map((item, idx) => {
+      if (!item || typeof item !== 'object') return null;
+      const urlStr =
+        item.url ||
+        item.share_url ||
+        item.shareUrl ||
+        item.web_url ||
+        item.link ||
+        item.video_url ||
+        item.play_url ||
+        item.download_url ||
+        item.video?.play_url ||
+        item.video?.download_url ||
+        item.video?.url ||
+        item.video?.playUrl ||
+        item.video?.downloadUrl ||
+        '';
+
+      const idVal = item.id || item.aweme_id || item.video_id || item.shortcode || item.code || idx;
+      const title = item.desc || item.title || item.caption || item.text || (platform === 'tiktok' ? 'TikTok Video' : 'Instagram Reels');
+      const channel = item.author?.uniqueId || item.author?.unique_id || item.user?.username || item.owner?.username || '';
+      const thumb =
+        item.thumb ||
+        item.thumbnail ||
+        item.cover ||
+        item.video?.cover ||
+        item.video?.originCover ||
+        item.image_versions2?.candidates?.[0]?.url ||
+        item.thumbnail_url ||
+        '';
+
+      let finalUrl = urlStr;
+      if (!finalUrl && platform === 'tiktok') {
+        const uid = channel || 'user';
+        const vid = idVal;
+        if (uid && vid) finalUrl = `https://www.tiktok.com/@${uid}/video/${vid}`;
+      }
+      if (!finalUrl && platform === 'instagram') {
+        const codeFromUrl = typeof urlStr === 'string' ? ((urlStr.match(/reel\/([^/?#]+)/i) || [])[1]) : null;
+        const code = item.code || item.shortcode || item.media_code || codeFromUrl;
+        if (code) finalUrl = `https://www.instagram.com/reel/${code}/`;
+      }
+      if (!finalUrl) return null;
+
+      return {
+        id: String(idVal),
+        title,
+        channel,
+        duration: item.video?.duration || item.duration || item.video_duration || 0,
+        views: item.stats?.playCount || item.stats?.play_count || item.view_count || item.play_count || 0,
+        likes: item.stats?.diggCount || item.stats?.digg_count || item.like_count || 0,
+        thumb,
+        url: finalUrl,
+        platform
+      };
+    })
+    .filter(Boolean)
+    .filter((v) => v.url);
+}
+
+function rapidApiGet(hostname, path, cb) {
+  const options = {
+    method: 'GET',
+    hostname,
+    path,
+    headers: {
+      'x-rapidapi-key': RAPIDAPI_KEY,
+      'x-rapidapi-host': hostname
+    }
+  };
+  const request = https.request(options, (response) => {
+    let data = '';
+    response.on('data', (chunk) => { data += chunk; });
+    response.on('end', () => cb(null, response.statusCode || 0, data));
+  });
+  request.on('error', (e) => cb(e));
+  request.end();
+}
+
 // TikTok arama - RapidAPI
 app.get('/search/tiktok', (req, res) => {
   if (!RAPIDAPI_KEY) return res.status(503).json({ error: 'RAPIDAPI_KEY tanımlı değil' });
   const query = req.query.q;
   if (!query) return res.status(400).json({ error: 'Sorgu gerekli' });
 
-  const options = {
-    method: 'GET',
-    hostname: 'tiktok-scraper7.p.rapidapi.com',
-    path: '/trending/feed?region=TR&count=30',
-    headers: {
-      'x-rapidapi-key': RAPIDAPI_KEY,
-      'x-rapidapi-host': 'tiktok-scraper7.p.rapidapi.com'
+  // Auto-adapter: birden fazla RapidAPI sağlayıcısını dener.
+  // 1) Kullanıcının abone olabileceği "tiktok-video-downloader-api" genelde /user/{username} endpoint'i sunar.
+  const q = String(query || '').trim().replace(/^@+/, '');
+  const providers = [
+    // Provider A: user feed
+    {
+      name: 'tiktok-video-downloader-api',
+      host: process.env.RAPIDAPI_TIKTOK_HOST || 'tiktok-video-downloader-api.p.rapidapi.com',
+      path: `/user/${encodeURIComponent(q)}`
+    },
+    // Provider B: trending scraper (aboneysen çalışır)
+    {
+      name: 'tiktok-scraper7',
+      host: 'tiktok-scraper7.p.rapidapi.com',
+      path: '/trending/feed?region=TR&count=30'
     }
-  };
+  ];
 
-  const request = https.request(options, (response) => {
-    let data = '';
-    response.on('data', (chunk) => { data += chunk; });
-    response.on('end', () => {
-      try {
-        if (response.statusCode && response.statusCode >= 400) {
-          // RapidAPI abonelik/plan hatalarını kullanıcıya net göster
-          const msg = String(data || '');
-          if (/not subscribed/i.test(msg) || /You are not subscribed/i.test(msg)) {
-            return res.status(402).json({
-              error: 'TikTok API aboneliği yok. RapidAPI panelinden bu API’ye Subscribe olmalısın (tiktok-scraper7).'
-            });
-          }
-          return res.status(response.statusCode).json({ error: 'TikTok upstream hata: ' + data });
+  (function next(i, lastErr) {
+    if (i >= providers.length) {
+      return res.status(502).json({ error: lastErr || 'TikTok: Uygun RapidAPI endpoint bulunamadı (abonelik/host).' });
+    }
+    const p = providers[i];
+    rapidApiGet(p.host, p.path, (err, status, body) => {
+      if (err) return next(i + 1, `TikTok ${p.name} hata: ${err.message}`);
+      if (status >= 400) {
+        const msg = String(body || '');
+        if (/not subscribed/i.test(msg) || /You are not subscribed/i.test(msg)) {
+          return next(i + 1, `TikTok ${p.name}: RapidAPI aboneliği yok veya plan yetersiz.`);
         }
-        const parsed = JSON.parse(data);
-        const items = tiktokRawItems(parsed);
-        const videos = items
-          .map((item, idx) => {
-            const uid = item.author?.uniqueId || item.author?.unique_id || 'user';
-            const vidCandidates = [
-              item.id,
-              item.aweme_id,
-              item.video?.id,
-              item.video_id,
-              item.video?.video_id,
-              item.stats?.videoId,
-              item.stats?.video_id,
-              item.aweme?.id,
-              idx
-            ].filter(Boolean);
-
-            const vid = vidCandidates[0];
-
-            const directUrl =
-              item.url ||
-              item.share_url ||
-              item.shareUrl ||
-              item.web_url ||
-              item.link ||
-              item.video?.url ||
-              item.video?.play_url ||
-              item.video?.download_url ||
-              item.play_url ||
-              item.download_url ||
-              '';
-
-            const computedUrl = uid && vid ? `https://www.tiktok.com/@${uid}/video/${vid}` : null;
-            const finalUrl = directUrl || computedUrl;
-            if (!finalUrl) return null;
-
-            const idVal = vid || idx;
-            return {
-              id: String(idVal),
-              title: item.desc || item.title || item.caption || 'TikTok Video',
-              channel: uid,
-              duration: item.video?.duration || item.duration || 0,
-              views: item.stats?.playCount || item.stats?.play_count || item.play_count || 0,
-              likes: item.stats?.diggCount || item.stats?.digg_count || 0,
-              thumb: item.video?.cover || item.video?.originCover || item.cover || item.video?.originCoverUrl || '',
-              url: finalUrl,
-              platform: 'tiktok'
-            };
-          })
-          .filter(Boolean)
-          .filter((v) => v && v.url);
-        res.json(videos);
-      } catch (e) {
-        res.status(500).json({ error: 'TikTok parse hatası: ' + e.message });
+        return next(i + 1, `TikTok ${p.name} upstream HTTP ${status}: ${msg.slice(0, 400)}`);
       }
+      const parsed = tryJsonParse(body) || {};
+      const items = anyArrayIn(parsed);
+      const videos = mapToVideoList(items.length ? items : tiktokRawItems(parsed), 'tiktok');
+      if (videos.length) return res.json(videos);
+      return next(i + 1, `TikTok ${p.name}: boş sonuç (yanıt formatı farklı olabilir).`);
     });
-  });
-
-  request.on('error', (e) => {
-    res.status(500).json({ error: 'TikTok arama hatası: ' + e.message });
-  });
-  request.end();
+  })(0, '');
 });
 
 function instagramRawItems(parsed) {

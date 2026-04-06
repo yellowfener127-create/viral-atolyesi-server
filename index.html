@@ -763,38 +763,7 @@ async function getChannelSubscribers(channelIds) {
 
 async function fetchTikTokFeed() {
   const q = getTodayQueries(activeCat)[0] || "viral";
-  // Tercih: RapidAPI'yi tarayıcıdan çağır (YouTube gibi). CORS/abonelik yoksa hata verir.
-  if (rapidKey) {
-    const res = await fetch("https://tiktok-scraper7.p.rapidapi.com/trending/feed?region=TR&count=30", {
-      method: "GET",
-      cache: "no-store",
-      headers: {
-        "x-rapidapi-key": rapidKey,
-        "x-rapidapi-host": "tiktok-scraper7.p.rapidapi.com"
-      }
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error("TikTok: " + ((data && (data.message || data.error)) || ("HTTP " + res.status)));
-    const items = data?.data?.item_list || data?.item_list || data?.aweme_list || data?.data?.aweme_list || [];
-    return (items || []).map((item, idx) => {
-      const uid = item.author?.uniqueId || item.author?.unique_id || "user";
-      const vid = item.id || item.aweme_id || idx;
-      const url = item.share_url || item.url || `https://www.tiktok.com/@${uid}/video/${vid}`;
-      return {
-        id: String(vid),
-        title: item.desc || item.title || "TikTok Video",
-        channel: uid,
-        duration: item.video?.duration || item.duration || 0,
-        views: item.stats?.playCount || item.stats?.play_count || 0,
-        likes: item.stats?.diggCount || item.stats?.digg_count || 0,
-        thumb: item.video?.cover || item.video?.originCover || item.cover || "",
-        url,
-        platform: "tiktok"
-      };
-    }).filter(v => v && v.url);
-  }
-
-  // Fallback: sunucu üzerinden
+  // TikTok: her zaman sunucu üzerinden (CORS/abonelik/host farkını kullanıcıya yüklememek için)
   const res = await fetch(backendUrl("/search/tiktok?q=" + encodeURIComponent(q)), { cache: "no-store" });
   const data = await res.json();
   if (!res.ok) throw new Error((data && data.error) || res.statusText || "TikTok API");
@@ -808,40 +777,10 @@ async function fetchInstagramFeed() {
   for (const q of queries.slice(0, 4)) {
     const tag = q.split(/\s+/)[0].replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ]/g, "").slice(0, 80) || "viral";
     try {
-      if (rapidKey) {
-        const res = await fetch("https://instagram-scraper-api2.p.rapidapi.com/v1/hashtag?hashtag=" + encodeURIComponent(tag), {
-          method: "GET",
-          cache: "no-store",
-          headers: {
-            "x-rapidapi-key": rapidKey,
-            "x-rapidapi-host": "instagram-scraper-api2.p.rapidapi.com"
-          }
-        });
-        const arr = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error("Instagram: " + ((arr && (arr.message || arr.error)) || ("HTTP " + res.status)));
-        const items = arr?.data?.items || arr?.items || [];
-        const vids = (items || []).map((item) => {
-          const code = item.code || item.shortcode || item.media_code;
-          if (!code) return null;
-          return {
-            id: String(item.id || code),
-            title: (typeof item.caption === "string" ? item.caption : (item.caption?.text || "Instagram Reels")),
-            channel: item.user?.username || item.owner?.username || "",
-            duration: item.video_duration || 0,
-            views: item.view_count || item.play_count || 0,
-            likes: item.like_count || 0,
-            thumb: item.image_versions2?.candidates?.[0]?.url || item.thumbnail_url || "",
-            url: `https://www.instagram.com/reel/${code}/`,
-            platform: "instagram"
-          };
-        }).filter(Boolean);
-        raw.push(...vids);
-      } else {
-        const res = await fetch(backendUrl("/search/instagram?q=" + encodeURIComponent(tag)), { cache: "no-store" });
-        const arr = await res.json();
-        if (!res.ok) throw new Error(arr.error || res.statusText);
-        if (Array.isArray(arr)) raw.push(...arr);
-      }
+      const res = await fetch(backendUrl("/search/instagram?q=" + encodeURIComponent(tag)), { cache: "no-store" });
+      const arr = await res.json();
+      if (!res.ok) throw new Error(arr.error || res.statusText);
+      if (Array.isArray(arr)) raw.push(...arr);
     } catch(e) { console.warn(e); }
   }
   const seen = new Set();
