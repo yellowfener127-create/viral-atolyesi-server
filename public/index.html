@@ -774,7 +774,8 @@ async function fetchTikTokFeed() {
 async function fetchInstagramFeed() {
   const queries = getTodayQueries(activeCat);
   const raw = [];
-  for (const q of queries.slice(0, 4)) {
+  // 429 yememek için daha az istek: 1 hashtag yeterli
+  for (const q of queries.slice(0, 1)) {
     const tag = q.split(/\s+/)[0].replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ]/g, "").slice(0, 80) || "viral";
     try {
       const res = await fetch(backendUrl("/search/instagram?q=" + encodeURIComponent(tag)), { cache: "no-store" });

@@ -51,6 +51,22 @@ const COOKIES_INSTAGRAM_PATH = path.join(__dirname, 'www.instagram.com_cookies.t
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || 'fa585a7e00mshd7e15329a3e4fe2p17ec23jsn54ade22ae56f';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
+// Simple in-memory cache to avoid RapidAPI 429 (per instance)
+const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 10 * 60 * 1000); // 10 min
+const apiCache = new Map();
+function cacheGet(key) {
+  const v = apiCache.get(key);
+  if (!v) return null;
+  if (Date.now() > v.expiresAt) {
+    apiCache.delete(key);
+    return null;
+  }
+  return v.value;
+}
+function cacheSet(key, value, ttlMs = CACHE_TTL_MS) {
+  apiCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
 function normalizeNetscapeCookies(text) {
   let s = String(text || '').replace(/^\uFEFF/, '');
   s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -548,7 +564,7 @@ function rapidApiGet(hostname, path, cb) {
   const request = https.request(options, (response) => {
     let data = '';
     response.on('data', (chunk) => { data += chunk; });
-    response.on('end', () => cb(null, response.statusCode || 0, data));
+    response.on('end', () => cb(null, response.statusCode || 0, data, response.headers || {}));
   });
   request.on('error', (e) => cb(e));
   request.end();
@@ -559,6 +575,10 @@ app.get('/search/tiktok', (req, res) => {
   if (!RAPIDAPI_KEY) return res.status(503).json({ error: 'RAPIDAPI_KEY tanımlı değil' });
   const query = req.query.q;
   if (!query) return res.status(400).json({ error: 'Sorgu gerekli' });
+
+  const cacheKey = `tiktok:${String(query).toLowerCase().trim()}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return res.json(cached);
 
   // Auto-adapter: birden fazla RapidAPI sağlayıcısını dener.
   // 1) Kullanıcının abone olabileceği "tiktok-video-downloader-api" genelde /user/{username} endpoint'i sunar.
@@ -590,12 +610,18 @@ app.get('/search/tiktok', (req, res) => {
         if (/not subscribed/i.test(msg) || /You are not subscribed/i.test(msg)) {
           return next(i + 1, `TikTok ${p.name}: RapidAPI aboneliği yok veya plan yetersiz.`);
         }
+        if (status === 429) {
+          return res.status(429).json({ error: `TikTok ${p.name}: 429 Too Many Requests (RapidAPI limit). Birkaç dakika sonra tekrar dene.` });
+        }
         return next(i + 1, `TikTok ${p.name} upstream HTTP ${status}: ${msg.slice(0, 400)}`);
       }
       const parsed = tryJsonParse(body) || {};
       const items = anyArrayIn(parsed);
       const videos = mapToVideoList(items.length ? items : tiktokRawItems(parsed), 'tiktok');
-      if (videos.length) return res.json(videos);
+      if (videos.length) {
+        cacheSet(cacheKey, videos);
+        return res.json(videos);
+      }
       return next(i + 1, `TikTok ${p.name}: boş sonuç (yanıt formatı farklı olabilir).`);
     });
   })(0, '');
@@ -618,6 +644,10 @@ app.get('/search/instagram', (req, res) => {
   const query = req.query.q;
   if (!query) return res.status(400).json({ error: 'Sorgu gerekli' });
 
+  const cacheKey = `ig:${String(query).toLowerCase().trim()}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return res.json(cached);
+
   const host = process.env.RAPIDAPI_INSTAGRAM_HOST || 'instagram-scraper-api2.p.rapidapi.com';
   const path1 = `/v1/hashtag?hashtag=${encodeURIComponent(query)}`;
   // Bazı sağlayıcılar query paramını farklı adla bekleyebiliyor; ikinci deneme.
@@ -633,19 +663,28 @@ app.get('/search/instagram', (req, res) => {
       return res.status(502).json({ error: lastErr || 'Instagram: Uygun RapidAPI endpoint bulunamadı (abonelik/host).' });
     }
     const p = providers[i];
-    rapidApiGet(p.host, p.path, (err, status, body) => {
+    rapidApiGet(p.host, p.path, (err, status, body, headers) => {
       if (err) return next(i + 1, `Instagram ${p.name} hata: ${err.message}`);
       if (status >= 400) {
         const msg = String(body || '');
         if (/not subscribed/i.test(msg) || /You are not subscribed/i.test(msg)) {
           return next(i + 1, `Instagram ${p.name}: RapidAPI aboneliği yok veya plan yetersiz.`);
         }
+        if (status === 429) {
+          const ra = headers && (headers['retry-after'] || headers['Retry-After']);
+          return res.status(429).json({
+            error: `Instagram ${p.name}: 429 Too Many Requests (RapidAPI limit). ${ra ? `Retry-After: ${ra}` : 'Biraz bekleyip tekrar dene.'}`
+          });
+        }
         return next(i + 1, `Instagram ${p.name} upstream HTTP ${status}: ${msg.slice(0, 400)}`);
       }
       const parsed = tryJsonParse(body) || {};
       const items = anyArrayIn(parsed);
       const mapped = mapToVideoList(items.length ? items : instagramRawItems(parsed), 'instagram');
-      if (mapped.length) return res.json(mapped);
+      if (mapped.length) {
+        cacheSet(cacheKey, mapped);
+        return res.json(mapped);
+      }
       return next(i + 1, `Instagram ${p.name}: boş sonuç (yanıt formatı farklı olabilir).`);
     });
   })(0, '');
