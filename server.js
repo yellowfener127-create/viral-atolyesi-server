@@ -450,11 +450,16 @@ function tiktokRawItems(parsed) {
   if (Array.isArray(parsed)) return parsed;
   return (
     parsed.data?.item_list ||
+    parsed.data?.data?.item_list ||
     parsed.item_list ||
     parsed.aweme_list ||
     parsed.data?.aweme_list ||
+    parsed.data?.data?.aweme_list ||
+    parsed.data?.videos ||
+    parsed.data?.data?.videos ||
     parsed.items ||
     parsed.data?.items ||
+    parsed.data?.data?.items ||
     []
   );
 }
@@ -473,13 +478,18 @@ function anyArrayIn(obj) {
   const candidates = [
     obj.items,
     obj.data?.items,
+    obj.data?.data?.items,
     obj.data?.videos,
+    obj.data?.data?.videos,
     obj.videos,
     obj.aweme_list,
     obj.data?.aweme_list,
+    obj.data?.data?.aweme_list,
     obj.data?.item_list,
+    obj.data?.data?.item_list,
     obj.item_list,
     obj.data?.list,
+    obj.data?.data?.list,
     obj.list,
     obj.data
   ];
@@ -487,6 +497,56 @@ function anyArrayIn(obj) {
     if (Array.isArray(c)) return c;
   }
   return [];
+}
+
+function looksLikeTikTokItem(o) {
+  if (!o || typeof o !== 'object') return false;
+  return !!(
+    o.aweme_id ||
+    o.share_url ||
+    o.author ||
+    o.video?.play_url ||
+    o.video?.download_url ||
+    o.stats?.playCount
+  );
+}
+
+function looksLikeInstagramItem(o) {
+  if (!o || typeof o !== 'object') return false;
+  const u = o.url || o.link || o.web_url;
+  return !!(
+    o.shortcode ||
+    o.code ||
+    o.media_code ||
+    (typeof u === 'string' && /instagram\.com\/(reel|p)\//i.test(u)) ||
+    o.video_duration ||
+    o.thumbnail_url
+  );
+}
+
+function deepFindItems(root, predicate, maxDepth = 4, maxNodes = 2000) {
+  const out = [];
+  const q = [{ v: root, d: 0 }];
+  const seen = new Set();
+  let nodes = 0;
+  while (q.length && nodes < maxNodes) {
+    const { v, d } = q.shift();
+    nodes++;
+    if (!v || typeof v !== 'object') continue;
+    if (seen.has(v)) continue;
+    seen.add(v);
+    if (Array.isArray(v)) {
+      // If this array itself looks like items array, return it fast
+      let hit = 0;
+      for (let i = 0; i < Math.min(v.length, 10); i++) if (predicate(v[i])) hit++;
+      if (hit >= 2) return v;
+      if (d < maxDepth) for (const it of v) q.push({ v: it, d: d + 1 });
+      continue;
+    }
+    if (d >= maxDepth) continue;
+    for (const val of Object.values(v)) q.push({ v: val, d: d + 1 });
+  }
+  return out;
 }
 
 function mapToVideoList(items, platform) {
@@ -624,8 +684,11 @@ app.get('/search/tiktok', (req, res) => {
         return next(i + 1, `TikTok ${p.name} upstream HTTP ${status}: ${msg.slice(0, 400)}`);
       }
       const parsed = tryJsonParse(body) || {};
-      const items = anyArrayIn(parsed);
-      const videos = mapToVideoList(items.length ? items : tiktokRawItems(parsed), 'tiktok');
+      const items =
+        anyArrayIn(parsed) ||
+        tiktokRawItems(parsed) ||
+        deepFindItems(parsed, looksLikeTikTokItem);
+      const videos = mapToVideoList(items, 'tiktok');
       if (videos.length) {
         cacheSet(cacheKey, videos);
         return res.json(videos);
@@ -696,8 +759,11 @@ app.get('/search/instagram', (req, res) => {
         return next(i + 1, `Instagram ${p.name} upstream HTTP ${status}: ${msg.slice(0, 400)}`);
       }
       const parsed = tryJsonParse(body) || {};
-      const items = anyArrayIn(parsed);
-      const mapped = mapToVideoList(items.length ? items : instagramRawItems(parsed), 'instagram');
+      const items =
+        anyArrayIn(parsed) ||
+        instagramRawItems(parsed) ||
+        deepFindItems(parsed, looksLikeInstagramItem);
+      const mapped = mapToVideoList(items, 'instagram');
       if (mapped.length) {
         cacheSet(cacheKey, mapped);
         return res.json(mapped);
