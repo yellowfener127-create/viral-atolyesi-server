@@ -258,8 +258,9 @@
     <!-- Caption Üretici -->
     <div class="tool-card">
       <div class="tool-title">✏️ Caption Üretici</div>
-      <div class="tool-desc">Video başlığını gir, platforma uygun Türkçe viral caption + hashtag üretir</div>
+      <div class="tool-desc">Başlık + (isteğe bağlı) video transcript’i gir; TikTok / Reels / Shorts için ayrı formatta Türkçe caption + hashtag üretir. Transcript: YouTube’da “⋯ → Göster transkript” ile kopyalayabilirsin.</div>
       <input class="tool-input" type="text" id="captionTitle" placeholder="Video başlığını yaz (Türkçe veya İngilizce)"/>
+      <textarea class="tool-input" id="captionTranscript" rows="5" placeholder="Transcript (isteğe bağlı): Konuşma metnini buraya yapıştır. Boş bırakırsan sadece başlığa göre üretir." style="min-height:100px;resize:vertical"></textarea>
       <select class="platform-select" id="captionPlatform">
         <option value="tiktok">🎵 TikTok</option>
         <option value="reels">📸 Instagram Reels</option>
@@ -912,14 +913,63 @@ async function doSearch() {
   btn.disabled = false;
 }
 
-function captionFallback(title, platform) {
+function captionFallback(title, platform, transcript) {
   const tags = { tiktok: "#fyp #viral #keşfet #trend", reels: "#reels #instagram #keşfet", shorts: "#shorts #youtube #viral" };
-  return `🔥 ${title}\n\nBu içerik seni düşündürdü mü? Yorumda yaz 👇\n\n${tags[platform] || "#viral #trend"}`;
+  const t = (transcript || "").trim();
+  const hook = t ? (t.length > 120 ? t.slice(0, 120).trim() + "…" : t) : "";
+  const body = hook
+    ? `🔥 ${title}\n\n${hook}\n\nNe düşünüyorsun? Yorumda yaz 👇`
+    : `🔥 ${title}\n\nBu içerik seni düşündürdü mü? Yorumda yaz 👇`;
+  return `${body}\n\n${tags[platform] || "#viral #trend"}`;
+}
+
+function buildCaptionPrompt(title, platform, transcript) {
+  const platformNames = { tiktok: "TikTok", reels: "Instagram Reels", shorts: "YouTube Shorts" };
+  const name = platformNames[platform] || "sosyal medya";
+  const t = (transcript || "").trim();
+  const transcriptBlock = t
+    ? `\n\nVideo transcript (konuşma metni, buna sadık kal ve özetleme yapma; sadece caption için ana fikri kullan):\n"""\n${t.slice(0, 12000)}\n"""\n`
+    : "\n\nTranscript verilmedi; sadece başlığa göre yaz.\n";
+
+  const rulesByPlatform = {
+    tiktok: `Platform: ${name} — FORMAT ŞABLONU:
+- İlk satır: tek cümle "hook" (merak / şok / duygu), max ~80 karakter
+- 2-4 satır: transcript varsa videonun özünü yansıtan kısa cümleler; yoksa başlıktan türet
+- Bir satır: izleyiciye soru veya yorum isteği
+- Son satır: 5-7 hashtag (#fyp #viral #keşfet vb. konuya uygun)
+- Emoji: 3-5 adet, doğal
+- Toplam kısa tut (TikTok açıklaması gibi okunur olsun)`,
+    reels: `Platform: ${name} — FORMAT ŞABLONU:
+- İlk 1-2 cümle: güçlü hook + duygu
+- Orta kısım: transcript varsa 2-3 cümleyle hikâye/özet; yoksa başlıktan
+- Bir cümle: "kaydet / paylaş / yorum" gibi hafif CTA (spam gibi olmasın)
+- Son satır: 5-8 hashtag (Türkçe + İngilizce karışık, #reels #keşfet)
+- Emoji: 4-6, sıcak ve samimi`,
+    shorts: `Platform: ${name} — FORMAT ŞABLONU:
+- İlk 2 satır: arama + tıklama için anahtar kelimeleri doğal şekilde içeren açıklama (SEO hissi, abartma yok)
+- Devam: transcript varsa 2-4 cümle özet; yoksa başlıktan
+- Bir cümle: abone/yorum çağrısı (nazik)
+- Son satır: 5-7 hashtag (#shorts #youtube + konu)
+- Emoji: 2-4, daha sade`
+  };
+
+  return `Sen bir Türkçe içerik yazarısın. Aşağıdaki video için ${name} paylaşımına uygun TEK bir caption yaz.
+
+Video başlığı:
+"${title}"
+${transcriptBlock}
+${rulesByPlatform[platform] || rulesByPlatform.tiktok}
+
+Genel kurallar:
+- Sadece Türkçe yaz (yabancı kelime sadece hashtag veya alıntı gerekiyorsa)
+- Abartılı clickbait yalanı yazma
+- Sadece caption metnini yaz; başlık ekleme, numaralandırma yapma, "İşte caption:" deme.`;
 }
 
 // CAPTION ÜRETİCİ
 async function generateCaption() {
   const title = document.getElementById("captionTitle").value.trim();
+  const transcript = document.getElementById("captionTranscript").value.trim();
   const platform = document.getElementById("captionPlatform").value;
   if (!title) { alert("Video başlığını gir!"); return; }
 
@@ -932,30 +982,16 @@ async function generateCaption() {
   resultEl.style.display = "none";
   copyBtn.style.display = "none";
 
-  const platformNames = { tiktok: "TikTok", reels: "Instagram Reels", shorts: "YouTube Shorts" };
-
   try {
     const res = await fetch(backendUrl("/anthropic/messages"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-3-5-sonnet-20241022",
-        max_tokens: 500,
+        max_tokens: 800,
         messages: [{
           role: "user",
-          content: `Şu video başlığı için ${platformNames[platform]} platformuna özel Türkçe viral bir caption yaz:
-
-"${title}"
-
-Kurallar:
-- Merak uyandıran, kısa ve akılda kalıcı olsun
-- Emoji kullan (ama abartma, 3-5 tane)
-- Türk kullanıcıları için samimi ve doğal olsun
-- Yorum yazdıracak, kaydettirecek bir cümle ekle
-- Son satırda platforma uygun 5-7 hashtag ekle (Türkçe + İngilizce karışık)
-- Toplam 4-6 satır olsun
-
-Sadece caption metnini yaz, başka hiçbir şey ekleme.`
+          content: buildCaptionPrompt(title, platform, transcript)
         }]
       })
     });
@@ -964,14 +1000,14 @@ Sadece caption metnini yaz, başka hiçbir şey ekleme.`
     if (!res.ok) throw new Error(data.error || res.statusText);
 
     let text = data.content?.map(b => b.text || "").join("") || "";
-    if (!text) text = captionFallback(title, platform);
+    if (!text) text = captionFallback(title, platform, transcript);
 
     resultEl.textContent = text;
     resultEl.classList.add("show");
     resultEl.style.display = "block";
     copyBtn.style.display = "block";
   } catch(e) {
-    resultEl.textContent = captionFallback(title, platform);
+    resultEl.textContent = captionFallback(title, platform, transcript);
     resultEl.classList.add("show");
     resultEl.style.display = "block";
     copyBtn.style.display = "block";
