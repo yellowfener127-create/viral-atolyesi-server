@@ -215,75 +215,33 @@ app.post('/crush', async (req, res) => {
     const vx = 130;
     const vy = 85;
     const inDur = await probeDurationSec(inFile);
-    const hasAudio = await probeHasAudio(inFile);
-    const mainDur = Math.max(1, inDur / speed); // hızlandırılmış ana video süresi
-    const outro = 3.0; // sabit: 3sn outro
-
-    // Çıkış: 720x1280 (performans)
+    const outDur = Math.max(1, inDur / speed);
     const outW = 720, outH = 1280;
 
-    // Tema (benden): 3sn sinematik kapanış + merkeze gelen watermark + uyumlu ambient ses
+    // Hafif şablon: sadece main video (outro yok)
     const filter = [
-      // 0) Ana video: hızlandır + 9:16 + 720p + renk
       `[0:v]setpts=PTS/${speed},scale=-2:${outH},crop=${outW}:${outH},` +
-        `scale=iw*1.07:ih*1.07,crop=${outW}:${outH},eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1,fps=30,` +
-        `trim=0:${mainDur.toFixed(3)},setpts=PTS-STARTPTS[vMain]`,
-
-      // 1) Watermark top (daire + saydam + hafif dönme)
+        `scale=iw*1.07:ih*1.07,crop=${outW}:${outH},eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1,fps=30[v0]`,
       `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
         `rotate='0.15*sin(2*PI*t/1.2)':c=none:ow=iw:oh=ih[wm0]`,
       `[wm0]split=2[wmA][wmB]`,
       `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
       `[wmB][mask]alphamerge,colorchannelmixer=aa=0.30[wm]`,
-
-      // 2) Main: watermark seken top
-      `[vMain][wm]overlay=` +
+      `[v0][wm]overlay=` +
         `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
-        `y='abs(mod(t*${vy},2*(H-h))-(H-h))':format=auto[vMainWm]`,
-
-      // 3) Outro video: siyah zemin + vignette + fade-in/out + watermark merkezde
-      `color=c=black:s=${outW}x${outH}:r=30:d=${outro}[bg]`,
-      `[bg]vignette=angle=0.5:eval=frame,fade=t=in:st=0:d=0.25,fade=t=out:st=${Math.max(0, outro - 0.55).toFixed(3)}:d=0.55[vOutroBase]`,
-      `[wm]rotate='0.20*sin(2*PI*t/1.6)':c=none:ow=iw:oh=ih[wmOutro]`,
-      `[vOutroBase][wmOutro]overlay=x='(W-w)/2':y='(H-h)/2':format=auto[vOutro]`,
-
-      // 4) Concat video (main + outro)
-      `[vMainWm][vOutro]concat=n=2:v=1:a=0[v]`
+        `y='abs(mod(t*${vy},2*(H-h))-(H-h))':format=auto[v]`
     ].join(';');
-
-    // Outro audio: ambient "pad + very light noise" — 3sn, outro ile uyumlu.
-    const outroFadeOutSt = Math.max(0, outro - 0.55).toFixed(3);
-    const outroNoiseFadeOutSt = Math.max(0, outro - 0.45).toFixed(3);
-    const outroAudioParts = [
-      `sine=frequency=220:sample_rate=48000:duration=${outro}[s1]`,
-      `sine=frequency=330:sample_rate=48000:duration=${outro}[s2]`,
-      `[s1][s2]amix=inputs=2:weights='0.6 0.4',volume=0.08,afade=t=in:st=0:d=0.25,afade=t=out:st=${outroFadeOutSt}:d=0.55[aPad]`,
-      `anoisesrc=color=pink:sample_rate=48000:duration=${outro}[n1]`,
-      `[n1]volume=0.02,afade=t=in:st=0.05:d=0.20,afade=t=out:st=${outroNoiseFadeOutSt}:d=0.45[aNoise]`,
-      `[aPad][aNoise]amix=inputs=2:weights='0.85 0.15'[aOutro]`
-    ];
-
-    // Audio: ana ses varsa hızlandır; yoksa sessiz ana ses üret.
-    const audioFilter = hasAudio
-      ? [
-          `[0:a]atempo=${speed},aresample=async=1:first_pts=0,atrim=0:${mainDur.toFixed(3)},asetpts=PTS-STARTPTS[aMainSafe]`,
-          ...outroAudioParts,
-          `[aMainSafe][aOutro]concat=n=2:v=0:a=1[a]`
-        ].join(';')
-      : [
-          `anullsrc=channel_layout=stereo:sample_rate=48000:d=${mainDur.toFixed(3)}[aMainSafe]`,
-          ...outroAudioParts,
-          `[aMainSafe][aOutro]concat=n=2:v=0:a=1[a]`
-        ].join(';');
 
     const ffArgs = [
       '-y',
       '-i', inFile,
       '-loop', '1',
       '-i', wmFile,
-      '-filter_complex', `${filter};${audioFilter}`,
+      '-filter_complex', filter,
       '-map', '[v]',
-      '-map', '[a]',
+      '-map', '0:a?',
+      '-af', `atempo=${speed},aresample=async=1:first_pts=0,atrim=0:${outDur.toFixed(3)}`,
+      '-t', outDur.toFixed(3),
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-crf', '24',
