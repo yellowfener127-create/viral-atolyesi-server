@@ -70,6 +70,30 @@ function pickNewestFile(dir, exts) {
   return picked ? picked.p : null;
 }
 
+async function probeDurationSec(filePath) {
+  // Requires ffprobe available with ffmpeg install
+  const args = [
+    '-v', 'error',
+    '-show_entries', 'format=duration',
+    '-of', 'default=noprint_wrappers=1:nokey=1',
+    filePath
+  ];
+  const child = spawn('ffprobe', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  let err = '';
+  return await new Promise((resolve, reject) => {
+    child.stdout.on('data', (d) => { out += d.toString(); });
+    child.stderr.on('data', (d) => { err += d.toString(); });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) return reject(new Error(err || `ffprobe exit ${code}`));
+      const v = Number(String(out).trim());
+      if (!Number.isFinite(v) || v <= 0) return reject(new Error('Süre okunamadı'));
+      resolve(v);
+    });
+  });
+}
+
 async function runYtDlpToResponse(res, url) {
   // Requires: yt-dlp installed on user's machine (in PATH)
   // This avoids server-side bot blocks by running from the user's own network/session.
@@ -134,7 +158,8 @@ app.post('/crush', async (req, res) => {
   if (!hasYtDlp) return res.status(500).json({ error: 'yt-dlp bulunamadı. Önce bilgisayara yt-dlp kur.' });
 
   const hasFfmpeg = await existsOnPath('ffmpeg');
-  if (!hasFfmpeg) return res.status(500).json({ error: 'ffmpeg bulunamadı. Önce bilgisayara ffmpeg kur.' });
+  const hasFfprobe = await existsOnPath('ffprobe');
+  if (!hasFfmpeg || !hasFfprobe) return res.status(500).json({ error: 'ffmpeg/ffprobe bulunamadı. Önce bilgisayara ffmpeg kur.' });
 
   const wmFile =
     brand === 'kaos'
@@ -166,13 +191,22 @@ app.post('/crush', async (req, res) => {
     if (!inFile) return res.status(500).json({ error: 'İndirilen dosya bulunamadı' });
 
     const speed = 1.10;
-    const wmSize = 110;
+    const wmSize = 96;
     const vx = 130;
     const vy = 85;
+    const inDur = await probeDurationSec(inFile);
+    const outDur = Math.max(1, inDur / speed);
+
     const filter = [
       // Performans: 720x1280 (daha az kasar). Tek şablon sabit.
-      `[0:v]scale=-2:1280,crop=720:1280,scale=iw*1.07:ih*1.07,crop=720:1280,eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1[v0]`,
-      `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,colorchannelmixer=aa=0.35[wm]`,
+      `[0:v]scale=-2:1280,crop=720:1280,scale=iw*1.07:ih*1.07,crop=720:1280,eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1,fps=30[v0]`,
+      // Watermark: top gibi (daire maskesi) + hafif dönme
+      `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,colorchannelmixer=aa=0.30,` +
+        `rotate='0.15*sin(2*PI*t/1.2)':c=none:ow=iw:oh=ih[wm0]`,
+      `[wm0]split=2[wmA][wmB]`,
+      `[wmA]alphaextract,` +
+        `geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
+      `[wmB][mask]alphamerge[wm]`,
       `[v0][wm]overlay=` +
         `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
         `y='abs(mod(t*${vy},2*(H-h))-(H-h))':` +
@@ -187,9 +221,10 @@ app.post('/crush', async (req, res) => {
       '-filter_complex', filter,
       '-map', '[v]',
       '-map', '0:a?',
-      // Ses bazen erken biter -> video kesilmesin diye silence ile uzat.
-      // Ayrıca VFR videolarda titreme azaltmak için async resample.
-      '-af', `atempo=${speed},aresample=async=1:first_pts=0,apad=pad_dur=120`,
+      // Ses: hızlandır + süreyi hedefe kırp (uzamasın/kısalmasın)
+      '-af', `atempo=${speed},aresample=async=1:first_pts=0,atrim=0:${outDur.toFixed(3)}`,
+      // Video: hedef süreye kırp (uzamasın)
+      '-t', outDur.toFixed(3),
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-crf', '24',
@@ -197,7 +232,6 @@ app.post('/crush', async (req, res) => {
       '-movflags', '+faststart',
       '-c:a', 'aac',
       '-b:a', '128k',
-      '-shortest',
       outFile
     ];
     await run('ffmpeg', ffArgs, { timeoutMs: 8 * 60 * 1000 });
