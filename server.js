@@ -6,6 +6,7 @@ const fs = require('fs');
 const https = require('https');
 const os = require('os');
 const { pipeline } = require('stream/promises');
+const ffmpegPath = require('ffmpeg-static');
 
 const app = express(); // 1. Sırada bu olmalı
 
@@ -20,6 +21,7 @@ app.set('etag', false);
 app.use((req, res, next) => {
   if (
     req.path === '/download' ||
+    req.path === '/tools/crush' ||
     req.path.startsWith('/search/') ||
     req.path.startsWith('/youtube/') ||
     req.path.startsWith('/anthropic/')
@@ -42,7 +44,7 @@ app.use((req, res, next) => {
   next();
 });
 
-const YTDLP_PATH = path.join(__dirname, 'yt-dlp');
+const YTDLP_PATH = path.join(__dirname, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
 const COOKIES_PATH = path.join(__dirname, 'www.youtube.com_cookies.txt');
 const COOKIES_TIKTOK_PATH = path.join(__dirname, 'www.tiktok.com_cookies.txt');
 const COOKIES_INSTAGRAM_PATH = path.join(__dirname, 'www.instagram.com_cookies.txt');
@@ -119,7 +121,10 @@ function cookieFileInfo(filePath) {
 
 function installYtDlp() {
   // Render ortamında curl her zaman yok; Node ile indir (redirect destekli, EBADF'siz).
-  const startUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+  const startUrl =
+    process.platform === 'win32'
+      ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+      : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
 
   function getWithRedirect(url, redirectsLeft = 5) {
     return new Promise((resolve, reject) => {
@@ -149,7 +154,7 @@ function installYtDlp() {
       const out = fs.createWriteStream(tmp);
       await pipeline(res, out);
       fs.copyFileSync(tmp, YTDLP_PATH);
-      fs.chmodSync(YTDLP_PATH, 0o755);
+      if (process.platform !== 'win32') fs.chmodSync(YTDLP_PATH, 0o755);
     } catch (e) {
       console.error('installYtDlp failed:', e && e.message ? e.message : e);
     } finally {
@@ -260,6 +265,56 @@ async function attemptStreamToResponse(res, url, { cookieFile, format, extraArgs
   });
 }
 
+function safeUnlink(p) {
+  try { if (p && fs.existsSync(p)) fs.unlinkSync(p); } catch {}
+}
+
+function runChild(bin, args, { timeoutMs } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    const killTimer =
+      timeoutMs && timeoutMs > 0
+        ? setTimeout(() => {
+            try { child.kill('SIGKILL'); } catch {}
+          }, timeoutMs)
+        : null;
+    child.stdout.on('data', (d) => { stdout += d.toString(); });
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    child.on('error', (e) => {
+      if (killTimer) clearTimeout(killTimer);
+      reject(e);
+    });
+    child.on('close', (code) => {
+      if (killTimer) clearTimeout(killTimer);
+      if (code === 0) return resolve({ stdout, stderr });
+      reject(new Error(stderr || stdout || `exit ${code}`));
+    });
+  });
+}
+
+async function downloadVideoToFile(url, filepath, { cookieFile, format, extraArgs } = {}) {
+  const args = buildYtDlpArgs(url, { cookieFile, format, extraArgs });
+  // buildYtDlpArgs zaten -o outBase.* kullanıyor; bunu dosya adına sabitlemek için override edelim.
+  // İstenmeyen ext sürprizlerini azaltmak için mp4'e zorla.
+  const finalArgs = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-o' || a === '--output') {
+      i += 1;
+      finalArgs.push('-o', filepath);
+      continue;
+    }
+    finalArgs.push(a);
+  }
+  // Eğer buildYtDlpArgs -o koymadıysa ekle
+  if (!finalArgs.includes('-o') && !finalArgs.includes('--output')) {
+    finalArgs.push('-o', filepath);
+  }
+  await runChild(YTDLP_PATH, finalArgs, { timeoutMs: 4 * 60 * 1000 });
+}
+
 // YouTube / TikTok / Instagram indirme (yt-dlp; ffmpeg gerekmez — tek parça "best")
 app.all('/download', (req, res) => {
   const url = req.query?.url || req.body?.url || req.body?.videoUrl || req.body?.link;
@@ -352,6 +407,111 @@ app.all('/download', (req, res) => {
     console.error('yt-dlp download failed:', r.stderr);
     res.status(500).json({ error: 'İndirme hatası: ' + r.stderr });
   })();
+});
+
+// Telif Ezici: indir -> 9:16 + hafif zoom + küçük hız + seken watermark
+app.post('/tools/crush', async (req, res) => {
+  const url = req.body?.url || req.query?.url;
+  const brand = String(req.body?.brand || req.query?.brand || 'terapi').toLowerCase();
+  if (!url) return res.status(400).json({ error: 'URL gerekli' });
+
+  if (!ffmpegPath) return res.status(500).json({ error: 'FFmpeg bulunamadı (ffmpeg-static).' });
+
+  const isYt = /youtube\.com|youtu\.be/i.test(url);
+  const isTiktok = /tiktok\.com/i.test(url);
+  const isInstagram = /instagram\.com|instagr\.am/i.test(url);
+
+  let cookieFile = null;
+  if (isYt) {
+    ensureCookieFileFromEnv('YT_COOKIES_B64', COOKIES_PATH);
+    cookieFile = resolveYoutubeCookieFile();
+  } else if (isTiktok) {
+    ensureCookieFileFromEnv('TT_COOKIES_B64', COOKIES_TIKTOK_PATH);
+    cookieFile = fs.existsSync(COOKIES_TIKTOK_PATH) ? COOKIES_TIKTOK_PATH : null;
+  } else if (isInstagram) {
+    ensureCookieFileFromEnv('IG_COOKIES_B64', COOKIES_INSTAGRAM_PATH);
+    cookieFile = fs.existsSync(COOKIES_INSTAGRAM_PATH) ? COOKIES_INSTAGRAM_PATH : null;
+  }
+
+  const wmFile =
+    brand === 'kaos'
+      ? path.join(PUBLIC_DIR, 'watermark-kaos.png')
+      : path.join(PUBLIC_DIR, 'watermark-terapi.png');
+  if (!fs.existsSync(wmFile)) return res.status(500).json({ error: 'Watermark dosyası yok.' });
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-crush-'));
+  const inFile = path.join(tmpDir, 'in.mp4');
+  const outFile = path.join(tmpDir, 'out.mp4');
+
+  const ytUa =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36';
+  const ytNetArgs = isYt
+    ? ['--geo-bypass', '--force-ipv4', '--referer', 'https://www.youtube.com/', '--user-agent', ytUa]
+    : [];
+
+  try {
+    await downloadVideoToFile(url, inFile, {
+      cookieFile,
+      format: 'best[ext=mp4][acodec!=none][vcodec!=none]/best',
+      extraArgs: ytNetArgs
+    });
+
+    // 9:16 + hafif zoom + küçük hız (1.03) + watermark "seken top"
+    // watermark konumu: DVD tarzı sekme (x,y mod/abs)
+    const speed = 1.03;
+    const wmSize = 140; // px
+    const vx = 130; // px/s
+    const vy = 85; // px/s
+
+    const filter = [
+      `[0:v]scale=-2:1920,crop=1080:1920,scale=iw*1.07:ih*1.07,crop=1080:1920,setsar=1[v0]`,
+      `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba[wm]`,
+      `[v0][wm]overlay=` +
+        `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
+        `y='abs(mod(t*${vy},2*(H-h))-(H-h))':` +
+        `format=auto[v]`
+    ].join(';');
+
+    const args = [
+      '-y',
+      '-i', inFile,
+      '-loop', '1',
+      '-i', wmFile,
+      '-filter_complex', filter,
+      '-map', '[v]',
+      // audio olmayabilir; varsa map et + hızlandır
+      '-map', '0:a?',
+      '-af', `atempo=${speed}`,
+      '-r', '30',
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-crf', '22',
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-shortest',
+      outFile
+    ];
+
+    await runChild(ffmpegPath, args, { timeoutMs: 6 * 60 * 1000 });
+
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', `attachment; filename="crushed_${brand}_9x16.mp4"`);
+    fs.createReadStream(outFile)
+      .on('error', (e) => res.status(500).end(String(e && e.message ? e.message : e)))
+      .on('close', () => {})
+      .pipe(res)
+      .on('finish', () => {});
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e);
+    console.error('/tools/crush error:', msg);
+    res.status(500).json({ error: msg.slice(0, 1500) });
+  } finally {
+    safeUnlink(inFile);
+    safeUnlink(outFile);
+    try { fs.rmdirSync(tmpDir, { recursive: true }); } catch {}
+  }
 });
 
 function sendDownloadedFile(res, filepath) {

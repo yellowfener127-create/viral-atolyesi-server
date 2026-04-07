@@ -260,6 +260,19 @@
 
   <div class="tools-grid">
 
+    <!-- Telif Ezici (9:16 + watermark) -->
+    <div class="tool-card">
+      <div class="tool-title">🧨 Telif Ezici (9:16)</div>
+      <div class="tool-desc">Linki yapıştır. Video sunucudan indirilir, 9:16 yapılır, hafif zoom + küçük hız uygulanır ve seçtiğin logoyla “seken top” watermark eklenir.</div>
+      <input class="tool-input" type="url" id="crushUrl" placeholder="YouTube / TikTok / Instagram linki"/>
+      <select class="platform-select" id="crushBrand">
+        <option value="terapi" selected>TERAPİ ATÖLYESİ</option>
+        <option value="kaos">KAOS ATÖLYESİ</option>
+      </select>
+      <button class="tool-btn" type="button" id="crushBtn" onclick="crushVideo()">⚡ İndir + Telif Ez (9:16)</button>
+      <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
     <!-- Caption Üretici -->
     <div class="tool-card">
       <div class="tool-title">✏️ Caption Üretici</div>
@@ -295,6 +308,49 @@ const BACKEND_ORIGIN = "https://viral-atolyesi-server.onrender.com";
 function backendUrl(path) {
   const p = path.startsWith("/") ? path : "/" + path;
   return BACKEND_ORIGIN + p;
+}
+
+async function crushVideo() {
+  const url = document.getElementById("crushUrl").value.trim();
+  const brand = document.getElementById("crushBrand").value;
+  const btn = document.getElementById("crushBtn");
+  const msg = document.getElementById("crushMsg");
+  if (!url) { alert("Link gir."); return; }
+
+  btn.disabled = true;
+  btn.textContent = "⏳ Hazırlanıyor...";
+  msg.style.display = "none";
+
+  try {
+    const res = await fetch(backendUrl("/tools/crush"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, brand })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || res.statusText);
+    }
+
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    const u = URL.createObjectURL(blob);
+    a.href = u;
+    a.download = `crushed_${brand}_9x16.mp4`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(u);
+
+    msg.style.display = "block";
+    msg.textContent = "✅ Hazır. Dosya indirildi.";
+  } catch (e) {
+    msg.style.display = "block";
+    msg.textContent = "Hata: " + (e.message || e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "⚡ İndir + Telif Ez (9:16)";
+  }
 }
 
 let activeCat = "animal";
