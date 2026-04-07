@@ -170,7 +170,8 @@ app.post('/crush', async (req, res) => {
     const vx = 130;
     const vy = 85;
     const filter = [
-      `[0:v]scale=-2:1920,crop=1080:1920,scale=iw*1.07:ih*1.07,crop=1080:1920,eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1[v0]`,
+      // Performans: 720x1280 (daha az kasar). Tek şablon sabit.
+      `[0:v]scale=-2:1280,crop=720:1280,scale=iw*1.07:ih*1.07,crop=720:1280,eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1[v0]`,
       `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,colorchannelmixer=aa=0.35[wm]`,
       `[v0][wm]overlay=` +
         `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
@@ -186,11 +187,12 @@ app.post('/crush', async (req, res) => {
       '-filter_complex', filter,
       '-map', '[v]',
       '-map', '0:a?',
-      '-af', `atempo=${speed}`,
-      '-r', '30',
+      // Ses bazen erken biter -> video kesilmesin diye silence ile uzat.
+      // Ayrıca VFR videolarda titreme azaltmak için async resample.
+      '-af', `atempo=${speed},aresample=async=1:first_pts=0,apad=pad_dur=120`,
       '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-crf', '22',
+      '-preset', 'ultrafast',
+      '-crf', '24',
       '-pix_fmt', 'yuv420p',
       '-movflags', '+faststart',
       '-c:a', 'aac',
