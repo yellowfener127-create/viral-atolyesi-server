@@ -329,7 +329,15 @@ async function crushVideo() {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || res.statusText);
+      const errMsg = data.error || res.statusText || "İşlem hatası";
+      // YouTube bot doğrulaması gibi durumlarda PC'de çalıştırmak için .bat indir
+      if (/YouTube bot doğrulaması/i.test(errMsg)) {
+        const batUrl = backendUrl("/tools/crush.bat?url=" + encodeURIComponent(url) + "&brand=" + encodeURIComponent(brand));
+        msg.style.display = "block";
+        msg.innerHTML = "Hata: " + errMsg + "\\n\\nÇözüm: Bu videoyu bilgisayarında hazırlamak için .bat indir: " + batUrl;
+        return;
+      }
+      throw new Error(errMsg);
     }
 
     const blob = await res.blob();

@@ -557,6 +557,86 @@ app.post('/tools/crush', async (req, res) => {
   }
 });
 
+// Render YouTube bot doğrulaması durumunda: işlemi PC'de yapmak için .bat üret
+app.get('/tools/crush.bat', (req, res) => {
+  const url = req.query?.url;
+  const brand = String(req.query?.brand || 'terapi').toLowerCase();
+  if (!url) return res.status(400).send('URL gerekli');
+
+  const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'https').toString().split(',')[0].trim();
+  const host = (req.headers['x-forwarded-host'] || req.headers.host || '').toString().split(',')[0].trim();
+  const origin = host ? `${proto}://${host}` : '';
+  const wmUrl =
+    brand === 'kaos'
+      ? `${origin}/watermark-kaos.png`
+      : `${origin}/watermark-terapi.png`;
+
+  // Not: Bu .bat, kullanıcının bilgisayarında çalışır:
+  // - yt-dlp.exe indirir
+  // - ffmpeg (essentials) indirir
+  // - videoyu indirir, 9:16 + zoom + renk + seken watermark + 1.10x hız uygular
+  const bat = `@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+
+REM Viral Atölyesi - Telif Ezici (PC)
+
+set "URL=${String(url).replace(/"/g, '""')}"
+set "BRAND=${brand === 'kaos' ? 'kaos' : 'terapi'}"
+set "WM_URL=${wmUrl}"
+
+set "WORK=%CD%\\va_crush"
+if not exist "%WORK%" mkdir "%WORK%"
+cd /d "%WORK%"
+
+echo [1/4] yt-dlp indiriliyor...
+powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe' -OutFile 'yt-dlp.exe'" || goto :err
+
+echo [2/4] ffmpeg indiriliyor (ilk sefer biraz uzun surer)...
+if not exist "ffmpeg\\bin\\ffmpeg.exe" (
+  powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile 'ffmpeg.zip'" || goto :err
+  powershell -NoProfile -Command "Expand-Archive -Force 'ffmpeg.zip' 'ffmpeg_tmp'" || goto :err
+  for /d %%D in (ffmpeg_tmp\\ffmpeg-*) do set "FFDIR=%%D"
+  if not exist "!FFDIR!\\bin\\ffmpeg.exe" goto :err
+  mkdir ffmpeg
+  xcopy /E /I /Y "!FFDIR!\\*" "ffmpeg\\" >nul
+  rmdir /S /Q ffmpeg_tmp
+  del /Q ffmpeg.zip
+)
+
+echo [3/4] watermark indiriliyor...
+powershell -NoProfile -Command "Invoke-WebRequest -Uri '%WM_URL%' -OutFile 'wm.png'" || goto :err
+
+echo [4/4] video indiriliyor...
+yt-dlp.exe --no-playlist --no-check-certificate -f "best[ext=mp4][acodec!=none][vcodec!=none]/best" -o "in.%%(ext)s" "%URL%" || goto :err
+
+REM input dosyasini bul
+set "INFILE="
+for %%F in (in.*) do set "INFILE=%%F"
+if "%INFILE%"=="" goto :err
+
+echo isleniyor...
+set "SPEED=1.10"
+set "WMSIZE=110"
+set "VX=130"
+set "VY=85"
+
+set "FILTER=[0:v]scale=-2:1920,crop=1080:1920,scale=iw*1.07:ih*1.07,crop=1080:1920,eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1[v0];[1:v]scale=%WMSIZE%:%WMSIZE%:force_original_aspect_ratio=decrease,format=rgba,colorchannelmixer=aa=0.35[wm];[v0][wm]overlay=x='abs(mod(t*%VX%,2*(W-w))-(W-w))':y='abs(mod(t*%VY%,2*(H-h))-(H-h))':format=auto[v]"
+
+ffmpeg\\bin\\ffmpeg.exe -y -i "%INFILE%" -loop 1 -i "wm.png" -filter_complex "%FILTER%" -map "[v]" -map 0:a? -af "atempo=%SPEED%" -r 30 -c:v libx264 -preset veryfast -crf 22 -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 128k -shortest "crushed_%BRAND%_9x16.mp4" || goto :err
+
+echo OK: %WORK%\\crushed_%BRAND%_9x16.mp4
+exit /b 0
+
+:err
+echo HATA oldu. Istersen tekrar dene veya farkli video linki kullan.
+exit /b 1
+`;
+
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', 'attachment; filename="crush.bat"');
+  res.send(bat);
+});
+
 function sendDownloadedFile(res, filepath) {
   const mime = guessMimeFromPath(filepath);
   const base = path.basename(filepath);
