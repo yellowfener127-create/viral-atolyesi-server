@@ -322,34 +322,9 @@ async function crushVideo() {
   msg.style.display = "none";
 
   try {
-    // 1) Önce Render'da dene (dosya indir)
-    const res = await fetch(backendUrl("/tools/crush"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, brand })
-    });
-
-    if (res.ok) {
-      const blob = await res.blob();
-      const a = document.createElement("a");
-      const u = URL.createObjectURL(blob);
-      a.href = u;
-      a.download = `crushed_${brand}_9x16.mp4`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(u);
-      msg.style.display = "block";
-      msg.textContent = "✅ Hazır. Dosya indirildi.";
-      return;
-    }
-
-    // 2) Render blokladıysa: Local Downloader'a düş (PC'ye kaydet)
-    const data = await res.json().catch(() => ({}));
-    const errMsg = data.error || res.statusText || "İşlem hatası";
+    // Render KULLANMA: her zaman Local Downloader (PC'ye kaydet)
     msg.style.display = "block";
-    msg.textContent = "Render hata: " + errMsg + " — Local Downloader deneniyor…";
-
+    msg.textContent = "Local Downloader ile hazırlanıyor (PC'ye kaydedilecek)…";
     const localRes = await fetch("http://127.0.0.1:8787/crush", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
