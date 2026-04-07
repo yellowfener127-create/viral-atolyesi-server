@@ -581,6 +581,14 @@ function buildRunwayPrompt() {
     slight_zoom_in: "very slight slow zoom-in for emphasis"
   };
 
+  const scene = [
+    "Scene: the cat is sitting at a computer desk, wearing over-ear headphones",
+    "the cat is facing a monitor and watching the source video on-screen",
+    "monitor glow lighting on the cat's face, cozy dark room",
+    "POV is external camera (we see the cat, the monitor, and a bit of the desk)",
+    "avoid showing any readable UI, no readable text on screen"
+  ].join(", ");
+
   const baseQuality = [
     "sharp focus",
     "detailed fur",
@@ -600,6 +608,7 @@ function buildRunwayPrompt() {
     "Create a short cat reaction video that matches the vibe and timing of the source clip.",
     contextBits.length ? `Source context: ${contextBits.join(" • ")}.` : "",
     `Cat: ${runwayLabel(cat, catMap)}.`,
+    scene,
     `Reaction: ${runwayLabel(reaction, reactionMap)}.`,
     `Look & style: ${runwayLabel(style, styleMap)}.`,
     `Camera: ${runwayLabel(camera, cameraMap)}.`,
