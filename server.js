@@ -448,24 +448,67 @@ app.post('/tools/crush', async (req, res) => {
   const ytNetArgs = isYt
     ? ['--geo-bypass', '--force-ipv4', '--referer', 'https://www.youtube.com/', '--user-agent', ytUa]
     : [];
+  const ytNetArgsNoForce4 = isYt
+    ? ['--geo-bypass', '--referer', 'https://www.youtube.com/', '--user-agent', ytUa]
+    : [];
 
   try {
-    await downloadVideoToFile(url, inFile, {
-      cookieFile,
-      format: 'best[ext=mp4][acodec!=none][vcodec!=none]/best',
-      extraArgs: ytNetArgs
-    });
+    // YouTube tarafı bazen "signature / n challenge" yüzünden formatları göstermeyebiliyor.
+    // /download ile aynı mantık: farklı player_client kombinasyonlarını sırayla dene.
+    const fmtProg = 'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]';
+    const fmtBest = 'best';
+
+    const hasCookies = !!(cookieFile && fs.existsSync(cookieFile));
+    const tries = isYt
+      ? [
+          { name: 'web+mp4', cookieFile, format: fmtProg, extra: ['--extractor-args', 'youtube:player_client=web', ...ytNetArgs] },
+          { name: 'ios+mp4', cookieFile: hasCookies ? cookieFile : null, format: fmtProg, extra: ['--extractor-args', 'youtube:player_client=ios', ...ytNetArgs] },
+          { name: 'tv_embedded+mp4', cookieFile, format: fmtProg, extra: ['--extractor-args', 'youtube:player_client=tv_embedded', ...ytNetArgs] },
+          { name: 'mweb+mp4', cookieFile, format: fmtProg, extra: ['--extractor-args', 'youtube:player_client=mweb', ...ytNetArgs] },
+          { name: 'web+best', cookieFile, format: fmtBest, extra: ['--extractor-args', 'youtube:player_client=web', ...ytNetArgs] },
+          { name: 'ios+best', cookieFile: hasCookies ? cookieFile : null, format: fmtBest, extra: ['--extractor-args', 'youtube:player_client=ios', ...ytNetArgs] },
+          { name: 'tv_embedded+best', cookieFile, format: fmtBest, extra: ['--extractor-args', 'youtube:player_client=tv_embedded', ...ytNetArgs] },
+          { name: 'web+mp4 (no force-ipv4)', cookieFile, format: fmtProg, extra: ['--extractor-args', 'youtube:player_client=web', ...ytNetArgsNoForce4] },
+          { name: 'android no cookies', cookieFile: null, format: fmtBest, extra: ['--extractor-args', 'youtube:player_client=android', ...ytNetArgs] }
+        ]
+      : [{ name: 'best', cookieFile, format: fmtBest, extra: ytNetArgs }];
+
+    let lastErr = '';
+    for (const t of tries) {
+      try {
+        await downloadVideoToFile(url, inFile, { cookieFile: t.cookieFile, format: t.format, extraArgs: t.extra });
+        lastErr = '';
+        break;
+      } catch (e) {
+        lastErr = e && e.message ? e.message : String(e);
+        console.error(`/tools/crush yt-dlp try "${t.name}" failed`);
+      }
+    }
+    if (lastErr) {
+      if (/confirm you're not a bot|sign in|cookies-from-browser|oturum açın/i.test(lastErr)) {
+        return res.status(403).json({
+          error:
+            'YouTube bot doğrulaması istiyor. Çözüm: Render tarafında YT_COOKIES_B64 (güncel girişli cookies) güncelle. ' +
+            'Bazen bazı videolar/Render IP’si bloklu olabilir; o videolarda indirme başarısız olur.'
+        });
+      }
+      return res.status(500).json({ error: lastErr.slice(0, 1500) });
+    }
 
     // 9:16 + hafif zoom + küçük hız (1.03) + watermark "seken top"
     // watermark konumu: DVD tarzı sekme (x,y mod/abs)
-    const speed = 1.03;
-    const wmSize = 140; // px
+    // Not: tek şablon — her video için aynı değerler.
+    const speed = 1.1; // her daim 1.10x
+    const wmSize = 110; // daha küçük
     const vx = 130; // px/s
     const vy = 85; // px/s
 
     const filter = [
-      `[0:v]scale=-2:1920,crop=1080:1920,scale=iw*1.07:ih*1.07,crop=1080:1920,setsar=1[v0]`,
-      `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba[wm]`,
+      // 9:16: uzun kenarı 1920'e getir, sonra orta crop. Ardından hafif zoom.
+      // Renk: çok hafif kontrast+saturation (abartmadan).
+      `[0:v]scale=-2:1920,crop=1080:1920,scale=iw*1.07:ih*1.07,crop=1080:1920,eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1[v0]`,
+      // Watermark: daha saydam (aa)
+      `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,colorchannelmixer=aa=0.35[wm]`,
       `[v0][wm]overlay=` +
         `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
         `y='abs(mod(t*${vy},2*(H-h))-(H-h))':` +
