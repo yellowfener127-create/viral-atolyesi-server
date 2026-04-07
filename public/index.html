@@ -322,36 +322,45 @@ async function crushVideo() {
   msg.style.display = "none";
 
   try {
+    // 1) Önce Render'da dene (dosya indir)
     const res = await fetch(backendUrl("/tools/crush"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url, brand })
     });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      const errMsg = data.error || res.statusText || "İşlem hatası";
-      // YouTube bot doğrulaması gibi durumlarda PC'de çalıştırmak için .bat indir
-      if (/YouTube bot doğrulaması/i.test(errMsg)) {
-        const batUrl = backendUrl("/tools/crush.bat?url=" + encodeURIComponent(url) + "&brand=" + encodeURIComponent(brand));
-        msg.style.display = "block";
-        msg.innerHTML = "Hata: " + errMsg + "\\n\\nÇözüm: Bu videoyu bilgisayarında hazırlamak için .bat indir: " + batUrl;
-        return;
-      }
-      throw new Error(errMsg);
+
+    if (res.ok) {
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      const u = URL.createObjectURL(blob);
+      a.href = u;
+      a.download = `crushed_${brand}_9x16.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(u);
+      msg.style.display = "block";
+      msg.textContent = "✅ Hazır. Dosya indirildi.";
+      return;
     }
 
-    const blob = await res.blob();
-    const a = document.createElement("a");
-    const u = URL.createObjectURL(blob);
-    a.href = u;
-    a.download = `crushed_${brand}_9x16.mp4`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(u);
-
+    // 2) Render blokladıysa: Local Downloader'a düş (PC'ye kaydet)
+    const data = await res.json().catch(() => ({}));
+    const errMsg = data.error || res.statusText || "İşlem hatası";
     msg.style.display = "block";
-    msg.textContent = "✅ Hazır. Dosya indirildi.";
+    msg.textContent = "Render hata: " + errMsg + " — Local Downloader deneniyor…";
+
+    const localRes = await fetch("http://127.0.0.1:8787/crush", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, brand })
+    });
+    const localData = await localRes.json().catch(() => ({}));
+    if (!localRes.ok || !localData.ok) {
+      throw new Error((localData && localData.error) ? localData.error : "Local Downloader çalışmıyor (8787).");
+    }
+    msg.style.display = "block";
+    msg.textContent = "✅ PC'ye kaydedildi: " + (localData.savedTo || "") + "\\" + (localData.file || "");
   } catch (e) {
     msg.style.display = "block";
     msg.textContent = "Hata: " + (e.message || e);

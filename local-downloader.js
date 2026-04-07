@@ -12,6 +12,17 @@ app.use(express.json({ limit: '256kb' }));
 const PORT = process.env.LOCAL_DOWNLOADER_PORT || 8787;
 const DEFAULT_DIR = path.join(process.env.USERPROFILE || process.cwd(), 'Videos', 'Viral Atölyesi İndirilenler');
 const DOWNLOAD_DIR = process.env.VA_DOWNLOAD_DIR || DEFAULT_DIR;
+const PUBLIC_DIR = path.join(__dirname, 'public');
+
+function existsOnPath(cmd) {
+  try {
+    const isWin = process.platform === 'win32';
+    const probe = spawn(isWin ? 'where' : 'which', [cmd], { stdio: ['ignore', 'ignore', 'ignore'] });
+    return new Promise((resolve) => probe.on('close', (code) => resolve(code === 0)));
+  } catch {
+    return Promise.resolve(false);
+  }
+}
 
 function safeName(s) {
   return String(s || 'video')
@@ -19,6 +30,44 @@ function safeName(s) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 180) || 'video';
+}
+
+function run(bin, args, { timeoutMs } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    const timer =
+      timeoutMs && timeoutMs > 0
+        ? setTimeout(() => {
+            try { child.kill('SIGKILL'); } catch {}
+          }, timeoutMs)
+        : null;
+
+    child.stderr.on('data', (d) => {
+      stderr += d.toString();
+      if (stderr.length > 120_000) stderr = stderr.slice(-120_000);
+    });
+    child.on('error', (e) => {
+      if (timer) clearTimeout(timer);
+      reject(e);
+    });
+    child.on('close', (code) => {
+      if (timer) clearTimeout(timer);
+      if (code === 0) return resolve({ stderr });
+      reject(new Error(stderr || `exit ${code}`));
+    });
+  });
+}
+
+function pickNewestFile(dir, exts) {
+  const files = fs.readdirSync(dir)
+    .map((f) => path.join(dir, f))
+    .filter((p) => fs.statSync(p).isFile());
+  const picked = files
+    .map((p) => ({ p, m: fs.statSync(p).mtimeMs, s: fs.statSync(p).size }))
+    .filter((x) => x.s > 0 && (!exts || !exts.length || exts.includes(path.extname(x.p).toLowerCase())))
+    .sort((a, b) => b.m - a.m)[0];
+  return picked ? picked.p : null;
 }
 
 async function runYtDlpToResponse(res, url) {
@@ -56,18 +105,9 @@ async function runYtDlpToResponse(res, url) {
   child.on('close', (code) => {
     try {
       if (code !== 0) return res.status(500).json({ error: stderr || `yt-dlp exit ${code}` });
-      // Dosya adı yt-dlp template'e göre değişir; en son değişen dosyayı seç.
-      const files = fs.readdirSync(DOWNLOAD_DIR)
-        .map((f) => path.join(DOWNLOAD_DIR, f))
-        .filter((p) => fs.statSync(p).isFile());
-
-      const picked = files
-        .map((p) => ({ p, m: fs.statSync(p).mtimeMs, s: fs.statSync(p).size }))
-        .filter((x) => x.s > 0)
-        .sort((a, b) => b.m - a.m)[0];
-
-      if (!picked) return res.status(500).json({ error: 'Dosya bulunamadı (0 byte)' });
-      return res.json({ ok: true, savedTo: DOWNLOAD_DIR, file: path.basename(picked.p) });
+      const newest = pickNewestFile(DOWNLOAD_DIR);
+      if (!newest) return res.status(500).json({ error: 'Dosya bulunamadı (0 byte)' });
+      return res.json({ ok: true, savedTo: DOWNLOAD_DIR, file: path.basename(newest) });
     } catch (e) {
       res.status(500).json({ error: (e && e.message) ? e.message : String(e) });
     }
@@ -80,6 +120,92 @@ app.get('/download', async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: 'url gerekli' });
   await runYtDlpToResponse(res, url);
+});
+
+// Telif Ezici (PC): indir -> 9:16 + zoom + renk + 1.10x + seken watermark
+app.post('/crush', async (req, res) => {
+  const url = req.body?.url || req.query?.url;
+  const brand = String(req.body?.brand || req.query?.brand || 'terapi').toLowerCase();
+  if (!url) return res.status(400).json({ error: 'url gerekli' });
+
+  fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
+
+  const hasYtDlp = await existsOnPath('yt-dlp');
+  if (!hasYtDlp) return res.status(500).json({ error: 'yt-dlp bulunamadı. Önce bilgisayara yt-dlp kur.' });
+
+  const hasFfmpeg = await existsOnPath('ffmpeg');
+  if (!hasFfmpeg) return res.status(500).json({ error: 'ffmpeg bulunamadı. Önce bilgisayara ffmpeg kur.' });
+
+  const wmFile =
+    brand === 'kaos'
+      ? path.join(PUBLIC_DIR, 'watermark-kaos.png')
+      : path.join(PUBLIC_DIR, 'watermark-terapi.png');
+  if (!fs.existsSync(wmFile)) return res.status(500).json({ error: 'Watermark dosyası yok (public/watermark-*.png).' });
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-local-crush-'));
+  const inTpl = path.join(tmpDir, 'in.%(ext)s');
+  const outName = `crushed_${brand}_9x16_${Date.now()}.mp4`;
+  const outFile = path.join(DOWNLOAD_DIR, outName);
+
+  try {
+    // indir (en iyi mp4 -> best)
+    const dlArgs = [
+      '--no-playlist',
+      '--newline',
+      '--no-part',
+      '--no-mtime',
+      '-f',
+      'best[ext=mp4][acodec!=none][vcodec!=none]/best',
+      '-o',
+      inTpl,
+      url
+    ];
+    await run('yt-dlp', dlArgs, { timeoutMs: 6 * 60 * 1000 });
+
+    const inFile = pickNewestFile(tmpDir);
+    if (!inFile) return res.status(500).json({ error: 'İndirilen dosya bulunamadı' });
+
+    const speed = 1.10;
+    const wmSize = 110;
+    const vx = 130;
+    const vy = 85;
+    const filter = [
+      `[0:v]scale=-2:1920,crop=1080:1920,scale=iw*1.07:ih*1.07,crop=1080:1920,eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1[v0]`,
+      `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,colorchannelmixer=aa=0.35[wm]`,
+      `[v0][wm]overlay=` +
+        `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
+        `y='abs(mod(t*${vy},2*(H-h))-(H-h))':` +
+        `format=auto[v]`
+    ].join(';');
+
+    const ffArgs = [
+      '-y',
+      '-i', inFile,
+      '-loop', '1',
+      '-i', wmFile,
+      '-filter_complex', filter,
+      '-map', '[v]',
+      '-map', '0:a?',
+      '-af', `atempo=${speed}`,
+      '-r', '30',
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-crf', '22',
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-shortest',
+      outFile
+    ];
+    await run('ffmpeg', ffArgs, { timeoutMs: 8 * 60 * 1000 });
+
+    return res.json({ ok: true, savedTo: DOWNLOAD_DIR, file: path.basename(outFile) });
+  } catch (e) {
+    return res.status(500).json({ error: (e && e.message) ? e.message : String(e) });
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  }
 });
 
 app.listen(PORT, '127.0.0.1', () => {
