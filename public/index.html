@@ -273,6 +273,19 @@
       <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
     </div>
 
+    <!-- Telif Ezici PRO (beta) -->
+    <div class="tool-card">
+      <div class="tool-title">🧩 Telif Ezici PRO (beta)</div>
+      <div class="tool-desc">Aynı şablon + 1 sn outro (pixel pixel ayrılıp watermark içinde toplanır) + ses normalize + “akıllı crop” (beta). Mevcut aracı bozmaz; ayrı çalışır.</div>
+      <input class="tool-input" type="url" id="crushProUrl" placeholder="YouTube / TikTok / Instagram linki"/>
+      <select class="platform-select" id="crushProBrand">
+        <option value="terapi" selected>TERAPİ ATÖLYESİ</option>
+        <option value="kaos">KAOS ATÖLYESİ</option>
+      </select>
+      <button class="tool-btn" type="button" id="crushProBtn" onclick="crushVideoPro()">⚡ PRO Hazırla (9:16 + Outro)</button>
+      <div class="tool-result" id="crushProMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
     <!-- Caption Üretici -->
     <div class="tool-card">
       <div class="tool-title">✏️ Caption Üretici</div>
@@ -342,6 +355,40 @@ async function crushVideo() {
   } finally {
     btn.disabled = false;
     btn.textContent = "⚡ İndir + Telif Ez (9:16)";
+  }
+}
+
+async function crushVideoPro() {
+  const url = document.getElementById("crushProUrl").value.trim();
+  const brand = document.getElementById("crushProBrand").value;
+  const btn = document.getElementById("crushProBtn");
+  const msg = document.getElementById("crushProMsg");
+  if (!url) { alert("Link gir."); return; }
+
+  btn.disabled = true;
+  btn.textContent = "⏳ Hazırlanıyor...";
+  msg.style.display = "none";
+
+  try {
+    msg.style.display = "block";
+    msg.textContent = "Local Downloader PRO ile hazırlanıyor (PC'ye kaydedilecek)…";
+    const localRes = await fetch("http://127.0.0.1:8787/crush-pro", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, brand, smartCrop: 1 })
+    });
+    const data = await localRes.json().catch(() => ({}));
+    if (!localRes.ok || !data.ok) {
+      throw new Error((data && data.error) ? data.error : "Local Downloader çalışmıyor (8787).");
+    }
+    msg.style.display = "block";
+    msg.textContent = "✅ PC'ye kaydedildi: " + (data.savedTo || "") + "\\" + (data.file || "");
+  } catch (e) {
+    msg.style.display = "block";
+    msg.textContent = "Hata: " + (e.message || e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "⚡ PRO Hazırla (9:16 + Outro)";
   }
 }
 

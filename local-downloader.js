@@ -246,6 +246,163 @@ app.post('/crush', async (req, res) => {
   }
 });
 
+// Telif Ezici PRO (PC): crush + D (crop iyileştirme - beta) + 1sn outro + audio normalize + micro varyasyon
+// Not: Var olan /crush bozulmasın diye ayrı endpoint.
+app.post('/crush-pro', async (req, res) => {
+  const url = req.body?.url || req.query?.url;
+  const brand = String(req.body?.brand || req.query?.brand || 'terapi').toLowerCase();
+  const smartCrop = String(req.body?.smartCrop ?? req.query?.smartCrop ?? '1') !== '0';
+  if (!url) return res.status(400).json({ error: 'url gerekli' });
+
+  fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
+
+  const hasYtDlp = await existsOnPath('yt-dlp');
+  if (!hasYtDlp) return res.status(500).json({ error: 'yt-dlp bulunamadı. Önce bilgisayara yt-dlp kur.' });
+
+  const hasFfmpeg = await existsOnPath('ffmpeg');
+  const hasFfprobe = await existsOnPath('ffprobe');
+  if (!hasFfmpeg || !hasFfprobe) return res.status(500).json({ error: 'ffmpeg/ffprobe bulunamadı. Önce bilgisayara ffmpeg kur.' });
+
+  const wmFile =
+    brand === 'kaos'
+      ? path.join(PUBLIC_DIR, 'watermark-kaos.png')
+      : path.join(PUBLIC_DIR, 'watermark-terapi.png');
+  if (!fs.existsSync(wmFile)) return res.status(500).json({ error: 'Watermark dosyası yok (public/watermark-*.png).' });
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-local-crushpro-'));
+  const inTpl = path.join(tmpDir, 'in.%(ext)s');
+  const outName = `crushedPRO_${brand}_9x16_${Date.now()}.mp4`;
+  const outFile = path.join(DOWNLOAD_DIR, outName);
+
+  try {
+    const dlArgs = [
+      '--no-playlist',
+      '--newline',
+      '--no-part',
+      '--no-mtime',
+      '-f',
+      'best[ext=mp4][acodec!=none][vcodec!=none]/best',
+      '-o',
+      inTpl,
+      url
+    ];
+    await run('yt-dlp', dlArgs, { timeoutMs: 6 * 60 * 1000 });
+
+    const inFile = pickNewestFile(tmpDir);
+    if (!inFile) return res.status(500).json({ error: 'İndirilen dosya bulunamadı' });
+
+    // Tek şablon sabit
+    const speed = 1.10;
+    const outW = 720, outH = 1280;
+    const wmSize = 96;
+    const vx = 130, vy = 85;
+    const inDur = await probeDurationSec(inFile);
+    const outDur = Math.max(1, inDur / speed);
+    const outro = 1.0;
+    const mainDur = Math.max(0.1, outDur - outro);
+
+    // D (beta) — akıllı crop: sadece yatay videolarda "merkezden" crop yerine hafif sağ/sol hareket.
+    // Yüz tespiti yok; ama çoğu videoda ana obje merkezde olduğu için işe yarar.
+    const xExpr = smartCrop
+      ? `((in_w - in_h*9/16)/2) + ((in_w - in_h*9/16)/10)*sin(2*PI*t/6)`
+      : `((in_w - in_h*9/16)/2)`;
+
+    // Watermark top: daire maskesi + hafif dönme + saydamlık
+    const wmChain = [
+      `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
+        `rotate='0.15*sin(2*PI*t/1.2)':c=none:ow=iw:oh=ih[wm0]`,
+      `[wm0]split=2[wmA][wmB]`,
+      `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
+      `[wmB][mask]alphamerge,colorchannelmixer=aa=0.30[wm]`
+    ];
+
+    // Outro: son 1 sn — pixelate + küçülüp merkeze (watermark alanına) toplanıyor, arka plan siyah.
+    // Basit ve hafif: scale down/up ile pixel efekti, ardından ölçek küçültme + overlay.
+    const pixW = 36, pixH = 64; // pixel blok boyutu
+
+    const filter = [
+      // 0) Video hızlandır + 9:16 crop + 720p + renk
+      `[0:v]setpts=PTS/${speed},` +
+        `scale=-2:${outH},` +
+        `crop=w='in_h*9/16':h='in_h':x='${xExpr}':y=0,` +
+        `scale=${outW}:${outH},` +
+        `scale=iw*1.07:ih*1.07,crop=${outW}:${outH},` +
+        `eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1,fps=30[base]`,
+
+      // 1) base -> main/outro ayır
+      `[base]split=2[bMain][bOutro]`,
+      `[bMain]trim=0:${mainDur.toFixed(3)},setpts=PTS-STARTPTS[vMain]`,
+
+      // outro kaynağı: son 1sn
+      `[bOutro]trim=${mainDur.toFixed(3)}:${outDur.toFixed(3)},setpts=PTS-STARTPTS[vLast]`,
+
+      // watermark
+      ...wmChain,
+
+      // main: watermark seken top
+      `[vMain][wm]overlay=` +
+        `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
+        `y='abs(mod(t*${vy},2*(H-h))-(H-h))':format=auto[vMainWm]`,
+
+      // outro: pixelate
+      `[vLast]scale=${pixW}:${pixH}:flags=neighbor,scale=${outW}:${outH}:flags=neighbor[pix]`,
+
+      // siyah zemin
+      `color=c=black:s=${outW}x${outH}:r=30:d=${outro}[bg]`,
+
+      // pixel görüntüyü küçültüp merkeze taşı
+      `[pix]scale=` +
+        `w='${outW}*(1 - (t/${outro}))*0.90 + ${wmSize}*(t/${outro})':` +
+        `h='${outH}*(1 - (t/${outro}))*0.90 + ${wmSize}*(t/${outro})':eval=frame[shr]`,
+
+      `[bg][shr]overlay=` +
+        `x='(W-w)/2':y='(H-h)/2':format=auto[o1]`,
+
+      // outro sonunda watermark merkezde dursun (static)
+      `[o1][wm]overlay=x='(W-w)/2':y='(H-h)/2':format=auto[vOutro]`,
+
+      // concat (main + outro)
+      `[vMainWm][vOutro]concat=n=2:v=1:a=0[v]`
+    ].join(';');
+
+    // Audio: hızlandır + normalize + süre
+    const audioFilter = [
+      `atempo=${speed}`,
+      `aresample=async=1:first_pts=0`,
+      // normalize (hafif)
+      `loudnorm=I=-16:LRA=11:TP=-1.5`,
+      `atrim=0:${outDur.toFixed(3)}`
+    ].join(',');
+
+    const ffArgs = [
+      '-y',
+      '-i', inFile,
+      '-loop', '1',
+      '-i', wmFile,
+      '-filter_complex', filter,
+      '-map', '[v]',
+      '-map', '0:a?',
+      '-af', audioFilter,
+      '-t', outDur.toFixed(3),
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-crf', '24',
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      outFile
+    ];
+    await run('ffmpeg', ffArgs, { timeoutMs: 10 * 60 * 1000 });
+
+    return res.json({ ok: true, savedTo: DOWNLOAD_DIR, file: path.basename(outFile) });
+  } catch (e) {
+    return res.status(500).json({ error: (e && e.message) ? e.message : String(e) });
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  }
+});
+
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`Local Downloader running on http://127.0.0.1:${PORT}`);
   console.log('Download dir:', DOWNLOAD_DIR);
