@@ -94,6 +94,26 @@ async function probeDurationSec(filePath) {
   });
 }
 
+async function probeHasAudio(filePath) {
+  const args = [
+    '-v', 'error',
+    '-select_streams', 'a:0',
+    '-show_entries', 'stream=index',
+    '-of', 'csv=p=0',
+    filePath
+  ];
+  const child = spawn('ffprobe', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  return await new Promise((resolve) => {
+    child.stdout.on('data', (d) => { out += d.toString(); });
+    child.on('close', (code) => {
+      if (code !== 0) return resolve(false);
+      resolve(String(out || '').trim().length > 0);
+    });
+    child.on('error', () => resolve(false));
+  });
+}
+
 async function runYtDlpToResponse(res, url) {
   // Requires: yt-dlp installed on user's machine (in PATH)
   // This avoids server-side bot blocks by running from the user's own network/session.
@@ -195,62 +215,75 @@ app.post('/crush', async (req, res) => {
     const vx = 130;
     const vy = 85;
     const inDur = await probeDurationSec(inFile);
-    const outDur = Math.max(1, inDur / speed);
-    const outro = 3.0;
-    const mainDur = Math.max(0.1, outDur - outro);
+    const hasAudio = await probeHasAudio(inFile);
+    const mainDur = Math.max(1, inDur / speed); // hızlandırılmış ana video süresi
+    const outro = 3.0; // sabit: 3sn outro
 
-    // Outro teması (benim seçimim): son 3sn yumuşak sinematik kapanış
-    // - görüntü hafif blur + vignette + kararma
-    // - watermark merkeze gelir, yavaş döner, hafif parıldar
+    // Çıkış: 720x1280 (performans)
     const outW = 720, outH = 1280;
 
+    // Tema (benden): 3sn sinematik kapanış + merkeze gelen watermark + uyumlu ambient ses
     const filter = [
-      // 0) Video hızlandır + 9:16 + 720p + renk
+      // 0) Ana video: hızlandır + 9:16 + 720p + renk
       `[0:v]setpts=PTS/${speed},scale=-2:${outH},crop=${outW}:${outH},` +
-        `scale=iw*1.07:ih*1.07,crop=${outW}:${outH},eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1,fps=30[base]`,
+        `scale=iw*1.07:ih*1.07,crop=${outW}:${outH},eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1,fps=30,` +
+        `trim=0:${mainDur.toFixed(3)},setpts=PTS-STARTPTS[vMain]`,
 
-      // 1) base -> main/outro ayır
-      `[base]split=2[bMain][bOutro]`,
-      `[bMain]trim=0:${mainDur.toFixed(3)},setpts=PTS-STARTPTS[vMain]`,
-      `[bOutro]trim=${mainDur.toFixed(3)}:${outDur.toFixed(3)},setpts=PTS-STARTPTS[vLast]`,
-
-      // watermark top (daire + saydam + hafif dönme)
+      // 1) Watermark top (daire + saydam + hafif dönme)
       `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
         `rotate='0.15*sin(2*PI*t/1.2)':c=none:ow=iw:oh=ih[wm0]`,
       `[wm0]split=2[wmA][wmB]`,
       `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
       `[wmB][mask]alphamerge,colorchannelmixer=aa=0.30[wm]`,
 
-      // main: watermark seken top
+      // 2) Main: watermark seken top
       `[vMain][wm]overlay=` +
         `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
         `y='abs(mod(t*${vy},2*(H-h))-(H-h))':format=auto[vMainWm]`,
 
-      // outro: blur + vignette + fade to black
-      `[vLast]boxblur=2:1,` +
-        `vignette=angle=0.5:eval=frame,` +
-        `fade=t=out:st=${Math.max(0, outro - 0.9).toFixed(3)}:d=0.9[vOutroBase]`,
-
-      // outro watermark: merkeze gelsin + yavaş dönsün (top hissi)
-      `[wm]rotate='0.25*sin(2*PI*t/1.6)':c=none:ow=iw:oh=ih[wmOutro]`,
+      // 3) Outro video: siyah zemin + vignette + fade-in/out + watermark merkezde
+      `color=c=black:s=${outW}x${outH}:r=30:d=${outro}[bg]`,
+      `[bg]vignette=angle=0.5:eval=frame,fade=t=in:st=0:d=0.25,fade=t=out:st=${Math.max(0, outro - 0.55).toFixed(3)}:d=0.55[vOutroBase]`,
+      `[wm]rotate='0.20*sin(2*PI*t/1.6)':c=none:ow=iw:oh=ih[wmOutro]`,
       `[vOutroBase][wmOutro]overlay=x='(W-w)/2':y='(H-h)/2':format=auto[vOutro]`,
 
-      // concat
+      // 4) Concat video (main + outro)
       `[vMainWm][vOutro]concat=n=2:v=1:a=0[v]`
     ].join(';');
+
+    // Outro audio: ambient "pad + very light noise" — 3sn, outro ile uyumlu.
+    const outroFadeOutSt = Math.max(0, outro - 0.55).toFixed(3);
+    const outroNoiseFadeOutSt = Math.max(0, outro - 0.45).toFixed(3);
+    const outroAudioParts = [
+      `sine=frequency=220:sample_rate=48000:duration=${outro}[s1]`,
+      `sine=frequency=330:sample_rate=48000:duration=${outro}[s2]`,
+      `[s1][s2]amix=inputs=2:weights='0.6 0.4',volume=0.08,afade=t=in:st=0:d=0.25,afade=t=out:st=${outroFadeOutSt}:d=0.55[aPad]`,
+      `anoisesrc=color=pink:sample_rate=48000:duration=${outro}[n1]`,
+      `[n1]volume=0.02,afade=t=in:st=0.05:d=0.20,afade=t=out:st=${outroNoiseFadeOutSt}:d=0.45[aNoise]`,
+      `[aPad][aNoise]amix=inputs=2:weights='0.85 0.15'[aOutro]`
+    ];
+
+    // Audio: ana ses varsa hızlandır; yoksa sessiz ana ses üret.
+    const audioFilter = hasAudio
+      ? [
+          `[0:a]atempo=${speed},aresample=async=1:first_pts=0,atrim=0:${mainDur.toFixed(3)},asetpts=PTS-STARTPTS[aMainSafe]`,
+          ...outroAudioParts,
+          `[aMainSafe][aOutro]concat=n=2:v=0:a=1[a]`
+        ].join(';')
+      : [
+          `anullsrc=channel_layout=stereo:sample_rate=48000:d=${mainDur.toFixed(3)}[aMainSafe]`,
+          ...outroAudioParts,
+          `[aMainSafe][aOutro]concat=n=2:v=0:a=1[a]`
+        ].join(';');
 
     const ffArgs = [
       '-y',
       '-i', inFile,
       '-loop', '1',
       '-i', wmFile,
-      '-filter_complex', filter,
+      '-filter_complex', `${filter};${audioFilter}`,
       '-map', '[v]',
-      '-map', '0:a?',
-      // Ses: hızlandır + süreyi hedefe kırp (uzamasın/kısalmasın)
-      '-af', `atempo=${speed},aresample=async=1:first_pts=0,atrim=0:${outDur.toFixed(3)}`,
-      // Video: hedef süreye kırp (uzamasın)
-      '-t', outDur.toFixed(3),
+      '-map', '[a]',
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-crf', '24',
