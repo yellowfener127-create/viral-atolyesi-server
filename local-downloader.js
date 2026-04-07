@@ -199,14 +199,16 @@ app.post('/crush', async (req, res) => {
 
     const filter = [
       // Performans: 720x1280 (daha az kasar). Tek şablon sabit.
-      `[0:v]scale=-2:1280,crop=720:1280,scale=iw*1.07:ih*1.07,crop=720:1280,eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1,fps=30[v0]`,
+      // Video hız: setpts ile görüntüyü de 1.10x hızlandır (ses ile senkron)
+      `[0:v]setpts=PTS/${speed},scale=-2:1280,crop=720:1280,scale=iw*1.07:ih*1.07,crop=720:1280,eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1,fps=30[v0]`,
       // Watermark: top gibi (daire maskesi) + hafif dönme
-      `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,colorchannelmixer=aa=0.30,` +
+      `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
         `rotate='0.15*sin(2*PI*t/1.2)':c=none:ow=iw:oh=ih[wm0]`,
       `[wm0]split=2[wmA][wmB]`,
       `[wmA]alphaextract,` +
         `geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
-      `[wmB][mask]alphamerge[wm]`,
+      // Opaklık: maskeden sonra uygula (yoksa saydamlık kayboluyor)
+      `[wmB][mask]alphamerge,colorchannelmixer=aa=0.30[wm]`,
       `[v0][wm]overlay=` +
         `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
         `y='abs(mod(t*${vy},2*(H-h))-(H-h))':` +
