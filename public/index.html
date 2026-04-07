@@ -260,71 +260,11 @@
 
   <div class="tools-grid">
 
-    <!-- Runway Prompt (Kedi Reaction) -->
-    <div class="tool-card" id="runwayTool">
-      <div class="tool-title">🐱 Runway Prompt (Kedi Reaction)</div>
-      <div class="tool-desc">Videoyu buraya yükle. Video sunucuya gitmez; tarayıcı içinde 3–6 kare çıkarır ve Runway’e yapıştırmalık prompt + negatif prompt üretir.</div>
-
-      <input class="tool-input" type="file" id="runwayVideoFile" accept="video/*"/>
-      <input class="tool-input" type="text" id="runwayVideoNotes" placeholder="(Önerilen) Videoda ne oluyor? 1–2 cümle kısa özet yaz."/>
-
-      <button class="tool-btn" type="button" id="runwayAnalyzeBtn" onclick="analyzeRunwayVideo()">🎞️ Analiz et (kare çıkar)</button>
-      <div class="tool-result" id="runwayAnalyzeMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
-
-      <div id="runwayFrames" style="display:none;margin-top:12px">
-        <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Seçilen kareler (Runway’e referans olarak da kullanabilirsin):</div>
-        <div id="runwayFramesGrid" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px"></div>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px">
-        <select class="platform-select" id="runwayReaction">
-          <option value="surprised">Reaction: Surprised</option>
-          <option value="shocked">Reaction: Shocked</option>
-          <option value="laughing">Reaction: Laughing</option>
-          <option value="judging">Reaction: Judging</option>
-          <option value="sad">Reaction: Sad</option>
-          <option value="excited">Reaction: Excited</option>
-        </select>
-        <select class="platform-select" id="runwayStyle">
-          <option value="cinematic">Style: Cinematic</option>
-          <option value="realistic">Style: Realistic</option>
-          <option value="cute">Style: Cute</option>
-          <option value="meme">Style: Meme</option>
-        </select>
-        <select class="platform-select" id="runwayCat">
-          <option value="random">Cat: Random</option>
-          <option value="british_shorthair">Cat: British Shorthair</option>
-          <option value="orange_tabby">Cat: Orange Tabby</option>
-          <option value="black_cat">Cat: Black Cat</option>
-        </select>
-        <select class="platform-select" id="runwayCamera">
-          <option value="fixed">Camera: Fixed</option>
-          <option value="handheld">Camera: Handheld</option>
-          <option value="slight_zoom_in">Camera: Slight zoom-in</option>
-        </select>
-        <select class="platform-select" id="runwayDuration">
-          <option value="4">Duration: 4s</option>
-          <option value="6" selected>Duration: 6s</option>
-          <option value="8">Duration: 8s</option>
-        </select>
-        <select class="platform-select" id="runwayAspect">
-          <option value="9:16" selected>Aspect: 9:16</option>
-          <option value="16:9">Aspect: 16:9</option>
-        </select>
-      </div>
-
-      <button class="tool-btn" type="button" id="runwayPromptBtn" onclick="generateRunwayPrompt()" style="margin-top:10px">🪄 Prompt üret</button>
-
-      <div class="tool-result" id="runwayPromptOut" style="display:none;margin-top:12px"></div>
-      <button class="tool-copy-btn" id="runwayCopyBtn" style="display:none" onclick="copyRunwayPrompt()">📋 Promptu kopyala</button>
-    </div>
-
     <!-- Caption Üretici -->
     <div class="tool-card">
       <div class="tool-title">✏️ Caption Üretici</div>
-      <div class="tool-desc">Başlık + (isteğe bağlı) video transcript’i gir; TikTok / Reels / Shorts için ayrı formatta Türkçe caption + hashtag üretir. Transcript: YouTube’da “⋯ → Göster transkript” ile kopyalayabilirsin.</div>
+      <div class="tool-desc">Video başlığına göre TikTok / Reels / Shorts için ayrı formatta Türkçe caption + hashtag üretir.</div>
       <input class="tool-input" type="text" id="captionTitle" placeholder="Video başlığını yaz (Türkçe veya İngilizce)"/>
-      <textarea class="tool-input" id="captionTranscript" rows="5" placeholder="Transcript (isteğe bağlı): Konuşma metnini buraya yapıştır. Boş bırakırsan sadece başlığa göre üretir." style="min-height:100px;resize:vertical"></textarea>
       <select class="platform-select" id="captionPlatform">
         <option value="tiktok">🎵 TikTok</option>
         <option value="reels">📸 Instagram Reels</option>
@@ -344,15 +284,6 @@
       <div class="tool-result" id="toolDownloadMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
     </div>
 
-    <!-- YouTube transcript (sunucu) -->
-    <div class="tool-card">
-      <div class="tool-title">📝 YouTube Transcript</div>
-      <div class="tool-desc">Video ID veya watch URL. Sunucu public altyazıları çeker; metni aşağıdaki Caption alanına aktarır.</div>
-      <input class="tool-input" type="text" id="transcriptVideoInput" placeholder="video ID veya https://www.youtube.com/watch?v=..."/>
-      <button class="tool-btn" type="button" id="transcriptFetchBtn" onclick="fetchTranscriptToCaption()">Transcript çek → Caption alanına</button>
-      <div class="tool-result" id="transcriptToolMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
-    </div>
-
   </div>
 </div>
 </div>
@@ -364,325 +295,6 @@ const BACKEND_ORIGIN = "https://viral-atolyesi-server.onrender.com";
 function backendUrl(path) {
   const p = path.startsWith("/") ? path : "/" + path;
   return BACKEND_ORIGIN + p;
-}
-
-// Runway (local video → keyframes → prompt)
-let runwayState = {
-  file: null,
-  objectUrl: "",
-  durationSec: 0,
-  frames: [], // { t:number, dataUrl:string }
-  lastPrompt: ""
-};
-
-function setRunwayMsg(text) {
-  const el = document.getElementById("runwayAnalyzeMsg");
-  if (!el) return;
-  el.style.display = "block";
-  el.textContent = text || "";
-}
-
-function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
-
-function resetRunwayState() {
-  runwayState.file = null;
-  runwayState.durationSec = 0;
-  runwayState.frames = [];
-  runwayState.lastPrompt = "";
-  setRunwayMsg("");
-  const out = document.getElementById("runwayPromptOut");
-  const copyBtn = document.getElementById("runwayCopyBtn");
-  if (out) { out.style.display = "none"; out.textContent = ""; }
-  if (copyBtn) copyBtn.style.display = "none";
-  renderRunwayFrames();
-  cleanupRunwayObjectUrl();
-}
-
-function cleanupRunwayObjectUrl() {
-  try { if (runwayState.objectUrl) URL.revokeObjectURL(runwayState.objectUrl); } catch(e) {}
-  runwayState.objectUrl = "";
-}
-
-function getRunwaySelectedCount(durationSec) {
-  if (!Number.isFinite(durationSec) || durationSec <= 0) return 4;
-  if (durationSec < 8) return 4;
-  if (durationSec < 20) return 5;
-  return 6;
-}
-
-async function captureFrame(videoEl, tSec, targetW) {
-  return new Promise((resolve, reject) => {
-    const onSeeked = () => {
-      try {
-        const vw = videoEl.videoWidth || 0;
-        const vh = videoEl.videoHeight || 0;
-        if (!vw || !vh) return reject(new Error("Video çözünürlüğü okunamadı"));
-        const w = clamp(targetW || 320, 200, 480);
-        const h = Math.round((vh / vw) * w);
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d", { willReadFrequently: false });
-        ctx.drawImage(videoEl, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", 0.86));
-      } catch (err) { reject(err); }
-    };
-    const onError = () => reject(new Error("Video seek hatası"));
-    videoEl.removeEventListener("seeked", onSeeked);
-    videoEl.addEventListener("seeked", onSeeked, { once: true });
-    videoEl.addEventListener("error", onError, { once: true });
-    try { videoEl.currentTime = clamp(tSec, 0, Math.max(0, (videoEl.duration || 0) - 0.05)); }
-    catch (e) { reject(e); }
-  });
-}
-
-function renderRunwayFrames() {
-  const wrap = document.getElementById("runwayFrames");
-  const grid = document.getElementById("runwayFramesGrid");
-  if (!wrap || !grid) return;
-  grid.innerHTML = "";
-  if (!runwayState.frames.length) {
-    wrap.style.display = "none";
-    return;
-  }
-  wrap.style.display = "block";
-  runwayState.frames.forEach((f) => {
-    const d = document.createElement("div");
-    d.style.background = "#0b0b0b";
-    d.style.border = "1px solid var(--border)";
-    d.style.borderRadius = "10px";
-    d.style.overflow = "hidden";
-    d.style.aspectRatio = "1/1";
-    d.style.position = "relative";
-    const img = document.createElement("img");
-    img.src = f.dataUrl;
-    img.alt = "";
-    img.style.width = "100%";
-    img.style.height = "100%";
-    img.style.objectFit = "cover";
-    const badge = document.createElement("div");
-    badge.textContent = `${Math.round(f.t)}s`;
-    badge.style.position = "absolute";
-    badge.style.bottom = "6px";
-    badge.style.right = "6px";
-    badge.style.fontSize = "10px";
-    badge.style.padding = "2px 6px";
-    badge.style.borderRadius = "6px";
-    badge.style.background = "rgba(0,0,0,0.75)";
-    badge.style.border = "1px solid rgba(255,255,255,0.08)";
-    badge.style.color = "rgba(255,255,255,0.85)";
-    d.appendChild(img);
-    d.appendChild(badge);
-    grid.appendChild(d);
-  });
-}
-
-async function analyzeRunwayVideo() {
-  const fileInput = document.getElementById("runwayVideoFile");
-  const btn = document.getElementById("runwayAnalyzeBtn");
-  if (!fileInput || !fileInput.files || !fileInput.files[0]) {
-    setRunwayMsg("Önce bir video seç.");
-    return;
-  }
-
-  const file = fileInput.files[0];
-  runwayState.file = file;
-  runwayState.frames = [];
-  runwayState.durationSec = 0;
-  runwayState.lastPrompt = "";
-  renderRunwayFrames();
-
-  const isHevc = /hvc1|hev1/i.test(file.type || "") || /\.mov$/i.test(file.name || "");
-  if (isHevc) {
-    setRunwayMsg("Not: Bazı iPhone/HEVC videolarda tarayıcı kare yakalamayı sınırlayabilir. Olmazsa videoyu MP4/H.264'e çevirip tekrar dene.");
-  } else {
-    setRunwayMsg("Video hazırlanıyor…");
-  }
-
-  if (btn) btn.disabled = true;
-
-  cleanupRunwayObjectUrl();
-  const url = URL.createObjectURL(file);
-  runwayState.objectUrl = url;
-
-  const v = document.createElement("video");
-  v.preload = "metadata";
-  v.muted = true;
-  v.playsInline = true;
-  v.src = url;
-
-  const waitMeta = new Promise((resolve, reject) => {
-    v.addEventListener("loadedmetadata", () => resolve(), { once: true });
-    v.addEventListener("error", () => reject(new Error("Video açılamadı")), { once: true });
-  });
-
-  try {
-    await waitMeta;
-    const dur = Number(v.duration || 0);
-    if (!Number.isFinite(dur) || dur <= 0) throw new Error("Süre okunamadı");
-    runwayState.durationSec = dur;
-
-    const count = getRunwaySelectedCount(dur);
-    // Zamanlar: 10%, 30%, 50%, 70%, 90% (count'a göre)
-    const marks = [0.1, 0.3, 0.5, 0.7, 0.9].slice(0, count);
-    const times = marks.map(p => clamp(dur * p, 0, Math.max(0, dur - 0.05)));
-
-    setRunwayMsg(`Kare çıkarılıyor… (${count} adet)`);
-    for (let i = 0; i < times.length; i++) {
-      const t = times[i];
-      const dataUrl = await captureFrame(v, t, 320);
-      runwayState.frames.push({ t, dataUrl });
-    }
-    renderRunwayFrames();
-    setRunwayMsg(`Tamam. Süre: ${Math.round(dur)}s • Kare: ${runwayState.frames.length}`);
-  } catch (e) {
-    setRunwayMsg((e && e.message) ? `Hata: ${e.message}` : "Hata: analiz başarısız");
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-function runwayLabel(val, map) {
-  return (map && map[val]) ? map[val] : String(val || "");
-}
-
-function buildRunwayPrompt() {
-  const notes = (document.getElementById("runwayVideoNotes")?.value || "").trim();
-  const reaction = document.getElementById("runwayReaction")?.value || "surprised";
-  const style = document.getElementById("runwayStyle")?.value || "cinematic";
-  const cat = document.getElementById("runwayCat")?.value || "random";
-  const camera = document.getElementById("runwayCamera")?.value || "fixed";
-  const duration = Number(document.getElementById("runwayDuration")?.value || 6);
-  const aspect = document.getElementById("runwayAspect")?.value || "9:16";
-
-  const reactionMap = {
-    surprised: "surprised, wide eyes, quick head tilt, ears perked up",
-    shocked: "shocked, frozen stare, sudden blink, ears back then forward",
-    laughing: "playful, amused, mouth slightly open, bouncing head, happy vibe",
-    judging: "judging, unimpressed stare, slow blink, subtle side-eye",
-    sad: "sad, watery eyes, small sigh, droopy ears, gentle breathing",
-    excited: "excited, energetic, rapid head turns, tail flicks, eager posture"
-  };
-  const styleMap = {
-    cinematic: "cinematic, natural skin-tone color grading, soft film grain, high dynamic range",
-    realistic: "photorealistic, true-to-life lighting, realistic fur detail",
-    cute: "cute, wholesome, slightly stylized but still realistic, warm lighting",
-    meme: "meme-like comedic timing, slightly exaggerated expression but not cartoonish"
-  };
-  const catMap = {
-    random: "a domestic cat",
-    british_shorthair: "a British Shorthair cat",
-    orange_tabby: "an orange tabby cat",
-    black_cat: "a black cat"
-  };
-  const cameraMap = {
-    fixed: "static camera, tripod-stable framing",
-    handheld: "subtle handheld camera, natural micro-shake",
-    slight_zoom_in: "very slight slow zoom-in for emphasis"
-  };
-
-  const scene = [
-    "Scene: the cat is sitting at a computer desk, wearing over-ear headphones",
-    "the cat is facing a monitor and watching the source video on-screen",
-    "monitor glow lighting on the cat's face, cozy dark room",
-    "POV is external camera (we see the cat, the monitor, and a bit of the desk)",
-    "avoid showing any readable UI, no readable text on screen"
-  ].join(", ");
-
-  const baseQuality = [
-    "sharp focus",
-    "detailed fur",
-    "natural motion",
-    "clean edges",
-    "no text",
-    "no watermark",
-    "no logos"
-  ].join(", ");
-
-  const contextBits = [];
-  if (runwayState.durationSec > 0) contextBits.push(`source video approx ${Math.round(runwayState.durationSec)}s`);
-  if (notes) contextBits.push(`context: ${notes}`);
-  if (runwayState.frames.length) contextBits.push(`keyframes extracted: ${runwayState.frames.length} (use as image references if needed)`);
-
-  const common = [
-    "Create a short cat reaction video that matches the vibe and timing of the source clip.",
-    contextBits.length ? `Source context: ${contextBits.join(" • ")}.` : "",
-    `Cat: ${runwayLabel(cat, catMap)}.`,
-    scene,
-    `Reaction: ${runwayLabel(reaction, reactionMap)}.`,
-    `Look & style: ${runwayLabel(style, styleMap)}.`,
-    `Camera: ${runwayLabel(camera, cameraMap)}.`,
-    `Duration: ${Number.isFinite(duration) ? duration : 6}s, aspect ratio ${aspect}.`,
-    baseQuality
-  ].filter(Boolean);
-
-  // 3 varyasyon: aynı çekirdek prompt, küçük ritim/aksiyon farkı
-  const prompts = [
-    [...common, "Timing: fast comedic beat; reaction hits clearly at the strongest moment."].join("\n"),
-    [...common, "Timing: slightly delayed reaction for humor; add a tiny head turn before reacting."].join("\n"),
-    [...common, "Timing: subtle build-up then reaction; add a quick blink + ear twitch at the peak."].join("\n")
-  ];
-
-  const negative = [
-    "text",
-    "subtitles",
-    "watermark",
-    "logo",
-    "deformed",
-    "extra limbs",
-    "extra paws",
-    "glitch",
-    "lowres",
-    "oversaturated",
-    "cartoon",
-    "anime"
-  ].join(", ");
-
-  return { prompts, negative };
-}
-
-function generateRunwayPrompt() {
-  const out = document.getElementById("runwayPromptOut");
-  const btn = document.getElementById("runwayCopyBtn");
-  if (!out || !btn) return;
-
-  if (!document.getElementById("runwayVideoFile")?.files?.[0]) {
-    setRunwayMsg("Prompt için önce videoyu seç.");
-    return;
-  }
-
-  const { prompts, negative } = buildRunwayPrompt();
-  runwayState.lastPrompt = [
-    `PROMPT A:\n${prompts[0]}`,
-    `PROMPT B:\n${prompts[1]}`,
-    `PROMPT C:\n${prompts[2]}`,
-    `NEGATIVE PROMPT:\n${negative}`
-  ].join("\n\n");
-
-  out.style.display = "block";
-  out.textContent = runwayState.lastPrompt;
-  btn.style.display = "block";
-}
-
-async function copyRunwayPrompt() {
-  const text = runwayState.lastPrompt || "";
-  if (!text) return;
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch (e) {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-  }
-  const btn = document.getElementById("runwayCopyBtn");
-  if (btn) {
-    const old = btn.textContent;
-    btn.textContent = "✓ Kopyalandı";
-    setTimeout(() => { btn.textContent = old; }, 900);
-  }
 }
 
 let activeCat = "animal";
@@ -702,15 +314,6 @@ window.onload = function() {
   const days = ["Pazar","Pazartesi","Salı","Çarşamba","Perşembe","Cuma","Cumartesi"];
   const months = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
   document.getElementById("dayBadge").innerHTML = "📅 <strong>" + days[d.getDay()] + ", " + d.getDate() + " " + months[d.getMonth()] + "</strong>";
-
-  // Runway tool: yeni video seçilince state'i sıfırla
-  const rf = document.getElementById("runwayVideoFile");
-  if (rf) {
-    rf.addEventListener("change", () => {
-      resetRunwayState();
-      setRunwayMsg("Video seçildi. İstersen “Analiz et (kare çıkar)” ile kareleri çıkar.");
-    });
-  }
 
   try {
     const stored = localStorage.getItem("yt_api_key");
@@ -1248,28 +851,6 @@ async function enrichYoutubeTranscripts(mainVideos, shortVideos) {
   } catch (e) { console.warn(e); }
 }
 
-async function fetchTranscriptToCaption() {
-  const raw = document.getElementById("transcriptVideoInput").value.trim();
-  if (!raw) { alert("Video ID veya YouTube URL gir."); return; }
-  const btn = document.getElementById("transcriptFetchBtn");
-  const msgEl = document.getElementById("transcriptToolMsg");
-  btn.disabled = true;
-  msgEl.style.display = "none";
-  try {
-    const res = await fetch(backendUrl("/youtube/transcript?url=" + encodeURIComponent(raw)), { cache: "no-store" });
-    const data = await res.json();
-    if (!data.available) throw new Error(data.error || "Transcript yok");
-    document.getElementById("captionTranscript").value = data.text || "";
-    msgEl.style.display = "block";
-    msgEl.textContent = "✅ Transcript yüklendi (" + (data.lineCount || "?") + " satır). Caption üreticiden caption alabilirsin.";
-  } catch (e) {
-    msgEl.style.display = "block";
-    msgEl.textContent = "Hata: " + (e.message || e);
-  } finally {
-    btn.disabled = false;
-  }
-}
-
 async function doSearch() {
   if (activePlat === "youtube" && !savedKey) {
     showError("Lütfen önce API key'ini gir ve kaydet.");
@@ -1336,41 +917,33 @@ async function doSearch() {
   btn.disabled = false;
 }
 
-function captionFallback(title, platform, transcript) {
+function captionFallback(title, platform) {
   const tags = { tiktok: "#fyp #viral #keşfet #trend", reels: "#reels #instagram #keşfet", shorts: "#shorts #youtube #viral" };
-  const t = (transcript || "").trim();
-  const hook = t ? (t.length > 120 ? t.slice(0, 120).trim() + "…" : t) : "";
-  const body = hook
-    ? `🔥 ${title}\n\n${hook}\n\nNe düşünüyorsun? Yorumda yaz 👇`
-    : `🔥 ${title}\n\nBu içerik seni düşündürdü mü? Yorumda yaz 👇`;
+  const body = `🔥 ${title}\n\nBu içerik seni düşündürdü mü? Yorumda yaz 👇`;
   return `${body}\n\n${tags[platform] || "#viral #trend"}`;
 }
 
-function buildCaptionPrompt(title, platform, transcript) {
+function buildCaptionPrompt(title, platform) {
   const platformNames = { tiktok: "TikTok", reels: "Instagram Reels", shorts: "YouTube Shorts" };
   const name = platformNames[platform] || "sosyal medya";
-  const t = (transcript || "").trim();
-  const transcriptBlock = t
-    ? `\n\nVideo transcript (konuşma metni, buna sadık kal ve özetleme yapma; sadece caption için ana fikri kullan):\n"""\n${t.slice(0, 12000)}\n"""\n`
-    : "\n\nTranscript verilmedi; sadece başlığa göre yaz.\n";
 
   const rulesByPlatform = {
     tiktok: `Platform: ${name} — FORMAT ŞABLONU:
 - İlk satır: tek cümle "hook" (merak / şok / duygu), max ~80 karakter
-- 2-4 satır: transcript varsa videonun özünü yansıtan kısa cümleler; yoksa başlıktan türet
+- 2-4 satır: videonun özünü yansıtan kısa cümleler (başlıktan türet)
 - Bir satır: izleyiciye soru veya yorum isteği
 - Son satır: 5-7 hashtag (#fyp #viral #keşfet vb. konuya uygun)
 - Emoji: 3-5 adet, doğal
 - Toplam kısa tut (TikTok açıklaması gibi okunur olsun)`,
     reels: `Platform: ${name} — FORMAT ŞABLONU:
 - İlk 1-2 cümle: güçlü hook + duygu
-- Orta kısım: transcript varsa 2-3 cümleyle hikâye/özet; yoksa başlıktan
+- Orta kısım: 2-3 cümleyle hikâye/özet (başlıktan)
 - Bir cümle: "kaydet / paylaş / yorum" gibi hafif CTA (spam gibi olmasın)
 - Son satır: 5-8 hashtag (Türkçe + İngilizce karışık, #reels #keşfet)
 - Emoji: 4-6, sıcak ve samimi`,
     shorts: `Platform: ${name} — FORMAT ŞABLONU:
 - İlk 2 satır: arama + tıklama için anahtar kelimeleri doğal şekilde içeren açıklama (SEO hissi, abartma yok)
-- Devam: transcript varsa 2-4 cümle özet; yoksa başlıktan
+- Devam: 2-4 cümle özet (başlıktan)
 - Bir cümle: abone/yorum çağrısı (nazik)
 - Son satır: 5-7 hashtag (#shorts #youtube + konu)
 - Emoji: 2-4, daha sade`
@@ -1380,7 +953,6 @@ function buildCaptionPrompt(title, platform, transcript) {
 
 Video başlığı:
 "${title}"
-${transcriptBlock}
 ${rulesByPlatform[platform] || rulesByPlatform.tiktok}
 
 Genel kurallar:
@@ -1392,7 +964,6 @@ Genel kurallar:
 // CAPTION ÜRETİCİ
 async function generateCaption() {
   const title = document.getElementById("captionTitle").value.trim();
-  const transcript = document.getElementById("captionTranscript").value.trim();
   const platform = document.getElementById("captionPlatform").value;
   if (!title) { alert("Video başlığını gir!"); return; }
 
@@ -1414,7 +985,7 @@ async function generateCaption() {
         max_tokens: 800,
         messages: [{
           role: "user",
-          content: buildCaptionPrompt(title, platform, transcript)
+          content: buildCaptionPrompt(title, platform)
         }]
       })
     });
@@ -1423,14 +994,14 @@ async function generateCaption() {
     if (!res.ok) throw new Error(data.error || res.statusText);
 
     let text = data.content?.map(b => b.text || "").join("") || "";
-    if (!text) text = captionFallback(title, platform, transcript);
+    if (!text) text = captionFallback(title, platform);
 
     resultEl.textContent = text;
     resultEl.classList.add("show");
     resultEl.style.display = "block";
     copyBtn.style.display = "block";
   } catch(e) {
-    resultEl.textContent = captionFallback(title, platform, transcript);
+    resultEl.textContent = captionFallback(title, platform);
     resultEl.classList.add("show");
     resultEl.style.display = "block";
     copyBtn.style.display = "block";
