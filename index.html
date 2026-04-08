@@ -1054,7 +1054,8 @@ async function doSearch() {
         d.setMonth(d.getMonth() - 6);
         afterParam = "&publishedAfter=" + d.toISOString();
       }
-      const mainAll = await fetchVideos(queries, afterParam, 15, 70, "main");
+      // 15 sn ≤ süre < 60 sn (1 dk altı Short aralığı)
+      const mainAll = await fetchVideos(queries, afterParam, 15, 59, "main");
       const mainVideos = mainAll.slice(0, 20);
       if (mainVideos.length > 0) addSeenVideos("main", mainVideos.map(v => v.id));
       setCache(activeCat, activePlat, mainVideos);
