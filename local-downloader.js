@@ -70,6 +70,12 @@ function pickNewestFile(dir, exts) {
   return picked ? picked.p : null;
 }
 
+function randRange(min, max) {
+  const a = Number(min), b = Number(max);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return min;
+  return a + Math.random() * (b - a);
+}
+
 async function probeDurationSec(filePath) {
   // Requires ffprobe available with ffmpeg install
   const args = [
@@ -218,10 +224,18 @@ app.post('/crush', async (req, res) => {
     const outDur = Math.max(1, inDur / speed);
     const outW = 720, outH = 1280;
 
+    // İzleyici konforu için küçük varyasyonlar (her videoda hafif değişsin)
+    const zoom = randRange(1.04, 1.08);
+    const contrast = randRange(1.03, 1.09);
+    const saturation = randRange(1.05, 1.15);
+    const brightness = randRange(-0.02, 0.04);
+
     // Hafif şablon: sadece main video (outro yok)
     const filter = [
       `[0:v]setpts=PTS/${speed},scale=-2:${outH},crop=${outW}:${outH},` +
-        `scale=iw*1.07:ih*1.07,crop=${outW}:${outH},eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1,fps=30[v0]`,
+        `scale=iw*${zoom.toFixed(4)}:ih*${zoom.toFixed(4)},crop=${outW}:${outH},` +
+        `eq=contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}:brightness=${brightness.toFixed(4)},` +
+        `setsar=1,fps=30[v0]`,
       `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
         `rotate='0.15*sin(2*PI*t/1.2)':c=none:ow=iw:oh=ih[wm0]`,
       `[wm0]split=2[wmA][wmB]`,
@@ -265,13 +279,27 @@ app.post('/crush', async (req, res) => {
       '-crf', '24',
       '-pix_fmt', 'yuv420p',
       '-movflags', '+faststart',
+      // Gizlilik: metadata/chapter temizle
+      '-map_metadata', '-1',
+      '-map_chapters', '-1',
       '-c:a', 'aac',
       '-b:a', '128k',
       outFile
     ];
     await run('ffmpeg', ffArgs, { timeoutMs: 8 * 60 * 1000 });
 
-    return res.json({ ok: true, savedTo: DOWNLOAD_DIR, file: path.basename(outFile) });
+    return res.json({
+      ok: true,
+      savedTo: DOWNLOAD_DIR,
+      file: path.basename(outFile),
+      settings: {
+        speed,
+        zoom: Number(zoom.toFixed(4)),
+        contrast: Number(contrast.toFixed(4)),
+        saturation: Number(saturation.toFixed(4)),
+        brightness: Number(brightness.toFixed(4))
+      }
+    });
   } catch (e) {
     return res.status(500).json({ error: (e && e.message) ? e.message : String(e) });
   } finally {
