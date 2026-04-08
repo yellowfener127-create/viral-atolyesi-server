@@ -273,39 +273,18 @@
       <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
     </div>
 
-    <!-- Caption Üretici -->
+    <!-- Global Caption (English Only) — Terapi/Kaos -->
     <div class="tool-card">
-      <div class="tool-title">✏️ Caption Üretici</div>
-      <div class="tool-desc">Video başlığına göre TikTok / Reels / Shorts için ayrı formatta Türkçe caption + hashtag üretir.</div>
-      <input class="tool-input" type="text" id="captionTitle" placeholder="Video başlığını yaz (Türkçe veya İngilizce)"/>
-      <select class="platform-select" id="captionPlatform">
-        <option value="tiktok">🎵 TikTok</option>
-        <option value="reels">📸 Instagram Reels</option>
-        <option value="shorts">📺 YouTube Shorts</option>
+      <div class="tool-title">🌍 Global Caption (EN)</div>
+      <div class="tool-desc">English-only hook + caption + hashtag. Terapi (cute) veya Kaos (chaos) seç.</div>
+      <select class="platform-select" id="enBrand">
+        <option value="terapi" selected>TERAPİ ATÖLYESİ (cute)</option>
+        <option value="kaos">KAOS ATÖLYESİ (chaos)</option>
       </select>
-      <button class="tool-btn" id="captionBtn" onclick="generateCaption()">⚡ Caption Üret</button>
-      <div class="tool-result" id="captionResult"></div>
-      <button class="tool-copy-btn" id="captionCopyBtn" style="display:none" onclick="copyCaption()">📋 Kopyala</button>
-    </div>
-
-    <!-- Global Caption (English Only) — Terapi Atölyesi -->
-    <div class="tool-card">
-      <div class="tool-title">🌍 Global Caption (EN) — Terapi Atölyesi</div>
-      <div class="tool-desc">English-only hook + caption + hashtag. Tatlı / sevimli (hayvan & bebek) tonu.</div>
-      <input class="tool-input" type="text" id="enTerapiTitle" placeholder="Video başlığı (opsiyonel)"/>
-      <button class="tool-btn" id="enTerapiBtn" onclick="generateEnglishCaption('terapi')">⚡ English Caption Üret</button>
-      <div class="tool-result" id="enTerapiResult"></div>
-      <button class="tool-copy-btn" id="enTerapiCopyBtn" style="display:none" onclick="copyToolText('enTerapiResult','enTerapiCopyBtn')">📋 Kopyala</button>
-    </div>
-
-    <!-- Global Caption (English Only) — Kaos Atölyesi -->
-    <div class="tool-card">
-      <div class="tool-title">🌍 Global Caption (EN) — Kaos Atölyesi</div>
-      <div class="tool-desc">English-only hook + caption + hashtag. Komedi / şok / kaos tonu.</div>
-      <input class="tool-input" type="text" id="enKaosTitle" placeholder="Video başlığı (opsiyonel)"/>
-      <button class="tool-btn" id="enKaosBtn" onclick="generateEnglishCaption('kaos')">⚡ English Caption Üret</button>
-      <div class="tool-result" id="enKaosResult"></div>
-      <button class="tool-copy-btn" id="enKaosCopyBtn" style="display:none" onclick="copyToolText('enKaosResult','enKaosCopyBtn')">📋 Kopyala</button>
+      <input class="tool-input" type="text" id="enTitle" placeholder="Video başlığı (opsiyonel)"/>
+      <button class="tool-btn" id="enBtn" onclick="generateEnglishCaption()">⚡ English Caption Üret</button>
+      <div class="tool-result" id="enResult"></div>
+      <button class="tool-copy-btn" id="enCopyBtn" style="display:none" onclick="copyToolText('enResult','enCopyBtn')">📋 Kopyala</button>
     </div>
 
     <!-- Video URL ile MP4 indir -->
@@ -396,12 +375,12 @@ function englishFallback(brand, title) {
   return `${hook}\n${line2}\n${tags}`;
 }
 
-async function generateEnglishCaption(brand) {
-  const isKaos = brand === "kaos";
-  const title = (document.getElementById(isKaos ? "enKaosTitle" : "enTerapiTitle").value || "").trim();
-  const btn = document.getElementById(isKaos ? "enKaosBtn" : "enTerapiBtn");
-  const resultEl = document.getElementById(isKaos ? "enKaosResult" : "enTerapiResult");
-  const copyBtn = document.getElementById(isKaos ? "enKaosCopyBtn" : "enTerapiCopyBtn");
+async function generateEnglishCaption() {
+  const brand = document.getElementById("enBrand").value;
+  const title = (document.getElementById("enTitle").value || "").trim();
+  const btn = document.getElementById("enBtn");
+  const resultEl = document.getElementById("enResult");
+  const copyBtn = document.getElementById("enCopyBtn");
 
   btn.disabled = true;
   const old = btn.textContent;
@@ -1108,108 +1087,7 @@ async function doSearch() {
   btn.disabled = false;
 }
 
-function captionFallback(title, platform) {
-  const tags = { tiktok: "#fyp #viral #keşfet #trend", reels: "#reels #instagram #keşfet", shorts: "#shorts #youtube #viral" };
-  const body = `🔥 ${title}\n\nBu içerik seni düşündürdü mü? Yorumda yaz 👇`;
-  return `${body}\n\n${tags[platform] || "#viral #trend"}`;
-}
-
-function buildCaptionPrompt(title, platform) {
-  const platformNames = { tiktok: "TikTok", reels: "Instagram Reels", shorts: "YouTube Shorts" };
-  const name = platformNames[platform] || "sosyal medya";
-
-  const rulesByPlatform = {
-    tiktok: `Platform: ${name} — FORMAT ŞABLONU:
-- İlk satır: tek cümle "hook" (merak / şok / duygu), max ~80 karakter
-- 2-4 satır: videonun özünü yansıtan kısa cümleler (başlıktan türet)
-- Bir satır: izleyiciye soru veya yorum isteği
-- Son satır: 5-7 hashtag (#fyp #viral #keşfet vb. konuya uygun)
-- Emoji: 3-5 adet, doğal
-- Toplam kısa tut (TikTok açıklaması gibi okunur olsun)`,
-    reels: `Platform: ${name} — FORMAT ŞABLONU:
-- İlk 1-2 cümle: güçlü hook + duygu
-- Orta kısım: 2-3 cümleyle hikâye/özet (başlıktan)
-- Bir cümle: "kaydet / paylaş / yorum" gibi hafif CTA (spam gibi olmasın)
-- Son satır: 5-8 hashtag (Türkçe + İngilizce karışık, #reels #keşfet)
-- Emoji: 4-6, sıcak ve samimi`,
-    shorts: `Platform: ${name} — FORMAT ŞABLONU:
-- İlk 2 satır: arama + tıklama için anahtar kelimeleri doğal şekilde içeren açıklama (SEO hissi, abartma yok)
-- Devam: 2-4 cümle özet (başlıktan)
-- Bir cümle: abone/yorum çağrısı (nazik)
-- Son satır: 5-7 hashtag (#shorts #youtube + konu)
-- Emoji: 2-4, daha sade`
-  };
-
-  return `Sen bir Türkçe içerik yazarısın. Aşağıdaki video için ${name} paylaşımına uygun TEK bir caption yaz.
-
-Video başlığı:
-"${title}"
-${rulesByPlatform[platform] || rulesByPlatform.tiktok}
-
-Genel kurallar:
-- Sadece Türkçe yaz (yabancı kelime sadece hashtag veya alıntı gerekiyorsa)
-- Abartılı clickbait yalanı yazma
-- Sadece caption metnini yaz; başlık ekleme, numaralandırma yapma, "İşte caption:" deme.`;
-}
-
-// CAPTION ÜRETİCİ
-async function generateCaption() {
-  const title = document.getElementById("captionTitle").value.trim();
-  const platform = document.getElementById("captionPlatform").value;
-  if (!title) { alert("Video başlığını gir!"); return; }
-
-  const btn = document.getElementById("captionBtn");
-  const resultEl = document.getElementById("captionResult");
-  const copyBtn = document.getElementById("captionCopyBtn");
-
-  btn.disabled = true;
-  btn.textContent = "⏳ Üretiliyor...";
-  resultEl.style.display = "none";
-  copyBtn.style.display = "none";
-
-  try {
-    const res = await fetch(backendUrl("/anthropic/messages"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 800,
-        messages: [{
-          role: "user",
-          content: buildCaptionPrompt(title, platform)
-        }]
-      })
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || res.statusText);
-
-    let text = data.content?.map(b => b.text || "").join("") || "";
-    if (!text) text = captionFallback(title, platform);
-
-    resultEl.textContent = text;
-    resultEl.classList.add("show");
-    resultEl.style.display = "block";
-    copyBtn.style.display = "block";
-  } catch(e) {
-    resultEl.textContent = captionFallback(title, platform);
-    resultEl.classList.add("show");
-    resultEl.style.display = "block";
-    copyBtn.style.display = "block";
-  }
-
-  btn.disabled = false;
-  btn.textContent = "⚡ Caption Üret";
-}
-
-function copyCaption() {
-  const text = document.getElementById("captionResult").textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    const btn = document.getElementById("captionCopyBtn");
-    btn.textContent = "✅ Kopyalandı!";
-    setTimeout(() => { btn.textContent = "📋 Kopyala"; }, 2000);
-  });
-}
+// (Türkçe caption üretici kaldırıldı)
 </script>
 </body>
 </html>
