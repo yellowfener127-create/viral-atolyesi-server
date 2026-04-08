@@ -39,7 +39,12 @@ function run(bin, args, { timeoutMs } = {}) {
     const timer =
       timeoutMs && timeoutMs > 0
         ? setTimeout(() => {
-            try { child.kill('SIGKILL'); } catch {}
+            try {
+              if (process.platform === 'win32' && child.pid) {
+                try { spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch {}
+              }
+              child.kill();
+            } catch {}
           }, timeoutMs)
         : null;
 
@@ -221,6 +226,26 @@ async function probeHasAudio(filePath) {
   });
 }
 
+async function probeHasVideo(filePath) {
+  const args = [
+    '-v', 'error',
+    '-select_streams', 'v:0',
+    '-show_entries', 'stream=index',
+    '-of', 'csv=p=0',
+    filePath
+  ];
+  const child = spawn('ffprobe', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  return await new Promise((resolve) => {
+    child.stdout.on('data', (d) => { out += d.toString(); });
+    child.on('close', (code) => {
+      if (code !== 0) return resolve(false);
+      resolve(String(out || '').trim().length > 0);
+    });
+    child.on('error', () => resolve(false));
+  });
+}
+
 async function runYtDlpToResponse(res, url) {
   // Requires: yt-dlp installed on user's machine (in PATH)
   // This avoids server-side bot blocks by running from the user's own network/session.
@@ -305,14 +330,11 @@ app.post('/crush', async (req, res) => {
     // indir (en iyi mp4 -> best)
     // Önce süresini öğren (çok uzun/sonsuz indirmeyi engellemek için)
     const metaDur = await ytDlpGetDurationSec(url);
-    // Hedef: video 1.10x olacağı için çıktının saniyesi kadar (outDur) indirmeyi kes.
-    // meta yoksa: 30s ile sınırla (YouTube Shorts/Reels için yeterli)
     const speed = 1.10;
-    const targetSectionSec = metaDur ? clamp((metaDur / speed) + 0.25, 5, 60) : 30;
-    // İndirme kesin dursun diye "external downloader = ffmpeg" kullanıyoruz.
-    // ffmpeg -t N ile network indirmesini de N saniyede keser (uzun indirme / takılma problemi).
-    const dlTimeoutMs = Math.round(clamp(targetSectionSec * 6000, 60_000, 6 * 60 * 1000));
-    const tArg = targetSectionSec.toFixed(3);
+    // Kaliteyi kısmadan, indirme takılırsa KES: Windows'ta taskkill ile kesin durur.
+    // meta yoksa 30sn varsay (short videolara uygun).
+    const expectedInDur = metaDur ? clamp(metaDur, 1, 60 * 60) : 30;
+    const dlTimeoutMs = Math.round(clamp(expectedInDur * 12_000, 90_000, 6 * 60 * 1000));
 
     const dlArgs = [
       '--no-playlist',
@@ -324,11 +346,6 @@ app.post('/crush', async (req, res) => {
       '-f',
       // En iyi kalite (4K dahil)
       'bv*+ba/best',
-      // Çok uzun indirmeyi engelle: download'ı N saniyede KES
-      '--external-downloader',
-      'ffmpeg',
-      '--external-downloader-args',
-      `ffmpeg_i:-ss 0 -t ${tArg}`,
       '-o',
       inTpl,
       url
@@ -337,6 +354,12 @@ app.post('/crush', async (req, res) => {
 
     const inFile = pickNewestFile(tmpDir);
     if (!inFile) return res.status(500).json({ error: 'İndirilen dosya bulunamadı' });
+    const hasVideo = await probeHasVideo(inFile);
+    if (!hasVideo) {
+      return res.status(500).json({
+        error: 'İndirilen dosyada video akışı yok (sadece ses geldi). Bu videoda format seçimi video vermedi. yt-dlp güncelle veya başka video dene.'
+      });
+    }
 
     const wmSize = 96;
     const vx = 130;
