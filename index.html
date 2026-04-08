@@ -325,14 +325,34 @@ function buildEnglishCaptionPrompt(brand, title) {
     "I wasn’t ready for this level of adorable.",
     "This just made my whole day.",
     "How is this even real?",
-    "The ending is pure sweetness."
+    "The ending is pure sweetness.",
+    "Softest moment on the internet today.",
+    "Tell me this isn’t the cutest thing ever.",
+    "My serotonin levels just skyrocketed.",
+    "If you need a smile, watch this.",
+    "Proof the world still has good moments.",
+    "Tiny chaos, maximum charm.",
+    "I could watch this on repeat forever.",
+    "Who gave them permission to be this sweet?",
+    "This belongs in a museum of wholesomeness.",
+    "Warning: extreme levels of cozy."
   ];
   const hooksKaos = [
     "Wait for it… you won’t believe the ending.",
     "This escalated so fast…",
     "I need a replay right now.",
     "The plot twist at the end is unreal.",
-    "What did I just watch?"
+    "What did I just watch?",
+    "No context needed—just chaos.",
+    "POV: your day just got weirder.",
+    "I laughed, I gasped, I questioned reality.",
+    "Bro thought he was safe… he wasn’t.",
+    "The universe said: surprise.",
+    "This is why I don’t trust calm beginnings.",
+    "Someone explain this in one sentence.",
+    "I’m sending this to the group chat immediately.",
+    "The audacity. The drama. The timing.",
+    "If chaos had a highlight reel, this is clip one."
   ];
 
   const hooks = brand === "kaos" ? hooksKaos : hooksTerapi;
@@ -346,17 +366,32 @@ function englishFallback(brand, title) {
   const hooksTerapi = [
     "Wait for it… this is too cute.",
     "My heart can’t handle this.",
-    "This is the sweetest thing today."
+    "This is the sweetest thing today.",
+    "Pure serotonin in video form.",
+    "If cuteness was a crime, this is evidence.",
+    "Bookmark this for bad days."
   ];
   const hooksKaos = [
     "Wait for it… you won’t believe this.",
     "This escalated so fast…",
-    "The ending is unreal."
+    "The ending is unreal.",
+    "Chaos entered the chat.",
+    "I need witnesses for what I just saw.",
+    "Plot twist speedrun any%.",
+    "Send help (and popcorn)."
   ];
-  const tagsTerapi = uniqueTags(["#cute","#adorable","#aww","#animals","#baby","#wholesome","#reels","#viral","#trending","#fyp"]);
-  const tagsKaos = uniqueTags(["#chaos","#crazy","#funny","#wtf","#plotTwist","#reaction","#reels","#viral","#trending","#fyp"]);
+  const tagsTerapi = uniqueTags(["#cute","#adorable","#aww","#animals","#baby","#wholesome","#reels","#viral","#trending","#fyp","#shorts","#foryou","#heartwarming","#sweet"]);
+  const tagsKaos = uniqueTags(["#chaos","#crazy","#funny","#wtf","#plotTwist","#reaction","#reels","#viral","#trending","#fyp","#shorts","#unexpected","#comedy","#lol"]);
   const hook = brand === "kaos" ? pickOne(hooksKaos) : pickOne(hooksTerapi);
-  const line2 = title ? title : (brand === "kaos" ? "I was NOT ready for that." : "Look at this cuteness.");
+  const line2 = title ? title : (brand === "kaos" ? pickOne([
+    "I was NOT ready for that.",
+    "My brain is still buffering.",
+    "That ending should be illegal."
+  ]) : pickOne([
+    "Look at this cuteness.",
+    "This is the vibe we deserve.",
+    "Instant mood boost."
+  ]));
   const tags = (brand === "kaos" ? tagsKaos : tagsTerapi).join(" ");
   return `${hook}\n${line2}\n${tags}`;
 }
@@ -548,9 +583,9 @@ function getCached(cat, plat) {
   } catch(e) { return null; }
 }
 
-function setCache(cat, plat, main, short) {
+function setCache(cat, plat, main) {
   try {
-    localStorage.setItem(getCacheKey(cat, plat), JSON.stringify({main, short, date: getTodayKey()}));
+    localStorage.setItem(getCacheKey(cat, plat), JSON.stringify({ main, date: getTodayKey() }));
   } catch(e) {}
 }
 
@@ -567,7 +602,6 @@ function addSeenVideos(type, ids) {
 function resetSeen() {
   try {
     localStorage.removeItem("seen_main");
-    localStorage.removeItem("seen_short");
     // Bugünün cache'ini de sil
     localStorage.removeItem(getCacheKey(activeCat, activePlat));
   } catch(e) {}
@@ -595,6 +629,26 @@ function isBlocked(title, channel) {
   for (const kw of BLOCKED_CHANNELS) if (t.includes(kw)) return true;
   for (const kw of BLOCKED_KEYWORDS) if (t.includes(kw)) return true;
   return false;
+}
+
+// Komedi sekmesinde hayvan/kedi/köpek ağırlıklı sonuçları ele (Terapi ile ayrışsın)
+const COMEDY_ANIMAL_PHRASES = [
+  "funny animals", "animal compilation", "dog compilation", "cat compilation", "pets tiktok",
+  "golden retriever", "baby animals", "cute puppy", "cute kitten"
+];
+const COMEDY_ANIMAL_WORDS = [
+  "dog", "dogs", "puppy", "puppies", "cat", "cats", "kitten", "kittens", "pet", "pets",
+  "animal", "animals", "zoo", "wildlife", "hamster", "rabbit", "bunny", "duck", "goat",
+  "elephant", "monkey", "parrot", "bird", "squirrel", "corgi", "retriever", "husky",
+  "doggo", "meow", "bark", "paws", "labrador", "shiba"
+];
+function comedyAnimalWordRe(w) {
+  return new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
+}
+function isComedyAnimalHeavy(title, channel) {
+  const t = (title + " " + channel).toLowerCase();
+  if (COMEDY_ANIMAL_PHRASES.some((p) => t.includes(p))) return true;
+  return COMEDY_ANIMAL_WORDS.some((w) => comedyAnimalWordRe(w).test(t));
 }
 
 function escHtml(s) {
@@ -625,12 +679,22 @@ const ALL_QUERIES = {
     "funny hamster","cute rabbit funny","baby elephant funny","funny bird moments","cat vs dog funny"
   ],
   comedy: [
-    "funny moments caught on camera 2025","try not to laugh 2025","hilarious fails 2025",
-    "comedy shorts viral 2025","funny unexpected moments 2025","people being funny 2025",
-    "best funny clips 2025","viral comedy 2025","funny reactions 2025",
-    "hilarious moments 2025","funny street moments 2025","comedy viral 2025",
-    "funny fails 2025","unexpected moments funny 2025","laugh short 2025",
-    "funny prank 2025","hilarious video 2025","comedy clip 2025","funny moment 2025","viral funny 2025"
+    "people funny moments caught on camera viral",
+    "public freakout funny viral shorts",
+    "try not to laugh people fails compilation",
+    "hilarious street moments people viral",
+    "comedy skit viral shorts",
+    "awkward funny moments in public viral",
+    "funny prank on people caught camera",
+    "workplace funny moments viral shorts",
+    "instant karma funny people viral",
+    "ridiculous moments caught on camera people",
+    "funny argument in public viral shorts",
+    "unexpected funny reaction people viral",
+    "people falling fails funny viral",
+    "funny interview moments viral shorts",
+    "chaotic family dinner funny viral",
+    "funny sports bloopers people viral"
   ]
 };
 
@@ -674,9 +738,11 @@ function fmtViews(n) {
 }
 
 function calcScore(views, likes) {
-  const v = Math.min(views/3000000*60, 60);
-  const ratio = views > 0 ? likes/views : 0;
-  return Math.round(v + Math.min(ratio*1500*40, 40));
+  // Etkileşim (like/view oranı) daha ağır: yüksek beğeni oranı olanlar üstte
+  const viewsPart = Math.min((Math.log10(views + 1) / Math.log10(4000000)) * 35, 35);
+  const ratio = views > 0 ? likes / views : 0;
+  const engagementPart = Math.min(ratio * 9000, 65);
+  return Math.round(viewsPart + engagementPart);
 }
 
 function showError(msg) {
@@ -781,21 +847,21 @@ async function startDownload(url, btn) {
   }
 }
 
-function buildCard(v, i, isShort) {
+function buildCard(v, i) {
   const cat = activeCat;
   const watchLink = v.url || ("https://www.youtube.com/watch?v=" + v.id);
   const dlLink = backendUrl("/download?url=" + encodeURIComponent(watchLink));
   const safeLink = watchLink.replace(/'/g, "\\'");
   const safeDlLink = dlLink.replace(/'/g, "\\'");
-  const tagClass = isShort ? "tag-short" : (cat === "animal" ? "tag-animal" : "tag-comedy");
-  const tagText = isShort ? "⚡ Kısa" : (cat === "animal" ? "🐾 Hayvan & Bebek" : "😂 Komedi");
-  const rankClass = isShort ? (i===0?"gold":"") : (i===0?"top":"");
+  const tagClass = cat === "animal" ? "tag-animal" : "tag-comedy";
+  const tagText = cat === "animal" ? "🐾 Hayvan & Bebek" : "😂 Komedi";
+  const rankClass = i === 0 ? "top" : "";
 
-  return `<div class="vcard ${isShort?"short-card":""}">
+  return `<div class="vcard">
     <div class="thumb">
       <img src="${escHtml(v.thumb)}" alt="" loading="lazy"/>
       <div class="rank ${rankClass}">#${i+1}</div>
-      <div class="dur-ov ${isShort?"short":""}">⏱ ${formatDuration(v.duration)}</div>
+      <div class="dur-ov">⏱ ${formatDuration(v.duration)}</div>
       <div class="views-ov">👁 ${fmtViews(v.views)}</div>
     </div>
     <div class="card-body">
@@ -813,12 +879,12 @@ function buildCard(v, i, isShort) {
   </div>`;
 }
 
-function renderVideos(mainVideos, shortVideos, fromCache) {
+function renderVideos(mainVideos, fromCache) {
   const d = new Date();
   const dateStr = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear();
   const catLabel = activeCat === "animal" ? "🐾 Hayvan & Bebek" : "😂 Komedi";
 
-  if (mainVideos.length === 0 && shortVideos.length === 0) {
+  if (!mainVideos || mainVideos.length === 0) {
     document.getElementById("results").innerHTML = `
       <div class="empty">
         <div class="empty-icon">${activeCat==="animal"?"🐾":"😂"}</div>
@@ -838,19 +904,8 @@ function renderVideos(mainVideos, shortVideos, fromCache) {
       <div class="section-count">${mainVideos.length} video</div>
       <div class="section-cache">${cacheInfo}</div>
     </div><div class="grid">`;
-    mainVideos.forEach((v,i) => { html += buildCard(v, i, false); });
+    mainVideos.forEach((v,i) => { html += buildCard(v, i); });
     html += '</div>';
-  }
-
-  if (shortVideos.length > 0) {
-    html += `<div class="section-sep">
-      <div class="section-header">
-        <div class="section-title short">⚡ 15 Saniye Altı</div>
-        <div class="section-count">${shortVideos.length} video</div>
-      </div>
-      <div class="grid">`;
-    shortVideos.forEach((v,i) => { html += buildCard(v, i, true); });
-    html += '</div></div>';
   }
 
   document.getElementById("results").innerHTML = html;
@@ -941,6 +996,7 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {
         if (duration < minDur || duration > maxDur) continue;
         if (seenVideos.includes(item.id)) continue;
         if (isBlocked(title, channel)) continue;
+        if (activeCat === "comedy" && isComedyAnimalHeavy(title, channel)) continue;
         channelIds.add(channelId);
         rawItems.push({
           id: item.id, title, channel, channelId,
@@ -975,10 +1031,10 @@ async function doSearch() {
 
   const cached = getCached(activeCat, activePlat);
   // TikTok/Instagram için cache'i bypass ediyoruz: RapidAPI yanıtı bazen ilk denemede boş gelebiliyor ve bu boş cache'i kalıcı yapıyordu.
-  if (activePlat === "youtube" && cached && ((cached.main && cached.main.length) || (cached.short && cached.short.length))) {
+  if (activePlat === "youtube" && cached && cached.main && cached.main.length) {
     const btn0 = document.getElementById("searchBtn");
     btn0.disabled = true;
-    renderVideos(cached.main, cached.short, true);
+    renderVideos(cached.main, true);
     btn0.textContent = "🔍 Videoları Getir";
     btn0.disabled = false;
     return;
@@ -999,25 +1055,20 @@ async function doSearch() {
         afterParam = "&publishedAfter=" + d.toISOString();
       }
       const mainAll = await fetchVideos(queries, afterParam, 15, 70, "main");
-      const shortAll = await fetchVideos(queries, afterParam, 1, 14, "short");
       const mainVideos = mainAll.slice(0, 20);
-      const shortVideos = shortAll.slice(0, 10);
       if (mainVideos.length > 0) addSeenVideos("main", mainVideos.map(v => v.id));
-      if (shortVideos.length > 0) addSeenVideos("short", shortVideos.map(v => v.id));
-      setCache(activeCat, activePlat, mainVideos, shortVideos);
-      renderVideos(mainVideos, shortVideos, false);
+      setCache(activeCat, activePlat, mainVideos);
+      renderVideos(mainVideos, false);
     } else if (activePlat === "tiktok") {
       const list = await fetchTikTokFeed();
       const mainVideos = list.slice(0, 20);
-      const shortVideos = list.slice(20, 30);
-      setCache(activeCat, activePlat, mainVideos, shortVideos);
-      renderVideos(mainVideos, shortVideos, false);
+      setCache(activeCat, activePlat, mainVideos);
+      renderVideos(mainVideos, false);
     } else {
       const list = await fetchInstagramFeed();
       const mainVideos = list.slice(0, 20);
-      const shortVideos = list.slice(20, 30);
-      setCache(activeCat, activePlat, mainVideos, shortVideos);
-      renderVideos(mainVideos, shortVideos, false);
+      setCache(activeCat, activePlat, mainVideos);
+      renderVideos(mainVideos, false);
     }
   } catch (e) {
     showError("Arama hatası: " + (e.message || e));
