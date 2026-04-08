@@ -288,6 +288,26 @@
       <button class="tool-copy-btn" id="captionCopyBtn" style="display:none" onclick="copyCaption()">📋 Kopyala</button>
     </div>
 
+    <!-- Global Caption (English Only) — Terapi Atölyesi -->
+    <div class="tool-card">
+      <div class="tool-title">🌍 Global Caption (EN) — Terapi Atölyesi</div>
+      <div class="tool-desc">English-only hook + caption + hashtag. Tatlı / sevimli (hayvan & bebek) tonu.</div>
+      <input class="tool-input" type="text" id="enTerapiTitle" placeholder="Video başlığı (opsiyonel)"/>
+      <button class="tool-btn" id="enTerapiBtn" onclick="generateEnglishCaption('terapi')">⚡ English Caption Üret</button>
+      <div class="tool-result" id="enTerapiResult"></div>
+      <button class="tool-copy-btn" id="enTerapiCopyBtn" style="display:none" onclick="copyToolText('enTerapiResult','enTerapiCopyBtn')">📋 Kopyala</button>
+    </div>
+
+    <!-- Global Caption (English Only) — Kaos Atölyesi -->
+    <div class="tool-card">
+      <div class="tool-title">🌍 Global Caption (EN) — Kaos Atölyesi</div>
+      <div class="tool-desc">English-only hook + caption + hashtag. Komedi / şok / kaos tonu.</div>
+      <input class="tool-input" type="text" id="enKaosTitle" placeholder="Video başlığı (opsiyonel)"/>
+      <button class="tool-btn" id="enKaosBtn" onclick="generateEnglishCaption('kaos')">⚡ English Caption Üret</button>
+      <div class="tool-result" id="enKaosResult"></div>
+      <button class="tool-copy-btn" id="enKaosCopyBtn" style="display:none" onclick="copyToolText('enKaosResult','enKaosCopyBtn')">📋 Kopyala</button>
+    </div>
+
     <!-- Video URL ile MP4 indir -->
     <div class="tool-card">
       <div class="tool-title">🎬 Video URL → MP4 indir</div>
@@ -308,6 +328,129 @@ const BACKEND_ORIGIN = "https://viral-atolyesi-server.onrender.com";
 function backendUrl(path) {
   const p = path.startsWith("/") ? path : "/" + path;
   return BACKEND_ORIGIN + p;
+}
+
+function pickOne(arr) {
+  if (!arr || !arr.length) return "";
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function uniqueTags(tags, max = 10) {
+  const out = [];
+  const seen = new Set();
+  for (const t of tags || []) {
+    const k = String(t || "").trim();
+    if (!k) continue;
+    const key = k.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(k.startsWith("#") ? k : ("#" + k.replace(/^#+/, "")));
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+function buildEnglishCaptionPrompt(brand, title) {
+  const generic = ["#viral","#trending","#fyp","#foryou","#reels","#shorts","#watchtillend","#unexpected","#lol","#cute","#funny","#wholesome"];
+  const terapiTags = ["#cute","#adorable","#aww","#babylove","#babyfever","#littleone","#cutekids","#animals","#puppy","#kitten","#petsoftiktok","#catsoftiktok","#dogsoftiktok","#wholesome","#heartwarming","#sweet"];
+  const kaosTags = ["#chaos","#crazy","#wild","#wtf","#nope","#unbelievable","#plotTwist","#unexpected","#fail","#prank","#reaction","#comedy","#funnyvideos","#insane","#shock"];
+
+  const hooksTerapi = [
+    "Wait for it… this is too cute.",
+    "I wasn’t ready for this level of adorable.",
+    "This just made my whole day.",
+    "How is this even real?",
+    "The ending is pure sweetness."
+  ];
+  const hooksKaos = [
+    "Wait for it… you won’t believe the ending.",
+    "This escalated so fast…",
+    "I need a replay right now.",
+    "The plot twist at the end is unreal.",
+    "What did I just watch?"
+  ];
+
+  const hooks = brand === "kaos" ? hooksKaos : hooksTerapi;
+  const tagPool = brand === "kaos" ? [...generic, ...kaosTags] : [...generic, ...terapiTags];
+
+  // Modelden beklenen: 2 satır hook, 2-3 satır caption, 8-12 hashtag
+  return `You are a social media copywriter.\n\nWrite an English-only short caption for a vertical short-form video.\n\nConstraints:\n- Output plain text only (no quotes, no labels).\n- First line: a short hook (max ~55 characters).\n- Then 1-2 short lines that match the vibe.\n- Last line: 8-12 hashtags from this pool (you may pick and reorder, but stay within the pool):\n${tagPool.join(" ")}\n\nUse this hook style inspiration (do not copy exactly, vary it):\n${hooks.map(h => "- " + h).join("\\n")}\n\nVideo title/context (optional):\n${title ? `"${title}"` : "(not provided)"}\n\nTone:\n${brand === "kaos" ? "chaotic, comedic, shocking, high-energy" : "cute, wholesome, heartwarming"}\n\nRemember: English only.`;
+}
+
+function englishFallback(brand, title) {
+  const hooksTerapi = [
+    "Wait for it… this is too cute.",
+    "My heart can’t handle this.",
+    "This is the sweetest thing today."
+  ];
+  const hooksKaos = [
+    "Wait for it… you won’t believe this.",
+    "This escalated so fast…",
+    "The ending is unreal."
+  ];
+  const tagsTerapi = uniqueTags(["#cute","#adorable","#aww","#animals","#baby","#wholesome","#reels","#viral","#trending","#fyp"]);
+  const tagsKaos = uniqueTags(["#chaos","#crazy","#funny","#wtf","#plotTwist","#reaction","#reels","#viral","#trending","#fyp"]);
+  const hook = brand === "kaos" ? pickOne(hooksKaos) : pickOne(hooksTerapi);
+  const line2 = title ? title : (brand === "kaos" ? "I was NOT ready for that." : "Look at this cuteness.");
+  const tags = (brand === "kaos" ? tagsKaos : tagsTerapi).join(" ");
+  return `${hook}\n${line2}\n${tags}`;
+}
+
+async function generateEnglishCaption(brand) {
+  const isKaos = brand === "kaos";
+  const title = (document.getElementById(isKaos ? "enKaosTitle" : "enTerapiTitle").value || "").trim();
+  const btn = document.getElementById(isKaos ? "enKaosBtn" : "enTerapiBtn");
+  const resultEl = document.getElementById(isKaos ? "enKaosResult" : "enTerapiResult");
+  const copyBtn = document.getElementById(isKaos ? "enKaosCopyBtn" : "enTerapiCopyBtn");
+
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = "⏳ Üretiliyor...";
+  resultEl.style.display = "none";
+  copyBtn.style.display = "none";
+
+  try {
+    const res = await fetch(backendUrl("/anthropic/messages"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 450,
+        messages: [{
+          role: "user",
+          content: buildEnglishCaptionPrompt(brand, title)
+        }]
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    let text = data.content?.map(b => b.text || "").join("") || "";
+    text = (text || "").trim();
+    if (!text) text = englishFallback(brand, title);
+    resultEl.textContent = text;
+    resultEl.classList.add("show");
+    resultEl.style.display = "block";
+    copyBtn.style.display = "block";
+  } catch (e) {
+    resultEl.textContent = englishFallback(brand, title);
+    resultEl.classList.add("show");
+    resultEl.style.display = "block";
+    copyBtn.style.display = "block";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+
+function copyToolText(resultId, btnId) {
+  const text = (document.getElementById(resultId)?.textContent || "").trim();
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById(btnId);
+    const old = btn.textContent;
+    btn.textContent = "✅ Kopyalandı!";
+    setTimeout(() => { btn.textContent = old; }, 1500);
+  });
 }
 
 async function crushVideo() {
