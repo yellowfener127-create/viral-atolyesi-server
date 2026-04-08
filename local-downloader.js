@@ -318,11 +318,12 @@ app.post('/crush', async (req, res) => {
       '-filter_complex', filter,
       '-map', '[v]',
       '-map', '0:a?',
-      // Ses: (1) -0.4 semitone pitch shift (çok hafif) + (2) 3/8/10. saniyelerde %2 volume bump
-      // Not: Pitch shift için asetrate + aresample + atempo kombinasyonu (süre korunur).
+      // Ses: (1) pitch shift (çok hafif) + (2) video ile birebir aynı hız (1.10x) + (3) hafif volume bump
       '-af', (() => {
         const semitone = -0.4;
         const pitchFactor = Math.pow(2, semitone / 12); // <1 => pitch aşağı
+        // asetrate ile süre/pitch değişir; atempo ile hedef hıza (speed) getiriyoruz.
+        // Hedef: final audio duration == inDur/speed => atempo = speed / pitchFactor
         const atempoTotal = speed * (1 / pitchFactor);
         // küçük dalga: her birinde 0.25s %2 artış
         const bumpDur = 0.25;
@@ -333,12 +334,12 @@ app.post('/crush', async (req, res) => {
           `aresample=48000`,
           `atempo=${atempoTotal.toFixed(6)}`,
           `volume='${volExpr}'`,
-          `apad`,
+          `aresample=async=1:first_pts=0`,
+          `apad=pad_dur=${(outDur + 0.5).toFixed(3)}`,
           `atrim=0:${outDur.toFixed(3)}`,
-          `asetpts=N/SR/TB`
+          `asetpts=PTS-STARTPTS`
         ].join(',');
       })(),
-      '-t', outDur.toFixed(3),
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-crf', '24',
