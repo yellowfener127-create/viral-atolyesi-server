@@ -350,8 +350,9 @@ app.all('/download', (req, res) => {
   if (isYt) {
     (async () => {
       const hasCookies = !!(cookieFile && fs.existsSync(cookieFile));
+      // MP4 + AAC ses tercih et: bazı mp4'ler Opus audio ile gelebiliyor (Windows "ses çalınamıyor").
       const fmtProg =
-        'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]';
+        'bv*[ext=mp4][vcodec!=none]+ba[ext=m4a][acodec!=none]/best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]';
       const fmtBest = 'best';
 
       const tries = [
@@ -399,7 +400,8 @@ app.all('/download', (req, res) => {
   (async () => {
     const r = await attemptStreamToResponse(res, url, {
       cookieFile,
-      format: 'best',
+      // MP4 + AAC ses tercih et (TikTok/IG dahil)
+      format: 'bv*[ext=mp4][vcodec!=none]+ba[ext=m4a][acodec!=none]/best[ext=mp4][acodec!=none][vcodec!=none]/best',
       extraArgs: ytNetArgs,
       filenameHint: (isTiktok ? 'tiktok_video' : isInstagram ? 'instagram_video' : 'video')
     });

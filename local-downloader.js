@@ -280,11 +280,12 @@ async function runYtDlpToResponse(res, url) {
     '--newline',
     '--no-part',
     '--no-mtime',
-    // En iyi kalite (4K dahil) — sadece indirme süresini limitleriz.
+    // MP4 + AAC ses: Windows/MPC/telefonlarda "Opus desteklenmiyor" hatasını önler.
     '--merge-output-format',
     'mp4',
     '-f',
-    'bv*+ba/best',
+    // Öncelik: mp4 video + m4a (aac) ses; yoksa tek parça mp4; en sonda best.
+    'bv*[ext=mp4][vcodec!=none]+ba[ext=m4a][acodec!=none]/b[ext=mp4][acodec!=none][vcodec!=none]/best',
     '-o',
     outTpl,
     url
@@ -393,6 +394,7 @@ app.post('/crush', async (req, res) => {
     }
     const outDur = Math.max(1, inDur / speed);
     const outW = 720, outH = 1280;
+    const hasAudio = await probeHasAudio(inFile);
 
     // İzleyici konforu için küçük varyasyonlar (her videoda hafif değişsin)
     const zoom = randRange(1.04, 1.08);
@@ -435,29 +437,28 @@ app.post('/crush', async (req, res) => {
       '-i', wmFile,
       '-filter_complex', filter,
       '-map', '[v]',
-      '-map', '0:a?',
-      // Ses: (1) pitch shift (çok hafif) + (2) video ile birebir aynı hız (1.10x) + (3) hafif volume bump
-      '-af', (() => {
-        const semitone = -0.4;
-        const pitchFactor = Math.pow(2, semitone / 12); // <1 => pitch aşağı
-        // asetrate ile süre/pitch değişir; atempo ile hedef hıza (speed) getiriyoruz.
-        // Hedef: final audio duration == inDur/speed => atempo = speed / pitchFactor
-        const atempoTotal = speed * (1 / pitchFactor);
-        // küçük dalga: her birinde 0.25s %2 artış
-        const bumpDur = 0.25;
-        const bump = (t) => `between(t,${t.toFixed(3)},${(t + bumpDur).toFixed(3)})`;
-        const volExpr = `if(${bump(3)}+${bump(8)}+${bump(10)},1.02,1)`;
-        return [
-          `asetrate=48000*${pitchFactor.toFixed(8)}`,
-          `aresample=48000`,
-          `atempo=${atempoTotal.toFixed(6)}`,
-          `volume='${volExpr}'`,
-          `aresample=async=1:first_pts=0`,
-          `apad=pad_dur=${(outDur + 0.5).toFixed(3)}`,
-          `atrim=0:${outDur.toFixed(3)}`,
-          `asetpts=PTS-STARTPTS`
-        ].join(',');
-      })(),
+      ...(hasAudio ? [
+        '-map', '0:a:0',
+        // Ses senkron fix: sadece PTS-STARTPTS + tam aynı outDur'a trim.
+        // Pitch shift korunur; drift oluşturan async/apad kaldırıldı.
+        '-af', (() => {
+          const semitone = -0.4;
+          const pitchFactor = Math.pow(2, semitone / 12);
+          const atempoTotal = speed * (1 / pitchFactor);
+          const bumpDur = 0.25;
+          const bump = (t) => `between(t,${t.toFixed(3)},${(t + bumpDur).toFixed(3)})`;
+          const volExpr = `if(${bump(3)}+${bump(8)}+${bump(10)},1.02,1)`;
+          return [
+            `asetpts=PTS-STARTPTS`,
+            `asetrate=48000*${pitchFactor.toFixed(8)}`,
+            `aresample=48000`,
+            `atempo=${atempoTotal.toFixed(6)}`,
+            `volume='${volExpr}'`,
+            `atrim=0:${outDur.toFixed(3)}`,
+            `asetpts=PTS-STARTPTS`
+          ].join(',');
+        })()
+      ] : []),
       // Output süresi: kesin bitir (donmuş kare + saatler süren çıktı olmasın)
       '-t', outDur.toFixed(3),
       '-c:v', 'libx264',
@@ -468,8 +469,7 @@ app.post('/crush', async (req, res) => {
       // Gizlilik: metadata/chapter temizle
       '-map_metadata', '-1',
       '-map_chapters', '-1',
-      '-c:a', 'aac',
-      '-b:a', '128k',
+      ...(hasAudio ? ['-c:a', 'aac', '-b:a', '128k'] : []),
       outFile
     ];
     await run('ffmpeg', ffArgs, { timeoutMs: 8 * 60 * 1000 });
