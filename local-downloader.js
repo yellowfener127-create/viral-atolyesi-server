@@ -182,6 +182,42 @@ async function ytDlpGetDurationSec(url) {
   });
 }
 
+async function ytDlpGetMediaUrls(url, format) {
+  const fmt = String(format || '').trim() || 'bv*+ba/best';
+  return await new Promise((resolve, reject) => {
+    try {
+      const child = spawn('yt-dlp', ['--no-playlist', '-f', fmt, '--get-url', url], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      let err = '';
+      const t = setTimeout(() => {
+        try {
+          if (process.platform === 'win32' && child.pid) {
+            try { spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch {}
+          }
+          child.kill();
+        } catch {}
+        reject(new Error('yt-dlp URL alma timeout'));
+      }, 45_000);
+      child.stdout.on('data', (d) => { out += d.toString(); });
+      child.stderr.on('data', (d) => { err += d.toString(); if (err.length > 60_000) err = err.slice(-60_000); });
+      child.on('error', (e) => { clearTimeout(t); reject(e); });
+      child.on('close', (code) => {
+        clearTimeout(t);
+        if (code !== 0) return reject(new Error(err || `yt-dlp exit ${code}`));
+        const lines = String(out || '')
+          .split(/\r?\n/g)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!lines.length) return reject(new Error(err || 'yt-dlp URL boş döndü'));
+        // Usually 2 lines: video then audio; sometimes 1 line.
+        resolve({ videoUrl: lines[0] || null, audioUrl: lines[1] || null, raw: lines });
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
 async function probeDurationSec(filePath) {
   // Requires ffprobe available with ffmpeg install
   const args = [
@@ -327,39 +363,55 @@ app.post('/crush', async (req, res) => {
   const outFile = path.join(DOWNLOAD_DIR, outName);
 
   try {
-    // indir (en iyi mp4 -> best)
-    // Önce süresini öğren (çok uzun/sonsuz indirmeyi engellemek için)
-    const metaDur = await ytDlpGetDurationSec(url);
     const speed = 1.10;
-    // Kaliteyi kısmadan, indirme takılırsa KES: Windows'ta taskkill ile kesin durur.
-    // meta yoksa 30sn varsay (short videolara uygun).
-    const expectedInDur = metaDur ? clamp(metaDur, 1, 60 * 60) : 30;
-    const dlTimeoutMs = Math.round(clamp(expectedInDur * 12_000, 90_000, 6 * 60 * 1000));
+    // 1) Süreyi oku → Telif Ezici sonrası beklenen süreyi hesapla (outDur ~= inDur/speed)
+    // 2) Sadece ilk outDur saniyeyi indir (indirme asla saatler sürmez)
+    const metaDur = await ytDlpGetDurationSec(url);
+    const inDurGuess = metaDur ? clamp(metaDur, 1, 60 * 60) : 20;
+    const outDurTarget = clamp(inDurGuess / speed, 5, 60); // 5-60 sn arası
 
-    const dlArgs = [
-      '--no-playlist',
-      '--newline',
-      '--no-part',
-      '--no-mtime',
-      '--merge-output-format',
-      'mp4',
-      '-f',
-      // En iyi kalite (4K dahil)
-      'bv*+ba/best',
-      '-o',
-      inTpl,
-      url
-    ];
-    await run('yt-dlp', dlArgs, { timeoutMs: dlTimeoutMs });
+    // 4K kalite: URL'leri yt-dlp'den al
+    const { videoUrl, audioUrl } = await ytDlpGetMediaUrls(url, 'bv*+ba/best');
+    const dlOut = path.join(tmpDir, 'in.mkv');
 
-    const inFile = pickNewestFile(tmpDir);
+    // ffmpeg ile NETWORK indirmesini outDurTarget saniyede kesin kes
+    const ffDlArgs = audioUrl
+      ? [
+          '-y',
+          '-hide_banner',
+          '-loglevel', 'error',
+          '-ss', '0',
+          '-t', outDurTarget.toFixed(3),
+          '-i', videoUrl,
+          '-ss', '0',
+          '-t', outDurTarget.toFixed(3),
+          '-i', audioUrl,
+          '-map', '0:v:0',
+          '-map', '1:a:0',
+          '-c', 'copy',
+          '-shortest',
+          '-f', 'matroska',
+          dlOut
+        ]
+      : [
+          '-y',
+          '-hide_banner',
+          '-loglevel', 'error',
+          '-ss', '0',
+          '-t', outDurTarget.toFixed(3),
+          '-i', videoUrl,
+          '-c', 'copy',
+          '-f', 'matroska',
+          dlOut
+        ];
+
+    const dlTimeoutMs = Math.round(clamp(outDurTarget * 6000 + 60_000, 90_000, 6 * 60 * 1000));
+    await run('ffmpeg', ffDlArgs, { timeoutMs: dlTimeoutMs });
+
+    const inFile = fs.existsSync(dlOut) ? dlOut : pickNewestFile(tmpDir);
     if (!inFile) return res.status(500).json({ error: 'İndirilen dosya bulunamadı' });
     const hasVideo = await probeHasVideo(inFile);
-    if (!hasVideo) {
-      return res.status(500).json({
-        error: 'İndirilen dosyada video akışı yok (sadece ses geldi). Bu videoda format seçimi video vermedi. yt-dlp güncelle veya başka video dene.'
-      });
-    }
+    if (!hasVideo) return res.status(500).json({ error: 'İndirilen dosyada video akışı yok (sadece ses geldi).' });
 
     const wmSize = 96;
     const vx = 130;
