@@ -431,19 +431,17 @@ app.post('/crush', async (req, res) => {
     ];
 
     if (hasAudio) {
-      // Audio in same timeline as video: exact 1.10x after start, with pitch shift.
+      // Sync fix: drift'in ana sebebi "asetrate + atempo + async" zincirinin bazı kaynaklarda
+      // zamanla kayması. Bunu rubberband ile (tempo+pitch tek adım) yapıp timeline'ı kilitliyoruz.
       const semitone = -0.4;
-      const pitchFactor = Math.pow(2, semitone / 12);
-      const atempoTotal = speed * (1 / pitchFactor); // net speed == speed
+      const pitchFactor = Math.pow(2, semitone / 12); // <1 => pitch aşağı
       const bumpDur = 0.25;
       const bump = (t) => `between(t,${t.toFixed(3)},${(t + bumpDur).toFixed(3)})`;
       const volExpr = `if(${bump(3)}+${bump(8)}+${bump(10)},1.02,1)`;
       filterParts.push(
         `[0:a]asetpts=PTS-STARTPTS,` +
-          `asetrate=48000*${pitchFactor.toFixed(8)},aresample=48000,` +
-          `atempo=${atempoTotal.toFixed(6)},volume='${volExpr}',` +
-          // Sync fix: audio clock drift'i toparla
-          `aresample=async=1:first_pts=0,` +
+          `rubberband=tempo=${speed.toFixed(6)}:pitch=${pitchFactor.toFixed(8)},` +
+          `volume='${volExpr}',` +
           // Bazı kaynaklarda ses video'dan kısa gelebiliyor; sonunu sessizlikle tamamla
           `apad=pad_dur=${(outDur + 0.5).toFixed(3)},` +
           `atrim=0:${outDur.toFixed(3)},asetpts=PTS-STARTPTS[a]`
