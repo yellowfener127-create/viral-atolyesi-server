@@ -345,8 +345,13 @@ app.post('/crush', async (req, res) => {
     // İndirme: ana sayfadaki "indir" gibi (yt-dlp tek parça A+V dosya).
     // Bu, "süresiz indirme" ve "16sn sonra donup saatlerce sürme" problemini bitirir.
     const metaDur = await ytDlpGetDurationSec(url);
-    const outDurCap = clamp((metaDur ? (metaDur / speed) : 20), 5, 120);
-    const dlTimeoutMs = Math.round(clamp(outDurCap * 12_000, 90_000, 6 * 60 * 1000));
+    if (metaDur && metaDur > 60) {
+      return res.status(400).json({ error: `Bu araç sadece 60 saniye altı videolarda çalışır. Video süresi: ${Math.round(metaDur)}s` });
+    }
+    // meta gelmediyse bile çok uzun indirmeyi engellemek için agresif timeout uygula
+    const outDurCap = clamp((metaDur ? (metaDur / speed) : 20), 5, 60);
+    // 15-20sn videoda bile dakikalarca beklememek için max 3dk
+    const dlTimeoutMs = Math.round(clamp((metaDur || 20) * 4000 + 60_000, 90_000, 3 * 60 * 1000));
 
     const dlArgs = [
       '--no-playlist',
@@ -376,6 +381,9 @@ app.post('/crush', async (req, res) => {
     const vx = 130;
     const vy = 85;
     const inDur = await probeVideoDurationSec(inFile).catch(() => probeDurationSec(inFile));
+    if (inDur > 60.5) {
+      return res.status(400).json({ error: `Bu araç sadece 60 saniye altı videolarda çalışır. Video süresi: ${Math.round(inDur)}s` });
+    }
     const outDur = Math.max(1, Math.min(outDurCap, inDur / speed));
     const outW = 720, outH = 1280;
 
