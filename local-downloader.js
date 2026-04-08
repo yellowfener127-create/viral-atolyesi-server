@@ -412,11 +412,11 @@ app.post('/crush', async (req, res) => {
       : '';
 
     const filterParts = [
-      `[0:v]setpts=(PTS-STARTPTS)/${speed},scale=-2:${outH},crop=${outW}:${outH},` +
+      // Sync fix (drift): önce CFR'e normalize et, sonra hızı uygula
+      `[0:v]setpts=PTS-STARTPTS,fps=30,scale=-2:${outH},crop=${outW}:${outH},` +
         `scale=iw*${zoom.toFixed(4)}:ih*${zoom.toFixed(4)},crop=${outW}:${outH},` +
         `eq=contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}:brightness=${brightness.toFixed(4)},` +
-        // Sync fix: VFR kaynaklarda drift olmasın diye CFR 30'a sabitle
-        `setsar=1,fps=30,trim=0:${outDur.toFixed(3)},setpts=PTS-STARTPTS[v0]`,
+        `setsar=1,setpts=PTS/${speed},trim=0:${outDur.toFixed(3)},setpts=PTS-STARTPTS[v0]`,
       `[v0]drawtext=text='${escapeDrawtextText(hookText)}'${fontFileFilterPart}:` +
         `fontcolor=white@${hookAlpha.toFixed(3)}:fontsize=48:x=(w-text_w)/2:y=${hookY}:` +
         `box=1:boxcolor=black@0.30:boxborderw=18:enable='between(t,0,3)'[v1]`,
@@ -462,6 +462,9 @@ app.post('/crush', async (req, res) => {
       ...(hasAudio ? ['-map', '[a]'] : []),
       // Output süresi: kesin bitir (donmuş kare + saatler süren çıktı olmasın)
       '-t', outDur.toFixed(3),
+      // Drift'e karşı output CFR
+      '-vsync', 'cfr',
+      '-r', '30',
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-crf', '24',
