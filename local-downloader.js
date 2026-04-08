@@ -411,8 +411,7 @@ app.post('/crush', async (req, res) => {
       ? `:fontfile='${escapeDrawtextText(fontFile.replace(/\\/g, '/'))}'`
       : '';
 
-    // Hafif şablon: sadece main video (outro yok)
-    const filter = [
+    const filterParts = [
       `[0:v]setpts=(PTS-STARTPTS)/${speed},scale=-2:${outH},crop=${outW}:${outH},` +
         `scale=iw*${zoom.toFixed(4)}:ih*${zoom.toFixed(4)},crop=${outW}:${outH},` +
         `eq=contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}:brightness=${brightness.toFixed(4)},` +
@@ -428,7 +427,25 @@ app.post('/crush', async (req, res) => {
       `[v1][wm]overlay=` +
         `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
         `y='abs(mod(t*${vy},2*(H-h))-(H-h))':format=auto[v]`
-    ].join(';');
+    ];
+
+    if (hasAudio) {
+      // Audio in same timeline as video: exact 1.10x after start, with pitch shift.
+      const semitone = -0.4;
+      const pitchFactor = Math.pow(2, semitone / 12);
+      const atempoTotal = speed * (1 / pitchFactor); // net speed == speed
+      const bumpDur = 0.25;
+      const bump = (t) => `between(t,${t.toFixed(3)},${(t + bumpDur).toFixed(3)})`;
+      const volExpr = `if(${bump(3)}+${bump(8)}+${bump(10)},1.02,1)`;
+      filterParts.push(
+        `[0:a]asetpts=PTS-STARTPTS,` +
+          `asetrate=48000*${pitchFactor.toFixed(8)},aresample=48000,` +
+          `atempo=${atempoTotal.toFixed(6)},volume='${volExpr}',` +
+          `atrim=0:${outDur.toFixed(3)},asetpts=PTS-STARTPTS[a]`
+      );
+    }
+
+    const filter = filterParts.join(';');
 
     const ffArgs = [
       '-y',
@@ -437,28 +454,7 @@ app.post('/crush', async (req, res) => {
       '-i', wmFile,
       '-filter_complex', filter,
       '-map', '[v]',
-      ...(hasAudio ? [
-        '-map', '0:a:0',
-        // Ses senkron fix: sadece PTS-STARTPTS + tam aynı outDur'a trim.
-        // Pitch shift korunur; drift oluşturan async/apad kaldırıldı.
-        '-af', (() => {
-          const semitone = -0.4;
-          const pitchFactor = Math.pow(2, semitone / 12);
-          const atempoTotal = speed * (1 / pitchFactor);
-          const bumpDur = 0.25;
-          const bump = (t) => `between(t,${t.toFixed(3)},${(t + bumpDur).toFixed(3)})`;
-          const volExpr = `if(${bump(3)}+${bump(8)}+${bump(10)},1.02,1)`;
-          return [
-            `asetpts=PTS-STARTPTS`,
-            `asetrate=48000*${pitchFactor.toFixed(8)}`,
-            `aresample=48000`,
-            `atempo=${atempoTotal.toFixed(6)}`,
-            `volume='${volExpr}'`,
-            `atrim=0:${outDur.toFixed(3)}`,
-            `asetpts=PTS-STARTPTS`
-          ].join(',');
-        })()
-      ] : []),
+      ...(hasAudio ? ['-map', '[a]'] : []),
       // Output süresi: kesin bitir (donmuş kare + saatler süren çıktı olmasın)
       '-t', outDur.toFixed(3),
       '-c:v', 'libx264',
