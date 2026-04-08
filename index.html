@@ -183,14 +183,7 @@
   .soon-card{opacity:0.5}
   .soon-card .tool-btn{cursor:not-allowed;background:var(--surface);color:var(--muted);border:1px solid var(--border)}
 
-  /* Transcript yıldızı */
-  .tx-star{
-    position:absolute;top:9px;right:9px;z-index:2;
-    width:28px;height:28px;border-radius:50%;
-    background:linear-gradient(145deg,#2a2a2a,#141414);
-    border:1px solid #3a3a3a;color:#ffd54f;font-size:14px;line-height:26px;text-align:center;
-    box-shadow:0 4px 12px rgba(0,0,0,0.5);
-  }
+  /* (Transcript yıldızı kaldırıldı) */
 
 </style>
 </head>
@@ -287,14 +280,7 @@
       <button class="tool-copy-btn" id="enCopyBtn" style="display:none" onclick="copyToolText('enResult','enCopyBtn')">📋 Kopyala</button>
     </div>
 
-    <!-- Video URL ile MP4 indir -->
-    <div class="tool-card">
-      <div class="tool-title">🎬 Video URL → MP4 indir</div>
-      <div class="tool-desc">YouTube / TikTok / Instagram reel linkini yapıştır; sunucu videoyu indirir</div>
-      <input class="tool-input" type="url" id="toolDownloadUrl" placeholder="https://www.youtube.com/watch?v=..."/>
-      <button class="tool-btn" type="button" id="toolDownloadBtn" onclick="downloadFromToolInput()">⬇ MP4 İndir</button>
-      <div class="tool-result" id="toolDownloadMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
-    </div>
+    <!-- (Video URL → MP4 indir kaldırıldı) -->
 
   </div>
 </div>
@@ -626,16 +612,7 @@ function parseFilenameFromContentDisposition(header) {
   return "video.mp4";
 }
 
-async function downloadFromToolInput() {
-  const inp = document.getElementById("toolDownloadUrl");
-  const msg = document.getElementById("toolDownloadMsg");
-  const btn = document.getElementById("toolDownloadBtn");
-  const url = (inp && inp.value || "").trim();
-  if (!url) { alert("Video linkini gir."); return; }
-  if (msg) { msg.style.display = "block"; msg.textContent = "İndiriliyor…"; }
-  await startDownload(backendUrl("/download?url=" + encodeURIComponent(url)), btn);
-  if (msg) msg.textContent = "İndirme tetiklendi. Tarayıcı indirilenler bölümünü kontrol et.";
-}
+// (Araçlar: Video URL → MP4 indir kaldırıldı)
 
 // SORGULAR
 const ALL_QUERIES = {
@@ -814,12 +791,10 @@ function buildCard(v, i, isShort) {
   const tagText = isShort ? "⚡ Kısa" : (cat === "animal" ? "🐾 Hayvan & Bebek" : "😂 Komedi");
   const rankClass = isShort ? (i===0?"gold":"") : (i===0?"top":"");
 
-  const txStar = (v.platform === "youtube" && v.hasTranscript) ? `<div class="tx-star" title="Transcript / altyazı var">★</div>` : "";
   return `<div class="vcard ${isShort?"short-card":""}">
     <div class="thumb">
       <img src="${escHtml(v.thumb)}" alt="" loading="lazy"/>
       <div class="rank ${rankClass}">#${i+1}</div>
-      ${txStar}
       <div class="dur-ov ${isShort?"short":""}">⏱ ${formatDuration(v.duration)}</div>
       <div class="views-ov">👁 ${fmtViews(v.views)}</div>
     </div>
@@ -989,37 +964,7 @@ const filtered = rawItems;
   });
 }
 
-async function enrichYoutubeTranscripts(mainVideos, shortVideos) {
-  const m = mainVideos || [];
-  const s = shortVideos || [];
-  const ids = [...new Set([...m, ...s].map(v => v && v.id).filter(Boolean))].slice(0, 30);
-  if (!ids.length) return;
-  try {
-    const res = await fetch(backendUrl("/youtube/transcript/batch"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids }),
-      cache: "no-store"
-    });
-    const data = await res.json();
-    if (!res.ok) return;
-    const map = data.results || {};
-    const mark = (v) => {
-      if (!v || !v.id) return;
-      v.hasTranscript = !!(map[v.id] && map[v.id].available);
-    };
-    m.forEach(mark);
-    s.forEach(mark);
-    const sortFn = (a, b) => {
-      const hb = b.hasTranscript ? 1 : 0;
-      const ha = a.hasTranscript ? 1 : 0;
-      if (hb !== ha) return hb - ha;
-      return (b.score || 0) - (a.score || 0);
-    };
-    m.sort(sortFn);
-    s.sort(sortFn);
-  } catch (e) { console.warn(e); }
-}
+// (YouTube transcript kontrolü kaldırıldı)
 
 async function doSearch() {
   if (activePlat === "youtube" && !savedKey) {
@@ -1032,9 +977,7 @@ async function doSearch() {
   // TikTok/Instagram için cache'i bypass ediyoruz: RapidAPI yanıtı bazen ilk denemede boş gelebiliyor ve bu boş cache'i kalıcı yapıyordu.
   if (activePlat === "youtube" && cached && ((cached.main && cached.main.length) || (cached.short && cached.short.length))) {
     const btn0 = document.getElementById("searchBtn");
-    btn0.textContent = "⏳ Transcript kontrol...";
     btn0.disabled = true;
-    await enrichYoutubeTranscripts(cached.main || [], cached.short || []);
     renderVideos(cached.main, cached.short, true);
     btn0.textContent = "🔍 Videoları Getir";
     btn0.disabled = false;
@@ -1059,8 +1002,6 @@ async function doSearch() {
       const shortAll = await fetchVideos(queries, afterParam, 1, 14, "short");
       const mainVideos = mainAll.slice(0, 20);
       const shortVideos = shortAll.slice(0, 10);
-      btn.textContent = "⏳ Transcript kontrol...";
-      await enrichYoutubeTranscripts(mainVideos, shortVideos);
       if (mainVideos.length > 0) addSeenVideos("main", mainVideos.map(v => v.id));
       if (shortVideos.length > 0) addSeenVideos("short", shortVideos.map(v => v.id));
       setCache(activeCat, activePlat, mainVideos, shortVideos);

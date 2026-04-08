@@ -76,6 +76,58 @@ function randRange(min, max) {
   return a + Math.random() * (b - a);
 }
 
+function pickOne(arr) {
+  if (!arr || !arr.length) return '';
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function escapeDrawtextText(s) {
+  // drawtext special chars: \ : ' % need escaping
+  return String(s || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/:/g, '\\:')
+    .replace(/'/g, "\\'")
+    .replace(/%/g, '\\%');
+}
+
+function pickHookText(brand) {
+  const kaos = [
+    'Ending is unbelievable ⚠️',
+    'Watch for the end! 🤣',
+    'Did not expect that 😂',
+    'End is crazy! 😱'
+  ];
+  const terapi = [
+    'Ending is so sweet ✨',
+    'Wait for the sweet end! 😍',
+    'Watch till the end ❤️',
+    'Too cute to be real 🥰'
+  ];
+  return pickOne(brand === 'kaos' ? kaos : terapi);
+}
+
+function pickFontFileForDrawtext() {
+  // drawtext on Windows is most reliable with fontfile.
+  // Prefer emoji-capable font to render the hook templates.
+  const candidates =
+    process.platform === 'win32'
+      ? [
+          'C:\\Windows\\Fonts\\seguiemj.ttf', // Segoe UI Emoji
+          'C:\\Windows\\Fonts\\segoeui.ttf',
+          'C:\\Windows\\Fonts\\arial.ttf'
+        ]
+      : [
+          '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+          '/usr/share/fonts/truetype/freefont/FreeSans.ttf'
+        ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch {}
+  }
+  return null;
+}
+
 async function probeDurationSec(filePath) {
   // Requires ffprobe available with ffmpeg install
   const args = [
@@ -230,18 +282,30 @@ app.post('/crush', async (req, res) => {
     const saturation = randRange(1.05, 1.15);
     const brightness = randRange(-0.02, 0.04);
 
+    // Hook text (ilk 3 saniye)
+    const hookText = pickHookText(brand);
+    const hookY = Math.round(randRange(110, 150)); // üstte ama tam tepede değil
+    const hookAlpha = randRange(0.85, 0.90);
+    const fontFile = pickFontFileForDrawtext();
+    const fontFileFilterPart = fontFile
+      ? `:fontfile='${escapeDrawtextText(fontFile.replace(/\\/g, '/'))}'`
+      : '';
+
     // Hafif şablon: sadece main video (outro yok)
     const filter = [
       `[0:v]setpts=PTS/${speed},scale=-2:${outH},crop=${outW}:${outH},` +
         `scale=iw*${zoom.toFixed(4)}:ih*${zoom.toFixed(4)},crop=${outW}:${outH},` +
         `eq=contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}:brightness=${brightness.toFixed(4)},` +
         `setsar=1,fps=30[v0]`,
+      `[v0]drawtext=text='${escapeDrawtextText(hookText)}'${fontFileFilterPart}:` +
+        `fontcolor=white@${hookAlpha.toFixed(3)}:fontsize=48:x=(w-text_w)/2:y=${hookY}:` +
+        `box=1:boxcolor=black@0.30:boxborderw=18:enable='between(t,0,3)'[v1]`,
       `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
         `rotate='0.15*sin(2*PI*t/1.2)':c=none:ow=iw:oh=ih[wm0]`,
       `[wm0]split=2[wmA][wmB]`,
       `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
       `[wmB][mask]alphamerge,colorchannelmixer=aa=0.30[wm]`,
-      `[v0][wm]overlay=` +
+      `[v1][wm]overlay=` +
         `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
         `y='abs(mod(t*${vy},2*(H-h))-(H-h))':format=auto[v]`
     ].join(';');
