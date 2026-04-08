@@ -128,6 +128,55 @@ function pickFontFileForDrawtext() {
   return null;
 }
 
+function clamp(n, lo, hi) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return lo;
+  return Math.min(hi, Math.max(lo, x));
+}
+
+function formatHms(sec) {
+  const s = Math.max(0, Number(sec) || 0);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  const pad2 = (v) => String(v).padStart(2, '0');
+  // keep milliseconds for tighter cut
+  const ssStr = ss.toFixed(3).padStart(6, '0'); // "SS.mmm" but might be "0.000"
+  return `${pad2(h)}:${pad2(m)}:${ssStr}`;
+}
+
+async function ytDlpGetDurationSec(url) {
+  // duration in seconds if available, else null
+  try {
+    const { stderr } = await run('yt-dlp', [
+      '--no-playlist',
+      '--print',
+      '%(duration)s',
+      url
+    ], { timeoutMs: 45_000 });
+    // run() returns stderr only; duration is printed to stdout, so we can't read it here.
+    // Fallback: use spawn to capture stdout for this one call.
+  } catch {}
+
+  return await new Promise((resolve) => {
+    try {
+      const child = spawn('yt-dlp', ['--no-playlist', '--print', '%(duration)s', url], { stdio: ['ignore', 'pipe', 'ignore'] });
+      let out = '';
+      const t = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} resolve(null); }, 45_000);
+      child.stdout.on('data', (d) => { out += d.toString(); });
+      child.on('close', () => {
+        clearTimeout(t);
+        const v = Number(String(out || '').trim());
+        if (!Number.isFinite(v) || v <= 0) return resolve(null);
+        resolve(v);
+      });
+      child.on('error', () => { clearTimeout(t); resolve(null); });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 async function probeDurationSec(filePath) {
   // Requires ffprobe available with ffmpeg install
   const args = [
@@ -184,9 +233,11 @@ async function runYtDlpToResponse(res, url) {
     '--newline',
     '--no-part',
     '--no-mtime',
-    // Prefer a single-file progressive mp4 when possible; otherwise fallback to best.
+    // En iyi kalite (4K dahil) — sadece indirme süresini limitleriz.
+    '--merge-output-format',
+    'mp4',
     '-f',
-    'best[ext=mp4][acodec!=none][vcodec!=none]/best',
+    'bv*+ba/best',
     '-o',
     outTpl,
     url
@@ -252,23 +303,38 @@ app.post('/crush', async (req, res) => {
 
   try {
     // indir (en iyi mp4 -> best)
+    // Önce süresini öğren (çok uzun/sonsuz indirmeyi engellemek için)
+    const metaDur = await ytDlpGetDurationSec(url);
+    // Hedef: video 1.10x olacağı için çıktının saniyesi kadar (outDur) indirmeyi kes.
+    // meta yoksa: 30s ile sınırla (YouTube Shorts/Reels için yeterli)
+    const speed = 1.10;
+    const targetSectionSec = metaDur ? clamp((metaDur / speed) + 0.25, 5, 60) : 30;
+    const section = `*${formatHms(0)}-${formatHms(targetSectionSec)}`;
+    const dlTimeoutMs = Math.round(clamp(targetSectionSec * 8000, 90_000, 8 * 60 * 1000));
+
     const dlArgs = [
       '--no-playlist',
       '--newline',
       '--no-part',
       '--no-mtime',
+      '--merge-output-format',
+      'mp4',
       '-f',
-      'best[ext=mp4][acodec!=none][vcodec!=none]/best',
+      // En iyi kalite (4K dahil)
+      'bv*+ba/best',
+      // Çok uzun indirmeyi engelle: sadece ilk N saniyeyi indir
+      '--download-sections',
+      section,
+      '--force-keyframes-at-cuts',
       '-o',
       inTpl,
       url
     ];
-    await run('yt-dlp', dlArgs, { timeoutMs: 6 * 60 * 1000 });
+    await run('yt-dlp', dlArgs, { timeoutMs: dlTimeoutMs });
 
     const inFile = pickNewestFile(tmpDir);
     if (!inFile) return res.status(500).json({ error: 'İndirilen dosya bulunamadı' });
 
-    const speed = 1.10;
     const wmSize = 96;
     const vx = 130;
     const vy = 85;
