@@ -309,8 +309,10 @@ app.post('/crush', async (req, res) => {
     // meta yoksa: 30s ile sınırla (YouTube Shorts/Reels için yeterli)
     const speed = 1.10;
     const targetSectionSec = metaDur ? clamp((metaDur / speed) + 0.25, 5, 60) : 30;
-    const section = `*${formatHms(0)}-${formatHms(targetSectionSec)}`;
-    const dlTimeoutMs = Math.round(clamp(targetSectionSec * 8000, 90_000, 8 * 60 * 1000));
+    // İndirme kesin dursun diye "external downloader = ffmpeg" kullanıyoruz.
+    // ffmpeg -t N ile network indirmesini de N saniyede keser (uzun indirme / takılma problemi).
+    const dlTimeoutMs = Math.round(clamp(targetSectionSec * 6000, 60_000, 6 * 60 * 1000));
+    const tArg = targetSectionSec.toFixed(3);
 
     const dlArgs = [
       '--no-playlist',
@@ -322,10 +324,11 @@ app.post('/crush', async (req, res) => {
       '-f',
       // En iyi kalite (4K dahil)
       'bv*+ba/best',
-      // Çok uzun indirmeyi engelle: sadece ilk N saniyeyi indir
-      '--download-sections',
-      section,
-      '--force-keyframes-at-cuts',
+      // Çok uzun indirmeyi engelle: download'ı N saniyede KES
+      '--external-downloader',
+      'ffmpeg',
+      '--external-downloader-args',
+      `ffmpeg_i:-ss 0 -t ${tArg}`,
       '-o',
       inTpl,
       url
