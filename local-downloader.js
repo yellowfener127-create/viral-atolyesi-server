@@ -139,6 +139,16 @@ function clamp(n, lo, hi) {
   return Math.min(hi, Math.max(lo, x));
 }
 
+function secondsToSectionEnd(sec) {
+  const s = Math.max(0, Number(sec) || 0);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  const pad2 = (v) => String(v).padStart(2, '0');
+  const ssStr = ss.toFixed(3).padStart(6, '0'); // "SS.mmm"
+  return `${pad2(h)}:${pad2(m)}:${ssStr}`;
+}
+
 async function ytDlpGetDurationSec(url) {
   // duration in seconds if available, else null
   try {
@@ -348,10 +358,12 @@ app.post('/crush', async (req, res) => {
     if (metaDur && metaDur > 60) {
       return res.status(400).json({ error: `Bu araç sadece 60 saniye altı videolarda çalışır. Video süresi: ${Math.round(metaDur)}s` });
     }
-    // meta gelmediyse bile çok uzun indirmeyi engellemek için agresif timeout uygula
-    const outDurCap = clamp((metaDur ? (metaDur / speed) : 20), 5, 60);
-    // 15-20sn videoda bile dakikalarca beklememek için max 3dk
-    const dlTimeoutMs = Math.round(clamp((metaDur || 20) * 4000 + 60_000, 90_000, 3 * 60 * 1000));
+    // 15 sn video 10 dk indirmesin: input'u ilk N saniyeye kes.
+    // Hızlandırma sonra yapılır; burada input süresini kesiyoruz.
+    const inDurCap = clamp(metaDur || 25, 5, 60);
+    const section = `*00:00:00.000-${secondsToSectionEnd(inDurCap + 0.25)}`;
+    // 15-20sn videoda bile dakikalarca beklememek için max 2dk
+    const dlTimeoutMs = Math.round(clamp(inDurCap * 3500 + 30_000, 60_000, 2 * 60 * 1000));
 
     const dlArgs = [
       '--no-playlist',
@@ -359,9 +371,17 @@ app.post('/crush', async (req, res) => {
       '--no-part',
       '--no-mtime',
       '--match-filter', '!is_live',
+      '--socket-timeout', '8',
+      '--retries', '2',
+      '--fragment-retries', '2',
+      '--concurrent-fragments', '4',
+      '--abort-on-unavailable-fragment',
       '--merge-output-format', 'mp4',
       '-f',
       'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best',
+      '--download-sections',
+      section,
+      '--force-keyframes-at-cuts',
       '-o',
       inTpl,
       url
@@ -384,7 +404,7 @@ app.post('/crush', async (req, res) => {
     if (inDur > 60.5) {
       return res.status(400).json({ error: `Bu araç sadece 60 saniye altı videolarda çalışır. Video süresi: ${Math.round(inDur)}s` });
     }
-    const outDur = Math.max(1, Math.min(outDurCap, inDur / speed));
+    const outDur = Math.max(1, inDur / speed);
     const outW = 720, outH = 1280;
 
     // İzleyici konforu için küçük varyasyonlar (her videoda hafif değişsin)
