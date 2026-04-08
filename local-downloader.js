@@ -139,16 +139,6 @@ function clamp(n, lo, hi) {
   return Math.min(hi, Math.max(lo, x));
 }
 
-function secondsToSectionEnd(sec) {
-  const s = Math.max(0, Number(sec) || 0);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const ss = s % 60;
-  const pad2 = (v) => String(v).padStart(2, '0');
-  const ssStr = ss.toFixed(3).padStart(6, '0'); // "SS.mmm"
-  return `${pad2(h)}:${pad2(m)}:${ssStr}`;
-}
-
 async function ytDlpGetDurationSec(url) {
   // duration in seconds if available, else null
   try {
@@ -166,7 +156,15 @@ async function ytDlpGetDurationSec(url) {
     try {
       const child = spawn('yt-dlp', ['--no-playlist', '--print', '%(duration)s', url], { stdio: ['ignore', 'pipe', 'ignore'] });
       let out = '';
-      const t = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} resolve(null); }, 45_000);
+      const t = setTimeout(() => {
+        try {
+          if (process.platform === 'win32' && child.pid) {
+            try { spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch {}
+          }
+          child.kill();
+        } catch {}
+        resolve(null);
+      }, 45_000);
       child.stdout.on('data', (d) => { out += d.toString(); });
       child.on('close', () => {
         clearTimeout(t);
@@ -352,18 +350,13 @@ app.post('/crush', async (req, res) => {
 
   try {
     const speed = 1.10;
-    // İndirme: ana sayfadaki "indir" gibi (yt-dlp tek parça A+V dosya).
-    // Bu, "süresiz indirme" ve "16sn sonra donup saatlerce sürme" problemini bitirir.
     const metaDur = await ytDlpGetDurationSec(url);
     if (metaDur && metaDur > 60) {
       return res.status(400).json({ error: `Bu araç sadece 60 saniye altı videolarda çalışır. Video süresi: ${Math.round(metaDur)}s` });
     }
-    // 15 sn video 10 dk indirmesin: input'u ilk N saniyeye kes.
-    // Hızlandırma sonra yapılır; burada input süresini kesiyoruz.
-    const inDurCap = clamp(metaDur || 25, 5, 60);
-    const section = `*00:00:00.000-${secondsToSectionEnd(inDurCap + 0.25)}`;
-    // 15-20sn videoda bile dakikalarca beklememek için max 2dk
-    const dlTimeoutMs = Math.round(clamp(inDurCap * 3500 + 30_000, 60_000, 2 * 60 * 1000));
+    // İndirme kodu baştan: ana sayfadaki indir mantığı (finite MP4 A+V).
+    // Download-sections gibi kesme işlerini burada yapmıyoruz; kesmeyi ffmpeg processing tarafında outDur ile garanti ediyoruz.
+    const dlTimeoutMs = Math.round(clamp(((metaDur || 20) * 8000) + 60_000, 90_000, 3 * 60 * 1000));
 
     const dlArgs = [
       '--no-playlist',
@@ -371,17 +364,9 @@ app.post('/crush', async (req, res) => {
       '--no-part',
       '--no-mtime',
       '--match-filter', '!is_live',
-      '--socket-timeout', '8',
-      '--retries', '2',
-      '--fragment-retries', '2',
-      '--concurrent-fragments', '4',
-      '--abort-on-unavailable-fragment',
       '--merge-output-format', 'mp4',
       '-f',
       'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best',
-      '--download-sections',
-      section,
-      '--force-keyframes-at-cuts',
       '-o',
       inTpl,
       url
@@ -400,8 +385,10 @@ app.post('/crush', async (req, res) => {
     const wmSize = 96;
     const vx = 130;
     const vy = 85;
-    const inDur = await probeVideoDurationSec(inFile).catch(() => probeDurationSec(inFile));
-    if (inDur > 60.5) {
+    const probedDur = await probeVideoDurationSec(inFile).catch(() => probeDurationSec(inFile).catch(() => null));
+    // Süreyi meta'dan almayı tercih et: bazı dosyalarda container timestamp'leri bozuk olup saatler gösterebiliyor.
+    const inDur = clamp(metaDur || probedDur || 20, 1, 60);
+    if (inDur > 60) {
       return res.status(400).json({ error: `Bu araç sadece 60 saniye altı videolarda çalışır. Video süresi: ${Math.round(inDur)}s` });
     }
     const outDur = Math.max(1, inDur / speed);
@@ -471,6 +458,8 @@ app.post('/crush', async (req, res) => {
           `asetpts=PTS-STARTPTS`
         ].join(',');
       })(),
+      // Output süresi: kesin bitir (donmuş kare + saatler süren çıktı olmasın)
+      '-t', outDur.toFixed(3),
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-crf', '24',
