@@ -444,6 +444,8 @@ app.post('/crush', async (req, res) => {
           `atempo=${atempoTotal.toFixed(6)},volume='${volExpr}',` +
           // Sync fix: audio clock drift'i toparla
           `aresample=async=1:first_pts=0,` +
+          // Bazı kaynaklarda ses video'dan kısa gelebiliyor; sonunu sessizlikle tamamla
+          `apad=pad_dur=${(outDur + 0.5).toFixed(3)},` +
           `atrim=0:${outDur.toFixed(3)},asetpts=PTS-STARTPTS[a]`
       );
     }
