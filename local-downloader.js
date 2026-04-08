@@ -240,7 +240,25 @@ app.post('/crush', async (req, res) => {
       '-filter_complex', filter,
       '-map', '[v]',
       '-map', '0:a?',
-      '-af', `atempo=${speed},aresample=async=1:first_pts=0,atrim=0:${outDur.toFixed(3)}`,
+      // Ses: (1) -0.4 semitone pitch shift (çok hafif) + (2) 3/8/10. saniyelerde %2 volume bump
+      // Not: Pitch shift için asetrate + aresample + atempo kombinasyonu (süre korunur).
+      '-af', (() => {
+        const semitone = -0.4;
+        const pitchFactor = Math.pow(2, semitone / 12); // <1 => pitch aşağı
+        const atempoTotal = speed * (1 / pitchFactor);
+        // küçük dalga: her birinde 0.25s %2 artış
+        const bumpDur = 0.25;
+        const bump = (t) => `between(t,${t.toFixed(3)},${(t + bumpDur).toFixed(3)})`;
+        const volExpr = `if(${bump(3)}+${bump(8)}+${bump(10)},1.02,1)`;
+        return [
+          `asetrate=48000*${pitchFactor.toFixed(8)}`,
+          `aresample=48000`,
+          `atempo=${atempoTotal.toFixed(6)}`,
+          `volume='${volExpr}'`,
+          `aresample=async=1:first_pts=0`,
+          `atrim=0:${outDur.toFixed(3)}`
+        ].join(',');
+      })(),
       '-t', outDur.toFixed(3),
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
