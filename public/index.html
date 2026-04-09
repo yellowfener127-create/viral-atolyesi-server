@@ -102,6 +102,16 @@
   .search-btn:hover{background:#e03d00;transform:translateY(-1px);box-shadow:0 4px 16px rgba(255,69,0,0.3)}
   .search-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none;box-shadow:none}
 
+  .load-more-row{display:flex;justify-content:center;margin-top:18px}
+  .load-more-btn{
+    padding:12px 26px;background:rgba(255,255,255,0.06);color:var(--text);
+    border:1px solid var(--border);border-radius:999px;
+    font-family:'Outfit',sans-serif;font-size:13px;font-weight:800;
+    cursor:pointer;transition:all 0.2s;
+  }
+  .load-more-btn:hover{border-color:#444;background:rgba(255,255,255,0.09);transform:translateY(-1px)}
+  .load-more-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
+
   .err{background:rgba(255,60,60,0.08);border:1px solid rgba(255,60,60,0.2);border-radius:10px;padding:11px 15px;font-size:13px;color:#ff6b6b;margin-bottom:18px;display:none}
 
   /* SECTION */
@@ -505,6 +515,13 @@ async function crushVideo() {
 
 let activeCat = "animal";
 let activePlat = "youtube";
+
+// "Daha fazla yükle" state
+const PAGE_SIZE = 20;
+let lastAllVideos = [];      // aramanın tam sonucu
+let visibleCount = 0;        // ekranda gösterilen video sayısı
+let lastFromCache = false;   // header'daki cache bilgisi
+let lastSeenType = "main";
 
 // SAYFA YÖNETİMİ
 function showPage(page) {
@@ -934,6 +951,46 @@ function renderVideos(mainVideos, fromCache) {
   document.getElementById("results").innerHTML = html;
 }
 
+function renderVisibleList() {
+  const total = Array.isArray(lastAllVideos) ? lastAllVideos.length : 0;
+  const shown = Math.min(visibleCount || 0, total);
+  const slice = (lastAllVideos || []).slice(0, shown);
+  renderVideos(slice, !!lastFromCache);
+
+  // "20 video daha" butonu
+  if (shown < total) {
+    const host = document.getElementById("results");
+    if (host) {
+      const div = document.createElement("div");
+      div.className = "load-more-row";
+      div.innerHTML = `<button class="load-more-btn" id="loadMoreBtn" type="button" onclick="loadMore()">➕ 20 video daha yükle</button>`;
+      host.appendChild(div);
+    }
+  }
+}
+
+function markSeenRange(type, list, startIdx, endIdxExclusive) {
+  if (!Array.isArray(list) || !list.length) return;
+  const ids = [];
+  for (let i = Math.max(0, startIdx); i < Math.min(list.length, endIdxExclusive); i++) {
+    const v = list[i];
+    if (!v) continue;
+    // YouTube için id, TikTok/IG için id string olabilir.
+    if (v.id != null) ids.push(String(v.id));
+  }
+  if (ids.length) addSeenVideos(type, ids);
+}
+
+function loadMore() {
+  const total = Array.isArray(lastAllVideos) ? lastAllVideos.length : 0;
+  if (!total) return;
+  const prev = visibleCount;
+  visibleCount = Math.min(total, (visibleCount || 0) + PAGE_SIZE);
+  // Yeni görünenleri "seen"e ekle
+  if (lastSeenType) markSeenRange(lastSeenType, lastAllVideos, prev, visibleCount);
+  renderVisibleList();
+}
+
 // TAKİPÇİ KONTROLÜ (5M+ engelle)
 async function getChannelSubscribers(channelIds) {
   if (!channelIds.length) return {};
@@ -1058,7 +1115,11 @@ async function doSearch() {
   if (activePlat === "youtube" && cached && cached.main && cached.main.length >= 8) {
     const btn0 = document.getElementById("searchBtn");
     btn0.disabled = true;
-    renderVideos(cached.main, true);
+    lastAllVideos = cached.main;
+    visibleCount = Math.min(PAGE_SIZE, lastAllVideos.length);
+    lastFromCache = true;
+    lastSeenType = "main";
+    renderVisibleList();
     btn0.textContent = "🔍 Videoları Getir";
     btn0.disabled = false;
     return;
@@ -1080,20 +1141,32 @@ async function doSearch() {
       }
       // 15 sn ≤ süre < 60 sn (1 dk altı Short aralığı)
       const mainAll = await fetchVideos(queries, afterParam, 15, 59, "main");
-      const mainVideos = mainAll.slice(0, 20);
-      if (mainVideos.length > 0) addSeenVideos("main", mainVideos.map(v => v.id));
-      setCache(activeCat, activePlat, mainVideos);
-      renderVideos(mainVideos, false);
+      lastAllVideos = mainAll;
+      visibleCount = Math.min(PAGE_SIZE, lastAllVideos.length);
+      lastFromCache = false;
+      lastSeenType = "main";
+      if (visibleCount > 0) markSeenRange("main", lastAllVideos, 0, visibleCount);
+      // Cache'e "tam listeyi" yaz (butonla 20'şer açılabilsin)
+      setCache(activeCat, activePlat, lastAllVideos);
+      renderVisibleList();
     } else if (activePlat === "tiktok") {
       const list = await fetchTikTokFeed();
-      const mainVideos = list.slice(0, 20);
-      setCache(activeCat, activePlat, mainVideos);
-      renderVideos(mainVideos, false);
+      lastAllVideos = list;
+      visibleCount = Math.min(PAGE_SIZE, lastAllVideos.length);
+      lastFromCache = false;
+      lastSeenType = "main";
+      if (visibleCount > 0) markSeenRange("main", lastAllVideos, 0, visibleCount);
+      setCache(activeCat, activePlat, lastAllVideos);
+      renderVisibleList();
     } else {
       const list = await fetchInstagramFeed();
-      const mainVideos = list.slice(0, 20);
-      setCache(activeCat, activePlat, mainVideos);
-      renderVideos(mainVideos, false);
+      lastAllVideos = list;
+      visibleCount = Math.min(PAGE_SIZE, lastAllVideos.length);
+      lastFromCache = false;
+      lastSeenType = "main";
+      if (visibleCount > 0) markSeenRange("main", lastAllVideos, 0, visibleCount);
+      setCache(activeCat, activePlat, lastAllVideos);
+      renderVisibleList();
     }
   } catch (e) {
     showError("Arama hatası: " + (e.message || e));
