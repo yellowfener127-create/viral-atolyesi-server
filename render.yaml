@@ -1,9 +1,11 @@
 # Repo kökünde olmalı. Otomatik deploy: Git bağlantısı + doğru branch + Dashboard’da Auto-Deploy açık.
+# Blueprint ile oluşturulmuş serviste ad/repoyu değiştirmek yeni servis açabilir; mevcut serviyi Dashboard’dan yönet.
 services:
   - type: web
     name: viral-atolyesi-server
     runtime: node
     branch: main
-    buildCommand: npm install
+    buildCommand: npm ci
     startCommand: node server.js
+    healthCheckPath: /ping
     autoDeploy: true

@@ -1178,26 +1178,31 @@ app.get('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
+// Cookies'leri repoya koymak yerine Render ENV üzerinden ver.
+// Render Dashboard -> Environment:
+// - YT_COOKIES_B64 : base64(Netscape cookies.txt)
+// - TT_COOKIES_B64 : base64(...)
+// - IG_COOKIES_B64 : base64(...)
+ensureCookieFileFromEnv('YT_COOKIES_B64', COOKIES_PATH);
+ensureCookieFileFromEnv('TT_COOKIES_B64', COOKIES_TIKTOK_PATH);
+ensureCookieFileFromEnv('IG_COOKIES_B64', COOKIES_INSTAGRAM_PATH);
+
+console.log('Cookie files:', {
+  yt: cookieFileInfo(COOKIES_PATH),
+  tt: cookieFileInfo(COOKIES_TIKTOK_PATH),
+  ig: cookieFileInfo(COOKIES_INSTAGRAM_PATH),
+  yt_env: !!process.env.YT_COOKIES_B64,
+  tt_env: !!process.env.TT_COOKIES_B64,
+  ig_env: !!process.env.IG_COOKIES_B64
+});
+
+// ÖNEMLİ: Önce dinlemeye başla. yt-dlp indirmesi Render health check'ten önce bitmeyebilir;
+// listen gecikirse deploy "Failed" görünür (/ping yanıt vermez).
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Sunucu ${PORT} portunda çalışıyor`);
+});
+
 installYtDlp().then(() => {
-  // Cookies'leri repoya koymak yerine Render ENV üzerinden ver.
-  // Render Dashboard -> Environment:
-  // - YT_COOKIES_B64 : base64(Netscape cookies.txt)
-  // - TT_COOKIES_B64 : base64(...)
-  // - IG_COOKIES_B64 : base64(...)
-  ensureCookieFileFromEnv('YT_COOKIES_B64', COOKIES_PATH);
-  ensureCookieFileFromEnv('TT_COOKIES_B64', COOKIES_TIKTOK_PATH);
-  ensureCookieFileFromEnv('IG_COOKIES_B64', COOKIES_INSTAGRAM_PATH);
-
-  console.log('Cookie files:', {
-    yt: cookieFileInfo(COOKIES_PATH),
-    tt: cookieFileInfo(COOKIES_TIKTOK_PATH),
-    ig: cookieFileInfo(COOKIES_INSTAGRAM_PATH),
-    yt_env: !!process.env.YT_COOKIES_B64,
-    tt_env: !!process.env.TT_COOKIES_B64,
-    ig_env: !!process.env.IG_COOKIES_B64
-  });
-
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Sunucu ${PORT} portunda çalışıyor`);
-  });
+  console.log('yt-dlp hazır:', YTDLP_PATH);
 });
