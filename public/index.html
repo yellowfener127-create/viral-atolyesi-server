@@ -646,7 +646,9 @@ const COMEDY_ANIMAL_WORDS = [
   "dog", "dogs", "puppy", "puppies", "cat", "cats", "kitten", "kittens", "pet", "pets",
   "animal", "animals", "zoo", "wildlife", "hamster", "rabbit", "bunny", "duck", "goat",
   "elephant", "monkey", "parrot", "bird", "squirrel", "corgi", "retriever", "husky",
-  "doggo", "meow", "bark", "paws", "labrador", "shiba"
+  "doggo", "meow", "bark", "paws", "labrador", "shiba",
+  // TR
+  "köpek", "kopek", "kedi", "hayvan", "evcil", "patili", "pati", "yavru", "yavru kedi", "yavru köpek"
 ];
 function comedyAnimalWordRe(w) {
   return new RegExp("\\b" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i");
@@ -685,22 +687,22 @@ const ALL_QUERIES = {
     "funny hamster","cute rabbit funny","baby elephant funny","funny bird moments","cat vs dog funny"
   ],
   comedy: [
-    "people funny moments caught on camera viral",
-    "public freakout funny viral shorts",
-    "try not to laugh people fails compilation",
-    "hilarious street moments people viral",
-    "comedy skit viral shorts",
-    "awkward funny moments in public viral",
-    "funny prank on people caught camera",
-    "workplace funny moments viral shorts",
-    "instant karma funny people viral",
-    "ridiculous moments caught on camera people",
-    "funny argument in public viral shorts",
-    "unexpected funny reaction people viral",
-    "people falling fails funny viral",
-    "funny interview moments viral shorts",
-    "chaotic family dinner funny viral",
-    "funny sports bloopers people viral"
+    "people funny moments caught on camera viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "public freakout funny viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "try not to laugh people fails compilation -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "hilarious street moments people viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "comedy skit viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "awkward funny moments in public viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "funny prank on people caught camera -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "workplace funny moments viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "instant karma funny people viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "ridiculous moments caught on camera people -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "funny argument in public viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "unexpected funny reaction people viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "people falling fails funny viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "funny interview moments viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "chaotic family dinner funny viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "funny sports bloopers people viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs"
   ]
 };
 
