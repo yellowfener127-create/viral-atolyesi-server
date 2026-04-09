@@ -248,6 +248,9 @@
   <div class="search-row">
     <button class="search-btn" id="searchBtn" onclick="doSearch()">🔍 Videoları Getir</button>
   </div>
+  <div class="load-more-row" id="loadMoreBar" style="display:none;margin-bottom:22px" aria-hidden="true">
+    <button type="button" class="load-more-btn" id="loadMoreBtn" onclick="loadMoreOrFetch()">➕ 20 video daha getir</button>
+  </div>
 
   <div id="results"></div>
 </div>
@@ -953,30 +956,32 @@ function renderVideos(mainVideos, fromCache) {
   document.getElementById("results").innerHTML = html;
 }
 
+function updateLoadMoreBar() {
+  const bar = document.getElementById("loadMoreBar");
+  const btn = document.getElementById("loadMoreBtn");
+  if (!bar || !btn) return;
+  const all = Array.isArray(resultsState.all) ? resultsState.all : [];
+  const total = all.length;
+  const shown = Math.min(resultsState.visibleCount || 0, total);
+  // Videolar yüklendiyse her zaman göster: önce tampondan, sonra API ile devam
+  const show = total > 0;
+  bar.style.display = show ? "flex" : "none";
+  bar.setAttribute("aria-hidden", show ? "false" : "true");
+  if (shown < total) {
+    btn.textContent = "➕ 20 video daha (listeden)";
+  } else {
+    btn.textContent = activePlat === "youtube" && !savedKey
+      ? "➕ 20 video daha (API key gerekli)"
+      : "➕ 20 video daha getir";
+  }
+}
+
 function renderVisibleList() {
   const all = Array.isArray(resultsState.all) ? resultsState.all : [];
   const total = all.length;
   const shown = Math.min(resultsState.visibleCount || 0, total);
   renderVideos(all.slice(0, shown), !!resultsState.fromCache);
-
-  const host = document.getElementById("results");
-  if (!host || total === 0) return;
-
-  // Listede gizli kalan varsa veya API ile ek parti çekilebiliyorsa buton
-  const canFetchMore =
-    activePlat === "tiktok" ||
-    activePlat === "instagram" ||
-    (activePlat === "youtube" && savedKey);
-
-  if (shown < total || canFetchMore) {
-    const div = document.createElement("div");
-    div.className = "load-more-row";
-    div.innerHTML =
-      `<button class="load-more-btn" id="loadMoreBtn" type="button" onclick="loadMoreOrFetch()">` +
-      `➕ 20 video daha` +
-      `</button>`;
-    host.appendChild(div);
-  }
+  updateLoadMoreBar();
 }
 
 function markSeenRange(type, list, startIdx, endIdxExclusive) {
@@ -1070,10 +1075,8 @@ async function loadMoreOrFetch() {
     renderVisibleList();
   } finally {
     const b2 = document.getElementById("loadMoreBtn");
-    if (b2) {
-      b2.disabled = false;
-      b2.textContent = "➕ 20 video daha";
-    }
+    if (b2) b2.disabled = false;
+    updateLoadMoreBar();
   }
 }
 
@@ -1249,6 +1252,9 @@ async function doSearch() {
   } catch (e) {
     showError("Arama hatası: " + (e.message || e));
     document.getElementById("results").innerHTML = "";
+    resultsState.all = [];
+    resultsState.visibleCount = 0;
+    updateLoadMoreBar();
   }
 
   btn.textContent = "🔍 Videoları Getir";
@@ -1259,4 +1265,4 @@ async function doSearch() {
 </script>
 </body>
 </html>
-<!-- build-stamp: 2026-04-09T00:00:00Z -->
+<!-- build-stamp: 2026-04-09T12:00:00Z load-more-bar-static -->
