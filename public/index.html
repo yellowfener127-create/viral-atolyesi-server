@@ -518,10 +518,12 @@ let activePlat = "youtube";
 
 // "Daha fazla yükle" state
 const PAGE_SIZE = 20;
-let lastAllVideos = [];      // aramanın tam sonucu
-let visibleCount = 0;        // ekranda gösterilen video sayısı
-let lastFromCache = false;   // header'daki cache bilgisi
-let lastSeenType = "main";
+const resultsState = {
+  all: [],
+  visibleCount: 0,
+  fromCache: false,
+  seenType: "main"
+};
 
 // SAYFA YÖNETİMİ
 function showPage(page) {
@@ -952,10 +954,10 @@ function renderVideos(mainVideos, fromCache) {
 }
 
 function renderVisibleList() {
-  const total = Array.isArray(lastAllVideos) ? lastAllVideos.length : 0;
-  const shown = Math.min(visibleCount || 0, total);
-  const slice = (lastAllVideos || []).slice(0, shown);
-  renderVideos(slice, !!lastFromCache);
+  const all = Array.isArray(resultsState.all) ? resultsState.all : [];
+  const total = all.length;
+  const shown = Math.min(resultsState.visibleCount || 0, total);
+  renderVideos(all.slice(0, shown), !!resultsState.fromCache);
 
   // "20 video daha" butonu
   if (shown < total) {
@@ -963,7 +965,10 @@ function renderVisibleList() {
     if (host) {
       const div = document.createElement("div");
       div.className = "load-more-row";
-      div.innerHTML = `<button class="load-more-btn" id="loadMoreBtn" type="button" onclick="loadMore()">➕ 20 video daha yükle</button>`;
+      div.innerHTML =
+        `<button class="load-more-btn" id="loadMoreBtn" type="button" onclick="loadMore()">` +
+        `➕ 20 video daha yükle` +
+        `</button>`;
       host.appendChild(div);
     }
   }
@@ -982,12 +987,24 @@ function markSeenRange(type, list, startIdx, endIdxExclusive) {
 }
 
 function loadMore() {
-  const total = Array.isArray(lastAllVideos) ? lastAllVideos.length : 0;
+  const all = Array.isArray(resultsState.all) ? resultsState.all : [];
+  const total = all.length;
   if (!total) return;
-  const prev = visibleCount;
-  visibleCount = Math.min(total, (visibleCount || 0) + PAGE_SIZE);
+  const prev = resultsState.visibleCount;
+  resultsState.visibleCount = Math.min(total, (resultsState.visibleCount || 0) + PAGE_SIZE);
   // Yeni görünenleri "seen"e ekle
-  if (lastSeenType) markSeenRange(lastSeenType, lastAllVideos, prev, visibleCount);
+  if (resultsState.seenType) markSeenRange(resultsState.seenType, all, prev, resultsState.visibleCount);
+  renderVisibleList();
+}
+
+function setResults(allVideos, { fromCache, seenType } = {}) {
+  resultsState.all = Array.isArray(allVideos) ? allVideos : [];
+  resultsState.visibleCount = Math.min(PAGE_SIZE, resultsState.all.length);
+  resultsState.fromCache = !!fromCache;
+  resultsState.seenType = seenType || "main";
+  if (resultsState.visibleCount > 0) {
+    markSeenRange(resultsState.seenType, resultsState.all, 0, resultsState.visibleCount);
+  }
   renderVisibleList();
 }
 
@@ -1115,11 +1132,7 @@ async function doSearch() {
   if (activePlat === "youtube" && cached && cached.main && cached.main.length >= 8) {
     const btn0 = document.getElementById("searchBtn");
     btn0.disabled = true;
-    lastAllVideos = cached.main;
-    visibleCount = Math.min(PAGE_SIZE, lastAllVideos.length);
-    lastFromCache = true;
-    lastSeenType = "main";
-    renderVisibleList();
+    setResults(cached.main, { fromCache: true, seenType: "main" });
     btn0.textContent = "🔍 Videoları Getir";
     btn0.disabled = false;
     return;
@@ -1141,32 +1154,17 @@ async function doSearch() {
       }
       // 15 sn ≤ süre < 60 sn (1 dk altı Short aralığı)
       const mainAll = await fetchVideos(queries, afterParam, 15, 59, "main");
-      lastAllVideos = mainAll;
-      visibleCount = Math.min(PAGE_SIZE, lastAllVideos.length);
-      lastFromCache = false;
-      lastSeenType = "main";
-      if (visibleCount > 0) markSeenRange("main", lastAllVideos, 0, visibleCount);
       // Cache'e "tam listeyi" yaz (butonla 20'şer açılabilsin)
-      setCache(activeCat, activePlat, lastAllVideos);
-      renderVisibleList();
+      setCache(activeCat, activePlat, mainAll);
+      setResults(mainAll, { fromCache: false, seenType: "main" });
     } else if (activePlat === "tiktok") {
       const list = await fetchTikTokFeed();
-      lastAllVideos = list;
-      visibleCount = Math.min(PAGE_SIZE, lastAllVideos.length);
-      lastFromCache = false;
-      lastSeenType = "main";
-      if (visibleCount > 0) markSeenRange("main", lastAllVideos, 0, visibleCount);
-      setCache(activeCat, activePlat, lastAllVideos);
-      renderVisibleList();
+      setCache(activeCat, activePlat, list);
+      setResults(list, { fromCache: false, seenType: "main" });
     } else {
       const list = await fetchInstagramFeed();
-      lastAllVideos = list;
-      visibleCount = Math.min(PAGE_SIZE, lastAllVideos.length);
-      lastFromCache = false;
-      lastSeenType = "main";
-      if (visibleCount > 0) markSeenRange("main", lastAllVideos, 0, visibleCount);
-      setCache(activeCat, activePlat, lastAllVideos);
-      renderVisibleList();
+      setCache(activeCat, activePlat, list);
+      setResults(list, { fromCache: false, seenType: "main" });
     }
   } catch (e) {
     showError("Arama hatası: " + (e.message || e));
