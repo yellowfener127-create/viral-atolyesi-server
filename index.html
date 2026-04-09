@@ -959,18 +959,22 @@ function renderVisibleList() {
   const shown = Math.min(resultsState.visibleCount || 0, total);
   renderVideos(all.slice(0, shown), !!resultsState.fromCache);
 
-  // "20 video daha" butonu
-  if (shown < total) {
-    const host = document.getElementById("results");
-    if (host) {
-      const div = document.createElement("div");
-      div.className = "load-more-row";
-      div.innerHTML =
-        `<button class="load-more-btn" id="loadMoreBtn" type="button" onclick="loadMore()">` +
-        `➕ 20 video daha yükle` +
-        `</button>`;
-      host.appendChild(div);
-    }
+  const host = document.getElementById("results");
+  if (!host || total === 0) return;
+
+  const canFetchMore =
+    activePlat === "tiktok" ||
+    activePlat === "instagram" ||
+    (activePlat === "youtube" && savedKey);
+
+  if (shown < total || canFetchMore) {
+    const div = document.createElement("div");
+    div.className = "load-more-row";
+    div.innerHTML =
+      `<button class="load-more-btn" id="loadMoreBtn" type="button" onclick="loadMoreOrFetch()">` +
+      `➕ 20 video daha` +
+      `</button>`;
+    host.appendChild(div);
   }
 }
 
@@ -995,6 +999,81 @@ function loadMore() {
   // Yeni görünenleri "seen"e ekle
   if (resultsState.seenType) markSeenRange(resultsState.seenType, all, prev, resultsState.visibleCount);
   renderVisibleList();
+}
+
+/** Tampondan 20 göster; tampon bittiyse API'den yeni parti çek (YouTube/TikTok/IG) */
+async function loadMoreOrFetch() {
+  const all = Array.isArray(resultsState.all) ? resultsState.all : [];
+  const total = all.length;
+  const shown = Math.min(resultsState.visibleCount || 0, total);
+  if (shown < total) {
+    loadMore();
+    return;
+  }
+  if (activePlat === "youtube" && !savedKey) {
+    showError("Önce YouTube API key'ini kaydet.");
+    return;
+  }
+  hideError();
+  const btn = document.getElementById("loadMoreBtn");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "⏳ Getiriliyor...";
+  }
+  try {
+    let batch = [];
+    if (activePlat === "youtube") {
+      const queries = getTodayQueries(activeCat);
+      let afterParam = "";
+      if (activeCat === "comedy") {
+        const d = new Date();
+        d.setMonth(d.getMonth() - 6);
+        afterParam = "&publishedAfter=" + d.toISOString();
+      }
+      batch = await fetchVideos(queries, afterParam, 15, 59, "main");
+    } else if (activePlat === "tiktok") {
+      batch = await fetchTikTokFeed();
+    } else {
+      batch = await fetchInstagramFeed();
+    }
+    const prevVis = resultsState.visibleCount;
+    const idSet = new Set(resultsState.all.map((v) => String(v.id)));
+    let added = 0;
+    for (const v of batch) {
+      if (!v || v.id == null) continue;
+      const sid = String(v.id);
+      if (idSet.has(sid)) continue;
+      idSet.add(sid);
+      resultsState.all.push(v);
+      added++;
+    }
+    if (activePlat === "youtube") {
+      resultsState.all.sort((a, b) => (b.score || 0) - (a.score || 0));
+    }
+    if (added === 0) {
+      showError("Yeni video bulunamadı (çoğu zaten listelendi veya filtreye takıldı). Geçmişi sıfırlayıp tekrar dene.");
+      renderVisibleList();
+      return;
+    }
+    resultsState.visibleCount = Math.min(
+      resultsState.all.length,
+      prevVis + Math.min(PAGE_SIZE, added)
+    );
+    if (resultsState.seenType) {
+      markSeenRange(resultsState.seenType, resultsState.all, prevVis, resultsState.visibleCount);
+    }
+    setCache(activeCat, activePlat, resultsState.all);
+    renderVisibleList();
+  } catch (e) {
+    showError("Arama hatası: " + (e.message || e));
+    renderVisibleList();
+  } finally {
+    const b2 = document.getElementById("loadMoreBtn");
+    if (b2) {
+      b2.disabled = false;
+      b2.textContent = "➕ 20 video daha";
+    }
+  }
 }
 
 function setResults(allVideos, { fromCache, seenType } = {}) {
