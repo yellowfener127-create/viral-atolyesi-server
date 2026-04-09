@@ -396,6 +396,18 @@ function englishFallback(brand, title) {
   return `${hook}\n${line2}\n${tags}`;
 }
 
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 20000) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    const data = await res.json().catch(() => ({}));
+    return { res, data };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function generateEnglishCaption() {
   const brand = document.getElementById("enBrand").value;
   const title = (document.getElementById("enTitle").value || "").trim();
@@ -410,19 +422,22 @@ async function generateEnglishCaption() {
   copyBtn.style.display = "none";
 
   try {
-    const res = await fetch(backendUrl("/anthropic/messages"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 450,
-        messages: [{
-          role: "user",
-          content: buildEnglishCaptionPrompt(brand, title)
-        }]
-      })
-    });
-    const data = await res.json();
+    const { res, data } = await fetchJsonWithTimeout(
+      backendUrl("/anthropic/messages"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 450,
+          messages: [{
+            role: "user",
+            content: buildEnglishCaptionPrompt(brand, title)
+          }]
+        })
+      },
+      20000
+    );
     if (!res.ok) throw new Error(data.error || res.statusText);
     let text = data.content?.map(b => b.text || "").join("") || "";
     text = (text || "").trim();
