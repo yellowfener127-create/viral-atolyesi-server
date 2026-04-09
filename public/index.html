@@ -590,18 +590,24 @@ function setCache(cat, plat, main) {
 }
 
 // GÖRÜLEN VİDEOLAR
+function getSeenKey(type) {
+  // Günlük reset: aynı gün içinde tekrar etmesin, ertesi gün tazelensin
+  return "seen_" + type + "_" + getTodayKey();
+}
 function getSeenVideos(type) {
-  try { return JSON.parse(localStorage.getItem("seen_" + type) || "[]"); } catch(e) { return []; }
+  try { return JSON.parse(localStorage.getItem(getSeenKey(type)) || "[]"); } catch(e) { return []; }
 }
 function addSeenVideos(type, ids) {
   let seen = getSeenVideos(type);
   seen = [...new Set([...seen, ...ids])];
   if (seen.length > 500) seen = seen.slice(-500);
-  try { localStorage.setItem("seen_" + type, JSON.stringify(seen)); } catch(e) {}
+  try { localStorage.setItem(getSeenKey(type), JSON.stringify(seen)); } catch(e) {}
 }
 function resetSeen() {
   try {
+    // Legacy + bugünün anahtarı
     localStorage.removeItem("seen_main");
+    localStorage.removeItem(getSeenKey("main"));
     // Bugünün cache'ini de sil
     localStorage.removeItem(getCacheKey(activeCat, activePlat));
   } catch(e) {}
@@ -1031,7 +1037,8 @@ async function doSearch() {
 
   const cached = getCached(activeCat, activePlat);
   // TikTok/Instagram için cache'i bypass ediyoruz: RapidAPI yanıtı bazen ilk denemede boş gelebiliyor ve bu boş cache'i kalıcı yapıyordu.
-  if (activePlat === "youtube" && cached && cached.main && cached.main.length) {
+  // Cache bazen 1-2 videoda takılabiliyor; küçük listelerde yeniden arat.
+  if (activePlat === "youtube" && cached && cached.main && cached.main.length >= 8) {
     const btn0 = document.getElementById("searchBtn");
     btn0.disabled = true;
     renderVideos(cached.main, true);
