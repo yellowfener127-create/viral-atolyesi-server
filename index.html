@@ -143,6 +143,7 @@
   .cat-tag{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-bottom:9px}
   .tag-animal{background:rgba(0,200,83,0.12);color:#00c853}
   .tag-comedy{background:rgba(255,69,0,0.12);color:#ff6b35}
+  .tag-hope{background:rgba(0,180,255,0.12);color:#3aa9ff}
   .tag-short{background:rgba(255,193,7,0.12);color:var(--gold)}
   .card-title{font-size:14px;font-weight:600;line-height:1.4;margin-bottom:12px;color:#eaeaea;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .card-btns{display:flex;gap:7px;margin-bottom:9px}
@@ -233,6 +234,7 @@
     <div class="selector-row">
       <button class="sel-btn active" id="cat-animal" onclick="setCat('animal')">🐾 Hayvan & Bebek</button>
       <button class="sel-btn" id="cat-comedy" onclick="setCat('comedy')">😂 Komedi</button>
+      <button class="sel-btn" id="cat-hope" onclick="setCat('hope')">🕊️ Umut Atölyesi</button>
     </div>
   </div>
 
@@ -586,7 +588,7 @@ function deleteKey() {
 
 function setCat(cat) {
   activeCat = cat;
-  ["animal","comedy"].forEach(c => {
+  ["animal","comedy","hope"].forEach(c => {
     document.getElementById("cat-" + c).classList.toggle("active", c === cat);
   });
 }
@@ -654,6 +656,17 @@ const BLOCKED_KEYWORDS = [
   "bts","blackpink","twice","exo","nct","stray kids","aespa","newjeans"
 ];
 
+// Umut Atölyesi: kaza/yaralanma vb. içerikleri tamamen kapat
+const HOPE_BLOCKED_KEYWORDS = [
+  // injury/accident
+  "accident","car crash","crash","injury","injured","wounded","blood","bleeding","gore","graphic",
+  "hit and run","overdose","suicide","self-harm","self harm","shot","shooting","stab","stabbing",
+  "death","dead","dies","fatal","funeral","murder","killed","kill","assault","violence",
+  // TR
+  "kaza","yaralan","yaralı","kan","ölüm","öldü","öldür","cenaze","bıçak","bıçaklı","silah","ateş",
+  "intihar","şiddet","vahşet","kavga","saldırı","patlama"
+];
+
 const BLOCKED_CHANNELS = [
   "mrbeast","pewdiepie","markiplier","dude perfect","nastya","like nastya",
   "cocomelon","pinkfong","t-series","set india","sony liv","zee tv","star plus",
@@ -666,6 +679,9 @@ function isBlocked(title, channel) {
   const t = (title + " " + channel).toLowerCase();
   for (const kw of BLOCKED_CHANNELS) if (t.includes(kw)) return true;
   for (const kw of BLOCKED_KEYWORDS) if (t.includes(kw)) return true;
+  if (activeCat === "hope") {
+    for (const kw of HOPE_BLOCKED_KEYWORDS) if (t.includes(kw)) return true;
+  }
   return false;
 }
 
@@ -735,6 +751,24 @@ const ALL_QUERIES = {
     "funny interview moments viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
     "chaotic family dinner funny viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
     "funny sports bloopers people viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs"
+  ],
+  hope: [
+    "random acts of kindness caught on camera",
+    "faith in humanity restored",
+    "strangers help people in need",
+    "good samaritan viral",
+    "emotional reunion surprise homecoming",
+    "soldier surprise family reunion",
+    "long distance family reunion emotional",
+    "hero saves someone caught on camera",
+    "rescue story wholesome",
+    "community comes together to help",
+    "people helping elderly wholesome",
+    "kindness chain pay it forward",
+    "heartwarming rescue and recovery",
+    "best wholesome moments",
+    "gratitude reaction surprise",
+    "life changing kindness moment"
   ]
 };
 
@@ -893,8 +927,8 @@ function buildCard(v, i) {
   const dlLink = backendUrl("/download?url=" + encodeURIComponent(watchLink));
   const safeLink = watchLink.replace(/'/g, "\\'");
   const safeDlLink = dlLink.replace(/'/g, "\\'");
-  const tagClass = cat === "animal" ? "tag-animal" : "tag-comedy";
-  const tagText = cat === "animal" ? "🐾 Hayvan & Bebek" : "😂 Komedi";
+  const tagClass = cat === "animal" ? "tag-animal" : (cat === "hope" ? "tag-hope" : "tag-comedy");
+  const tagText = cat === "animal" ? "🐾 Hayvan & Bebek" : (cat === "hope" ? "🕊️ Umut Atölyesi" : "😂 Komedi");
   const rankClass = i === 0 ? "top" : "";
 
   return `<div class="vcard">
@@ -927,7 +961,7 @@ function renderVideos(mainVideos, fromCache) {
   if (!mainVideos || mainVideos.length === 0) {
     document.getElementById("results").innerHTML = `
       <div class="empty">
-        <div class="empty-icon">${activeCat==="animal"?"🐾":"😂"}</div>
+        <div class="empty-icon">${activeCat==="animal"?"🐾":(activeCat==="hope"?"🕊️":"😂")}</div>
         <div class="empty-h">Video Bulunamadı</div>
         <p style="font-size:13px;margin-bottom:14px">Tüm videolar gösterildi. Geçmişi sıfırla!</p>
         <button class="reset-btn" onclick="resetSeen();doSearch()">🔄 Geçmişi Sıfırla ve Tekrar Ara</button>
