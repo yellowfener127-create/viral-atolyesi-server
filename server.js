@@ -504,17 +504,27 @@ app.post('/tools/crush', async (req, res) => {
     const wmSize = 110; // daha küçük
     const vx = 130; // px/s
     const vy = 85; // px/s
+    const uniqHex = Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
+    const uniqAlpha = 0.08; // tek karede çok hafif
+    const noiseOpacity = 0.005; // %0.5 opaklık
 
     const filter = [
       // 9:16: uzun kenarı 1920'e getir, sonra orta crop. Ardından hafif zoom.
       // Renk: çok hafif kontrast+saturation (abartmadan).
       `[0:v]scale=-2:1920,crop=1080:1920,scale=iw*1.07:ih*1.07,crop=1080:1920,eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1[v0]`,
+      // Unique tek kare: ilk kareye çok hafif renk katmanı (hash'i değiştirir, gözle fark edilmez)
+      `color=c=#${uniqHex}@${uniqAlpha}:s=1080x1920:d=1[uniq]`,
+      `[v0][uniq]overlay=0:0:enable='eq(n,0)'[v0u]`,
       // Watermark: daha saydam (aa)
       `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,colorchannelmixer=aa=0.35[wm]`,
-      `[v0][wm]overlay=` +
+      `[v0u][wm]overlay=` +
         `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
         `y='abs(mod(t*${vy},2*(H-h))-(H-h))':` +
-        `format=auto[v]`
+        `format=auto[v1]`,
+      // Gizli piksel katmanı (noise): çok düşük opaklıkla overlay
+      `[v1]split=2[vA][vB]`,
+      `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
+      `[vA][vN]blend=all_mode=overlay:all_opacity=${noiseOpacity},format=yuv420p[v]`
     ].join(';');
 
     const args = [

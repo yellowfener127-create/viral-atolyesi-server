@@ -410,6 +410,9 @@ app.post('/crush', async (req, res) => {
     const outDur = Math.max(1, inDur / speed);
     const outW = 720, outH = 1280;
     const hasAudio = await probeHasAudio(inFile);
+    const uniqHex = Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
+    const uniqAlpha = 0.08; // tek karede çok hafif
+    const noiseOpacity = 0.005; // %0.5 opaklık
 
     // İzleyici konforu için küçük varyasyonlar (her videoda hafif değişsin)
     const zoom = randRange(1.04, 1.08);
@@ -432,7 +435,10 @@ app.post('/crush', async (req, res) => {
         `scale=iw*${zoom.toFixed(4)}:ih*${zoom.toFixed(4)},crop=${outW}:${outH},` +
         `eq=contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}:brightness=${brightness.toFixed(4)},` +
         `setsar=1,setpts=PTS/${speed},trim=0:${outDur.toFixed(3)},setpts=PTS-STARTPTS[v0]`,
-      `[v0]drawtext=text='${escapeDrawtextText(hookText)}'${fontFileFilterPart}:` +
+      // Unique tek kare: ilk kareye çok hafif renk katmanı
+      `color=c=#${uniqHex}@${uniqAlpha}:s=${outW}x${outH}:d=1[uniq]`,
+      `[v0][uniq]overlay=0:0:enable='eq(n,0)'[v0u]`,
+      `[v0u]drawtext=text='${escapeDrawtextText(hookText)}'${fontFileFilterPart}:` +
         `fontcolor=white@${hookAlpha.toFixed(3)}:fontsize=48:x=(w-text_w)/2:y=${hookY}:` +
         `box=1:boxcolor=black@0.30:boxborderw=18:enable='between(t,0,3)'[v1]`,
       `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
@@ -442,7 +448,11 @@ app.post('/crush', async (req, res) => {
       `[wmB][mask]alphamerge,colorchannelmixer=aa=0.30[wm]`,
       `[v1][wm]overlay=` +
         `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
-        `y='abs(mod(t*${vy},2*(H-h))-(H-h))':format=auto[v]`
+        `y='abs(mod(t*${vy},2*(H-h))-(H-h))':format=auto[v1m]`,
+      // Gizli piksel katmanı (noise): çok düşük opaklıkla overlay
+      `[v1m]split=2[vA][vB]`,
+      `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
+      `[vA][vN]blend=all_mode=overlay:all_opacity=${noiseOpacity},format=yuv420p[v]`
     ];
 
     if (hasAudio) {
