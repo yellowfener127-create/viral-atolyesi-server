@@ -14,6 +14,20 @@ const DEFAULT_DIR = path.join(process.env.USERPROFILE || process.cwd(), 'Videos'
 const DOWNLOAD_DIR = process.env.VA_DOWNLOAD_DIR || DEFAULT_DIR;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
+function normBrand(brand) {
+  const b = String(brand || '').toLowerCase().trim();
+  return b === 'kaos' ? 'kaos' : 'terapi';
+}
+
+function getBrandFolderName(brand) {
+  return normBrand(brand) === 'kaos' ? 'Kaos Atölyesi' : 'Terapi Atölyesi';
+}
+
+function getBrandDir(brand) {
+  // Araç çıktıları: brand'e göre alt klasöre yaz
+  return path.join(DOWNLOAD_DIR, getBrandFolderName(brand));
+}
+
 function existsOnPath(cmd) {
   try {
     const isWin = process.platform === 'win32';
@@ -326,10 +340,11 @@ app.get('/download', async (req, res) => {
 // Telif Ezici (PC): indir -> 9:16 + zoom + renk + 1.10x + seken watermark
 app.post('/crush', async (req, res) => {
   const url = req.body?.url || req.query?.url;
-  const brand = String(req.body?.brand || req.query?.brand || 'terapi').toLowerCase();
+  const brand = normBrand(req.body?.brand || req.query?.brand || 'terapi');
   if (!url) return res.status(400).json({ error: 'url gerekli' });
 
-  fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
+  const brandDir = getBrandDir(brand);
+  fs.mkdirSync(brandDir, { recursive: true });
 
   const hasYtDlp = await existsOnPath('yt-dlp');
   if (!hasYtDlp) return res.status(500).json({ error: 'yt-dlp bulunamadı. Önce bilgisayara yt-dlp kur.' });
@@ -347,7 +362,7 @@ app.post('/crush', async (req, res) => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-local-crush-'));
   const inTpl = path.join(tmpDir, 'in.%(ext)s');
   const outName = `crushed_${brand}_9x16_${Date.now()}.mp4`;
-  const outFile = path.join(DOWNLOAD_DIR, outName);
+  const outFile = path.join(brandDir, outName);
 
   try {
     const speed = 1.10;
@@ -478,7 +493,7 @@ app.post('/crush', async (req, res) => {
 
     return res.json({
       ok: true,
-      savedTo: DOWNLOAD_DIR,
+      savedTo: brandDir,
       file: path.basename(outFile),
       settings: {
         speed,
