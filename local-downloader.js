@@ -33,6 +33,14 @@ function getBrandDir(brand) {
   return path.join(DOWNLOAD_DIR, getBrandFolderName(brand));
 }
 
+/** Telif Ezici: Kaos / Terapi / Umut için PNG yolu. İşlem hattı Terapi ile aynı; sadece bu dosya değişir. */
+function crushWatermarkPngPath(brand) {
+  const n = normBrand(brand);
+  const name =
+    n === 'kaos' ? 'watermark-kaos.png' : n === 'umut' ? 'watermark-umut.png' : 'watermark-terapi.png';
+  return path.join(PUBLIC_DIR, name);
+}
+
 function existsOnPath(cmd) {
   try {
     const isWin = process.platform === 'win32';
@@ -121,20 +129,14 @@ function pickHookText(brand) {
     'Did not expect that 😂',
     'End is crazy! 😱'
   ];
+  // Terapi ve Umut: aynı drawtext hattı (Terapi ile birebir); sadece watermark PNG ve klasör adı Umut’ta farklı.
   const terapi = [
     'Ending is so sweet ✨',
     'Wait for the sweet end! 😍',
     'Watch till the end ❤️',
     'Too cute to be real 🥰'
   ];
-  const umut = [
-    'Faith in humanity restored 🕊️',
-    'This made me tear up…',
-    'A real-life hero moment.',
-    'Kindness hits different ❤️'
-  ];
   if (brand === 'kaos') return pickOne(kaos);
-  if (brand === 'umut') return pickOne(umut);
   return pickOne(terapi);
 }
 
@@ -366,12 +368,7 @@ app.post('/crush', async (req, res) => {
   const hasFfprobe = await existsOnPath('ffprobe');
   if (!hasFfmpeg || !hasFfprobe) return res.status(500).json({ error: 'ffmpeg/ffprobe bulunamadı. Önce bilgisayara ffmpeg kur.' });
 
-  const wmFile =
-    brand === 'kaos'
-      ? path.join(PUBLIC_DIR, 'watermark-kaos.png')
-      : brand === 'umut'
-        ? path.join(PUBLIC_DIR, 'watermark-umut.png')
-        : path.join(PUBLIC_DIR, 'watermark-terapi.png');
+  const wmFile = crushWatermarkPngPath(brand);
   if (!fs.existsSync(wmFile)) return res.status(500).json({ error: 'Watermark dosyası yok (public/watermark-*.png).' });
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-local-crush-'));
@@ -457,6 +454,7 @@ app.post('/crush', async (req, res) => {
         `fontcolor=white@${hookAlpha.toFixed(3)}:fontsize=48:x=(w-text_w)/2:y=${hookY}:` +
         `box=1:boxcolor=black@0.30:boxborderw=18:enable='between(t,0,3)'[v1]`,
       `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
+        `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
         `rotate='0.15*sin(2*PI*t/1.2)':c=none:ow=iw:oh=ih[wm0]`,
       `[wm0]split=2[wmA][wmB]`,
       `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,

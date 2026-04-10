@@ -53,6 +53,15 @@ const COOKIES_INSTAGRAM_PATH = path.join(__dirname, 'www.instagram.com_cookies.t
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || 'fa585a7e00mshd7e15329a3e4fe2p17ec23jsn54ade22ae56f';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
+/** Telif Ezici: Terapi/Umut/Kaos için sadece PNG dosyası değişir; ffmpeg filtresi markaya göre ayrılmaz. */
+function crushWatermarkAbsPath(brandRaw) {
+  const b = String(brandRaw || 'terapi').toLowerCase();
+  const key = b === 'kaos' ? 'kaos' : b === 'umut' ? 'umut' : 'terapi';
+  const file =
+    key === 'kaos' ? 'watermark-kaos.png' : key === 'umut' ? 'watermark-umut.png' : 'watermark-terapi.png';
+  return path.join(PUBLIC_DIR, file);
+}
+
 // Simple in-memory cache to avoid RapidAPI 429 (per instance)
 const CACHE_TTL_MS = Number(process.env.CACHE_TTL_MS || 10 * 60 * 1000); // 10 min
 const apiCache = new Map();
@@ -435,13 +444,7 @@ app.post('/tools/crush', async (req, res) => {
     cookieFile = fs.existsSync(COOKIES_INSTAGRAM_PATH) ? COOKIES_INSTAGRAM_PATH : null;
   }
 
-  const b = brand === 'kaos' ? 'kaos' : (brand === 'umut' ? 'umut' : 'terapi');
-  const wmFile =
-    b === 'kaos'
-      ? path.join(PUBLIC_DIR, 'watermark-kaos.png')
-      : b === 'umut'
-        ? path.join(PUBLIC_DIR, 'watermark-umut.png')
-        : path.join(PUBLIC_DIR, 'watermark-terapi.png');
+  const wmFile = crushWatermarkAbsPath(brand);
   if (!fs.existsSync(wmFile)) return res.status(500).json({ error: 'Watermark dosyası yok.' });
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-crush-'));
@@ -519,7 +522,7 @@ app.post('/tools/crush', async (req, res) => {
       `color=c=#${uniqHex}@${uniqAlpha}:s=1080x1920:d=1[uniq]`,
       `[v0][uniq]overlay=0:0:enable='eq(n,0)'[v0u]`,
       // Watermark: daha saydam (aa)
-      `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,colorchannelmixer=aa=0.35[wm]`,
+      `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,colorchannelmixer=aa=0.35[wm]`,
       `[v0u][wm]overlay=` +
         `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
         `y='abs(mod(t*${vy},2*(H-h))-(H-h))':` +
