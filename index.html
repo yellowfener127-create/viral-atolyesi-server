@@ -240,8 +240,6 @@
     <div class="selector-label">Platform</div>
     <div class="selector-row">
       <button class="sel-btn active" id="plat-youtube" onclick="setPlat('youtube')">📺 YouTube</button>
-      <button class="sel-btn" id="plat-tiktok" onclick="setPlat('tiktok')">🎵 TikTok</button>
-      <button class="sel-btn" id="plat-instagram" onclick="setPlat('instagram')">📸 Instagram</button>
     </div>
   </div>
 
@@ -594,12 +592,9 @@ function setCat(cat) {
 }
 
 function setPlat(plat) {
-  activePlat = plat;
-  document.getElementById("plat-youtube").classList.toggle("active", plat === "youtube");
-  const pt = document.getElementById("plat-tiktok");
-  const pi = document.getElementById("plat-instagram");
-  if (pt) pt.classList.toggle("active", plat === "tiktok");
-  if (pi) pi.classList.toggle("active", plat === "instagram");
+  // Ana sayfada TikTok/Instagram kaldırıldı: platform sabit YouTube
+  activePlat = "youtube";
+  document.getElementById("plat-youtube").classList.add("active");
 }
 
 // CACHE SİSTEMİ
@@ -969,9 +964,7 @@ function updateLoadMoreBar() {
   if (shown < total) {
     btn.textContent = "➕ 20 video daha (listeden)";
   } else {
-    btn.textContent = activePlat === "youtube" && !savedKey
-      ? "➕ 20 video daha (API key gerekli)"
-      : "➕ 20 video daha getir";
+    btn.textContent = !savedKey ? "➕ 20 video daha (API key gerekli)" : "➕ 20 video daha getir";
   }
 }
 
@@ -1015,7 +1008,7 @@ async function loadMoreOrFetch() {
     loadMore();
     return;
   }
-  if (activePlat === "youtube" && !savedKey) {
+  if (!savedKey) {
     showError("Önce YouTube API key'ini kaydet.");
     return;
   }
@@ -1027,20 +1020,14 @@ async function loadMoreOrFetch() {
   }
   try {
     let batch = [];
-    if (activePlat === "youtube") {
-      const queries = getTodayQueries(activeCat);
-      let afterParam = "";
-      if (activeCat === "comedy") {
-        const d = new Date();
-        d.setMonth(d.getMonth() - 6);
-        afterParam = "&publishedAfter=" + d.toISOString();
-      }
-      batch = await fetchVideos(queries, afterParam, 15, 59, "main");
-    } else if (activePlat === "tiktok") {
-      batch = await fetchTikTokFeed();
-    } else {
-      batch = await fetchInstagramFeed();
+    const queries = getTodayQueries(activeCat);
+    let afterParam = "";
+    if (activeCat === "comedy") {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 6);
+      afterParam = "&publishedAfter=" + d.toISOString();
     }
+    batch = await fetchVideos(queries, afterParam, 15, 59, "main");
     const prevVis = resultsState.visibleCount;
     const idSet = new Set(resultsState.all.map((v) => String(v.id)));
     let added = 0;
@@ -1052,9 +1039,7 @@ async function loadMoreOrFetch() {
       resultsState.all.push(v);
       added++;
     }
-    if (activePlat === "youtube") {
-      resultsState.all.sort((a, b) => (b.score || 0) - (a.score || 0));
-    }
+    resultsState.all.sort((a, b) => (b.score || 0) - (a.score || 0));
     if (added === 0) {
       showError("Yeni video bulunamadı (çoğu zaten listelendi veya filtreye takıldı). Geçmişi sıfırlayıp tekrar dene.");
       renderVisibleList();
@@ -1202,16 +1187,17 @@ const filtered = rawItems;
 // (YouTube transcript kontrolü kaldırıldı)
 
 async function doSearch() {
-  if (activePlat === "youtube" && !savedKey) {
+  // Ana sayfa YouTube-only
+  activePlat = "youtube";
+  if (!savedKey) {
     showError("Lütfen önce API key'ini gir ve kaydet.");
     return;
   }
   hideError();
 
   const cached = getCached(activeCat, activePlat);
-  // TikTok/Instagram için cache'i bypass ediyoruz: RapidAPI yanıtı bazen ilk denemede boş gelebiliyor ve bu boş cache'i kalıcı yapıyordu.
   // Cache bazen 1-2 videoda takılabiliyor; küçük listelerde yeniden arat.
-  if (activePlat === "youtube" && cached && cached.main && cached.main.length >= 8) {
+  if (cached && cached.main && cached.main.length >= 8) {
     const btn0 = document.getElementById("searchBtn");
     btn0.disabled = true;
     setResults(cached.main, { fromCache: true, seenType: "main" });
@@ -1226,28 +1212,18 @@ async function doSearch() {
   showSkeleton();
 
   try {
-    if (activePlat === "youtube") {
-      const queries = getTodayQueries(activeCat);
-      let afterParam = "";
-      if (activeCat === "comedy") {
-        const d = new Date();
-        d.setMonth(d.getMonth() - 6);
-        afterParam = "&publishedAfter=" + d.toISOString();
-      }
-      // 15 sn ≤ süre < 60 sn (1 dk altı Short aralığı)
-      const mainAll = await fetchVideos(queries, afterParam, 15, 59, "main");
-      // Cache'e "tam listeyi" yaz (butonla 20'şer açılabilsin)
-      setCache(activeCat, activePlat, mainAll);
-      setResults(mainAll, { fromCache: false, seenType: "main" });
-    } else if (activePlat === "tiktok") {
-      const list = await fetchTikTokFeed();
-      setCache(activeCat, activePlat, list);
-      setResults(list, { fromCache: false, seenType: "main" });
-    } else {
-      const list = await fetchInstagramFeed();
-      setCache(activeCat, activePlat, list);
-      setResults(list, { fromCache: false, seenType: "main" });
+    const queries = getTodayQueries(activeCat);
+    let afterParam = "";
+    if (activeCat === "comedy") {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 6);
+      afterParam = "&publishedAfter=" + d.toISOString();
     }
+    // 15 sn ≤ süre < 60 sn (1 dk altı Short aralığı)
+    const mainAll = await fetchVideos(queries, afterParam, 15, 59, "main");
+    // Cache'e "tam listeyi" yaz (butonla 20'şer açılabilsin)
+    setCache(activeCat, activePlat, mainAll);
+    setResults(mainAll, { fromCache: false, seenType: "main" });
   } catch (e) {
     showError("Arama hatası: " + (e.message || e));
     document.getElementById("results").innerHTML = "";
