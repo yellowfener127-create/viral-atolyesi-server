@@ -122,7 +122,15 @@ function pickHookText(brand) {
     'Watch till the end ❤️',
     'Too cute to be real 🥰'
   ];
-  return pickOne(brand === 'kaos' ? kaos : terapi);
+  const umut = [
+    'Faith in humanity restored 🕊️',
+    'This made me tear up…',
+    'A real-life hero moment.',
+    'Kindness hits different ❤️'
+  ];
+  if (brand === 'kaos') return pickOne(kaos);
+  if (brand === 'umut') return pickOne(umut);
+  return pickOne(terapi);
 }
 
 function pickFontFileForDrawtext() {
@@ -356,7 +364,9 @@ app.post('/crush', async (req, res) => {
   const wmFile =
     brand === 'kaos'
       ? path.join(PUBLIC_DIR, 'watermark-kaos.png')
-      : path.join(PUBLIC_DIR, 'watermark-terapi.png');
+      : brand === 'umut'
+        ? path.join(PUBLIC_DIR, 'watermark-umut.png')
+        : path.join(PUBLIC_DIR, 'watermark-terapi.png');
   if (!fs.existsSync(wmFile)) return res.status(500).json({ error: 'Watermark dosyası yok (public/watermark-*.png).' });
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-local-crush-'));

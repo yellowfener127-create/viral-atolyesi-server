@@ -435,10 +435,13 @@ app.post('/tools/crush', async (req, res) => {
     cookieFile = fs.existsSync(COOKIES_INSTAGRAM_PATH) ? COOKIES_INSTAGRAM_PATH : null;
   }
 
+  const b = brand === 'kaos' ? 'kaos' : (brand === 'umut' ? 'umut' : 'terapi');
   const wmFile =
-    brand === 'kaos'
+    b === 'kaos'
       ? path.join(PUBLIC_DIR, 'watermark-kaos.png')
-      : path.join(PUBLIC_DIR, 'watermark-terapi.png');
+      : b === 'umut'
+        ? path.join(PUBLIC_DIR, 'watermark-umut.png')
+        : path.join(PUBLIC_DIR, 'watermark-terapi.png');
   if (!fs.existsSync(wmFile)) return res.status(500).json({ error: 'Watermark dosyası yok.' });
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-crush-'));
@@ -581,7 +584,9 @@ app.get('/tools/crush.bat', (req, res) => {
   const wmUrl =
     brand === 'kaos'
       ? `${origin}/watermark-kaos.png`
-      : `${origin}/watermark-terapi.png`;
+      : brand === 'umut'
+        ? `${origin}/watermark-umut.png`
+        : `${origin}/watermark-terapi.png`;
 
   // Not: Bu .bat, kullanıcının bilgisayarında çalışır:
   // - yt-dlp.exe indirir
@@ -593,7 +598,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 REM Viral Atölyesi - Telif Ezici (PC)
 
 set "URL=${String(url).replace(/"/g, '""')}"
-set "BRAND=${brand === 'kaos' ? 'kaos' : 'terapi'}"
+set "BRAND=${brand === 'kaos' ? 'kaos' : (brand === 'umut' ? 'umut' : 'terapi')}"
 set "WM_URL=${wmUrl}"
 
 set "WORK=%CD%\\va_crush"

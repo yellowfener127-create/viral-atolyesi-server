@@ -274,18 +274,20 @@
       <select class="platform-select" id="crushBrand">
         <option value="terapi" selected>TERAPİ ATÖLYESİ</option>
         <option value="kaos">KAOS ATÖLYESİ</option>
+        <option value="umut">UMUT ATÖLYESİ</option>
       </select>
       <button class="tool-btn" type="button" id="crushBtn" onclick="crushVideo()">⚡ İndir + Telif Ez (9:16)</button>
       <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
     </div>
 
-    <!-- Global Caption (English Only) — Terapi/Kaos -->
+    <!-- Global Caption (English Only) — Terapi/Kaos/Umut -->
     <div class="tool-card">
       <div class="tool-title">🌍 Global Caption (EN)</div>
-      <div class="tool-desc">English-only hook + caption + hashtag. Terapi (cute) veya Kaos (chaos) seç.</div>
+      <div class="tool-desc">English-only hook + caption + hashtag. Terapi (cute), Kaos (chaos) veya Umut (hope) seç.</div>
       <select class="platform-select" id="enBrand">
         <option value="terapi" selected>TERAPİ ATÖLYESİ (cute)</option>
         <option value="kaos">KAOS ATÖLYESİ (chaos)</option>
+        <option value="umut">UMUT ATÖLYESİ (hope)</option>
       </select>
       <input class="tool-input" type="text" id="enTitle" placeholder="Video başlığı (opsiyonel)"/>
       <button class="tool-btn" id="enBtn" onclick="generateEnglishCaption()">⚡ English Caption Üret</button>
@@ -332,6 +334,7 @@ function buildEnglishCaptionPrompt(brand, title) {
   const generic = ["#viral","#trending","#fyp","#foryou","#reels","#shorts","#watchtillend","#unexpected","#lol","#cute","#funny","#wholesome"];
   const terapiTags = ["#cute","#adorable","#aww","#babylove","#babyfever","#littleone","#cutekids","#animals","#puppy","#kitten","#petsoftiktok","#catsoftiktok","#dogsoftiktok","#wholesome","#heartwarming","#sweet"];
   const kaosTags = ["#chaos","#crazy","#wild","#wtf","#nope","#unbelievable","#plotTwist","#unexpected","#fail","#prank","#reaction","#comedy","#funnyvideos","#insane","#shock"];
+  const umutTags = ["#hope","#humanity","#kindness","#goodnews","#faithinhumanity","#heroes","#wholesome","#heartwarming","#inspiration","#gratitude","#reunion","#rescue","#community","#payitforward","#actsOfKindness"];
 
   const hooksTerapi = [
     "Wait for it… this is too cute.",
@@ -367,12 +370,24 @@ function buildEnglishCaptionPrompt(brand, title) {
     "The audacity. The drama. The timing.",
     "If chaos had a highlight reel, this is clip one."
   ];
+  const hooksUmut = [
+    "This restored my faith in people.",
+    "The kindest thing you'll see today.",
+    "He didn't have to do this… but he did.",
+    "I wasn't ready for this moment.",
+    "Proof humanity is still alive.",
+    "This reunion made me tear up.",
+    "Kindness like this deserves the world.",
+    "Wait for the end… it's beautiful.",
+    "A real-life hero moment.",
+    "If you need hope today, watch this."
+  ];
 
-  const hooks = brand === "kaos" ? hooksKaos : hooksTerapi;
-  const tagPool = brand === "kaos" ? [...generic, ...kaosTags] : [...generic, ...terapiTags];
+  const hooks = brand === "kaos" ? hooksKaos : (brand === "umut" ? hooksUmut : hooksTerapi);
+  const tagPool = brand === "kaos" ? [...generic, ...kaosTags] : (brand === "umut" ? [...generic, ...umutTags] : [...generic, ...terapiTags]);
 
   // Modelden beklenen: 2 satır hook, 2-3 satır caption, 8-12 hashtag
-  return `You are a social media copywriter.\n\nWrite an English-only short caption for a vertical short-form video.\n\nConstraints:\n- Output plain text only (no quotes, no labels).\n- First line: a short hook (max ~55 characters).\n- Then 1-2 short lines that match the vibe.\n- Last line: 8-12 hashtags from this pool (you may pick and reorder, but stay within the pool):\n${tagPool.join(" ")}\n\nUse this hook style inspiration (do not copy exactly, vary it):\n${hooks.map(h => "- " + h).join("\\n")}\n\nVideo title/context (optional):\n${title ? `"${title}"` : "(not provided)"}\n\nTone:\n${brand === "kaos" ? "chaotic, comedic, shocking, high-energy" : "cute, wholesome, heartwarming"}\n\nRemember: English only.`;
+  return `You are a social media copywriter.\n\nWrite an English-only short caption for a vertical short-form video.\n\nConstraints:\n- Output plain text only (no quotes, no labels).\n- First line: a short hook (max ~55 characters).\n- Then 1-2 short lines that match the vibe.\n- Last line: 8-12 hashtags from this pool (you may pick and reorder, but stay within the pool):\n${tagPool.join(" ")}\n\nUse this hook style inspiration (do not copy exactly, vary it):\n${hooks.map(h => "- " + h).join("\\n")}\n\nVideo title/context (optional):\n${title ? `"${title}"` : "(not provided)"}\n\nTone:\n${brand === "kaos" ? "chaotic, comedic, shocking, high-energy" : (brand === "umut" ? "hopeful, emotional, inspiring, heartwarming, human" : "cute, wholesome, heartwarming")}\n\nRemember: English only.`;
 }
 
 function englishFallback(brand, title) {
@@ -393,19 +408,31 @@ function englishFallback(brand, title) {
     "Plot twist speedrun any%.",
     "Send help (and popcorn)."
   ];
+  const hooksUmut = [
+    "This restored my faith in people.",
+    "The kindest thing you'll see today.",
+    "Proof humanity is still alive.",
+    "A real-life hero moment.",
+    "Wait for the end… it's beautiful."
+  ];
   const tagsTerapi = uniqueTags(["#cute","#adorable","#aww","#animals","#baby","#wholesome","#reels","#viral","#trending","#fyp","#shorts","#foryou","#heartwarming","#sweet"]);
   const tagsKaos = uniqueTags(["#chaos","#crazy","#funny","#wtf","#plotTwist","#reaction","#reels","#viral","#trending","#fyp","#shorts","#unexpected","#comedy","#lol"]);
-  const hook = brand === "kaos" ? pickOne(hooksKaos) : pickOne(hooksTerapi);
+  const tagsUmut = uniqueTags(["#hope","#humanity","#kindness","#faithinhumanity","#goodnews","#heroes","#heartwarming","#inspiration","#gratitude","#reunion","#rescue","#wholesome"]);
+  const hook = brand === "kaos" ? pickOne(hooksKaos) : (brand === "umut" ? pickOne(hooksUmut) : pickOne(hooksTerapi));
   const line2 = title ? title : (brand === "kaos" ? pickOne([
     "I was NOT ready for that.",
     "My brain is still buffering.",
     "That ending should be illegal."
+  ]) : (brand === "umut" ? pickOne([
+    "Kindness like this hits different.",
+    "This is the energy we need.",
+    "Hold onto moments like this."
   ]) : pickOne([
     "Look at this cuteness.",
     "This is the vibe we deserve.",
     "Instant mood boost."
   ]));
-  const tags = (brand === "kaos" ? tagsKaos : tagsTerapi).join(" ");
+  const tags = (brand === "kaos" ? tagsKaos : (brand === "umut" ? tagsUmut : tagsTerapi)).join(" ");
   return `${hook}\n${line2}\n${tags}`;
 }
 
