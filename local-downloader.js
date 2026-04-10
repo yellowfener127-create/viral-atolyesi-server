@@ -16,11 +16,16 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 
 function normBrand(brand) {
   const b = String(brand || '').toLowerCase().trim();
-  return b === 'kaos' ? 'kaos' : 'terapi';
+  if (b === 'kaos') return 'kaos';
+  if (b === 'umut') return 'umut';
+  return 'terapi';
 }
 
 function getBrandFolderName(brand) {
-  return normBrand(brand) === 'kaos' ? 'Kaos Atölyesi' : 'Terapi Atölyesi';
+  const n = normBrand(brand);
+  if (n === 'kaos') return 'Kaos Atölyesi';
+  if (n === 'umut') return 'Umut Atölyesi';
+  return 'Terapi Atölyesi';
 }
 
 function getBrandDir(brand) {
