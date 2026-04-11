@@ -443,8 +443,9 @@ app.post('/crush', async (req, res) => {
       : '';
 
     const filterParts = [
-      // Sync fix (drift): önce CFR'e normalize et, sonra hızı uygula
-      `[0:v]setpts=PTS-STARTPTS,fps=30,scale=-2:${outH},crop=${outW}:${outH},` +
+      // 9:16: bazı kaynaklar 1078x1920 gibi tam 720 genişlik vermez; scale=-2 + crop=720 patlar.
+      // increase: çerçeveyi doldur, sonra ortadan kırp (Parsed_crop invalid size önlenir).
+      `[0:v]setpts=PTS-STARTPTS,fps=30,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},` +
         `scale=iw*${zoom.toFixed(4)}:ih*${zoom.toFixed(4)},crop=${outW}:${outH},` +
         `eq=contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}:brightness=${brightness.toFixed(4)},` +
         `setsar=1,setpts=PTS/${speed},trim=0:${outDur.toFixed(3)},setpts=PTS-STARTPTS[v0]`,
@@ -500,7 +501,7 @@ app.post('/crush', async (req, res) => {
       // Output süresi: kesin bitir (donmuş kare + saatler süren çıktı olmasın)
       '-t', outDur.toFixed(3),
       // Drift'e karşı output CFR
-      '-vsync', 'cfr',
+      '-fps_mode', 'cfr',
       '-r', '30',
       '-c:v', 'libx264',
       '-preset', 'ultrafast',

@@ -516,9 +516,8 @@ app.post('/tools/crush', async (req, res) => {
     const noiseOpacity = 0.005; // %0.5 opaklık
 
     const filter = [
-      // 9:16: uzun kenarı 1920'e getir, sonra orta crop. Ardından hafif zoom.
-      // Renk: çok hafif kontrast+saturation (abartmadan).
-      `[0:v]scale=-2:1920,crop=1080:1920,scale=iw*1.07:ih*1.07,crop=1080:1920,eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1[v0]`,
+      // 9:16: dar genişlik (ör. 1078px) ile scale=-2:1920 sonrası crop=1080 geçersiz olabiliyor; increase + crop güvenli.
+      `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,scale=iw*1.07:ih*1.07,crop=1080:1920,eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1[v0]`,
       // Unique tek kare: ilk kareye çok hafif renk katmanı (hash'i değiştirir, gözle fark edilmez)
       `color=c=#${uniqHex}@${uniqAlpha}:s=1080x1920:d=1[uniq]`,
       `[v0][uniq]overlay=0:0:enable='eq(n,0)'[v0u]`,
