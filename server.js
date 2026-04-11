@@ -507,7 +507,8 @@ app.post('/tools/crush', async (req, res) => {
     // watermark konumu: DVD tarzı sekme (x,y mod/abs)
     // Not: tek şablon — her video için aynı değerler.
     const speed = 1.1; // her daim 1.10x
-    const wmSize = 110; // daha küçük
+    // Umut: watermark görseli çerçevede küçük kaldığı için tuvali Terapi/Kaos’a göre büyüt
+    const wmSize = brand === 'umut' ? 128 : 110;
     const vx = 130; // px/s
     const vy = 85; // px/s
     const uniqHex = Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');

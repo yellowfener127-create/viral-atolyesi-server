@@ -410,7 +410,8 @@ app.post('/crush', async (req, res) => {
       });
     }
 
-    const wmSize = 96;
+    // Umut PNG: içerik dosya içinde daha küçük/merkezde; görünür boyutu Terapi/Kaos’a yaklaştırmak için tuval büyük
+    const wmSize = brand === 'umut' ? 120 : 96;
     const vx = 130;
     const vy = 85;
     const probedDur = await probeVideoDurationSec(inFile).catch(() => probeDurationSec(inFile).catch(() => null));
