@@ -1244,7 +1244,7 @@ async function loadMoreOrFetch() {
       d.setMonth(d.getMonth() - 6);
       afterParam = "&publishedAfter=" + d.toISOString();
     }
-    batch = await fetchVideos(queries, afterParam, 15, 59, "main");
+    batch = await fetchVideos(queries, afterParam, 15, 59, "main", searchQueryVersion);
     const prevVis = resultsState.visibleCount;
     const idSet = new Set(resultsState.all.map((v) => String(v.id)));
     let added = 0;
@@ -1351,51 +1351,73 @@ async function fetchInstagramFeed() {
   return out;
 }
 
-async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {
+async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, varietyIndex = 0) {
   const seenSet = new Set(getSeenVideos(seenType));
   const rawItems = [];
+  const orders = ["relevance", "date", "viewCount"];
+  const order = orders[Math.abs(varietyIndex) % orders.length];
+  const maxPagesPerQuery = Math.abs(varietyIndex) % 3 !== 0 ? 2 : 1;
 
   for (const q of queries) {
-    try {
-      const sRes = await fetch(
-        backendUrl(`/youtube/search?part=snippet&q=${encodeURIComponent(q)}&type=video&videoDuration=short&order=relevance&maxResults=10&key=${encodeURIComponent(savedKey)}${afterParam}`),
-        { cache: "no-store" }
-      );
-      const sData = await sRes.json();
-      if (sData.error) { showError("API Hatası: " + sData.error.message); return []; }
+    let pageToken = "";
+    for (let page = 0; page < maxPagesPerQuery; page++) {
+      try {
+        const tokenPart = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "";
+        const sRes = await fetch(
+          backendUrl(`/youtube/search?part=snippet&q=${encodeURIComponent(q)}&type=video&videoDuration=short&order=${order}&maxResults=10&key=${encodeURIComponent(savedKey)}${afterParam}${tokenPart}`),
+          { cache: "no-store" }
+        );
+        const sData = await sRes.json();
+        if (sData.error) { showError("API Hatası: " + sData.error.message); return []; }
 
-      const ids = (sData.items||[]).map(i => i.id.videoId).join(",");
-      if (!ids) continue;
+        const ids = (sData.items || [])
+          .map((i) => i && i.id && i.id.videoId)
+          .filter(Boolean)
+          .join(",");
+        pageToken = sData.nextPageToken || "";
+        if (!ids) {
+          if (!pageToken) break;
+          continue;
+        }
 
-      const vRes = await fetch(
-        backendUrl(`/youtube/videos?part=statistics,snippet,contentDetails&id=${encodeURIComponent(ids)}&key=${encodeURIComponent(savedKey)}`),
-        { cache: "no-store" }
-      );
-      const vData = await vRes.json();
+        const vRes = await fetch(
+          backendUrl(`/youtube/videos?part=statistics,snippet,contentDetails&id=${encodeURIComponent(ids)}&key=${encodeURIComponent(savedKey)}`),
+          { cache: "no-store" }
+        );
+        const vData = await vRes.json();
 
-      for (const item of (vData.items||[])) {
-        const views = parseInt(item.statistics.viewCount||0);
-        const likes = parseInt(item.statistics.likeCount||0);
-        const title = item.snippet.title;
-        const channel = item.snippet.channelTitle;
-        const channelId = item.snippet.channelId;
-        const duration = parseDuration(item.contentDetails?.duration || "PT0S");
+        for (const item of (vData.items || [])) {
+          const views = parseInt(item.statistics.viewCount || 0);
+          const likes = parseInt(item.statistics.likeCount || 0);
+          const title = item.snippet.title;
+          const channel = item.snippet.channelTitle;
+          const channelId = item.snippet.channelId;
+          const duration = parseDuration(item.contentDetails?.duration || "PT0S");
 
-        if (views < 100000) continue;
-        if (duration < minDur || duration > maxDur) continue;
-        if (seenSet.has(String(item.id))) continue;
-        if (isBlocked(title, channel)) continue;
-        if (activeCat === "comedy" && isComedyAnimalHeavy(title, channel)) continue;
-        rawItems.push({
-          id: item.id, title, channel, channelId,
-          thumb: item.snippet.thumbnails?.medium?.url || "",
-          views, likes, duration,
-          score: calcScore(views, likes),
-          url: "https://www.youtube.com/watch?v=" + item.id,
-          platform: "youtube"
-        });
+          if (views < 100000) continue;
+          if (duration < minDur || duration > maxDur) continue;
+          if (seenSet.has(String(item.id))) continue;
+          if (isBlocked(title, channel)) continue;
+          if (activeCat === "comedy" && isComedyAnimalHeavy(title, channel)) continue;
+          rawItems.push({
+            id: item.id,
+            title,
+            channel,
+            channelId,
+            thumb: item.snippet.thumbnails?.medium?.url || "",
+            views,
+            likes,
+            duration,
+            score: calcScore(views, likes),
+            url: "https://www.youtube.com/watch?v=" + item.id,
+            platform: "youtube"
+          });
+        }
+        if (!pageToken) break;
+      } catch (e) {
+        break;
       }
-    } catch(e) {}
+    }
   }
 
   let filtered = rawItems;
@@ -1456,7 +1478,7 @@ async function doSearch() {
       afterParam = "&publishedAfter=" + d.toISOString();
     }
     // 15 sn ≤ süre < 60 sn (1 dk altı Short aralığı)
-    const mainAll = await fetchVideos(queries, afterParam, 15, 59, "main");
+    const mainAll = await fetchVideos(queries, afterParam, 15, 59, "main", searchQueryVersion);
     // Cache'e "tam listeyi" yaz (butonla 20'şer açılabilsin)
     setCache(activeCat, activePlat, mainAll);
     setResults(mainAll, { fromCache: false, seenType: "main" });
