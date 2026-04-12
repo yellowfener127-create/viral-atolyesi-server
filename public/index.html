@@ -733,26 +733,74 @@ function setCache(cat, plat, main) {
   } catch(e) {}
 }
 
-// GÖRÜLEN VİDEOLAR (kalıcı: bir kez gösterilen ID bir daha önerilmez)
+// GÖRÜLEN VİDEOLAR: sınırsız ID listesi (dün/önceki gün gösterilenler bugün API sonucunda elenir).
+// Günlük: cache anahtarı getTodayKey() ile — her gün yeni arama seti; seen listesi tarih bazlı sıfırlanmaz.
+const SEEN_FOREVER_PREFIX = "seen_forever_youtube_";
+let __mergedLegacySeen = false;
+
+function mergeLegacySeenIntoForever() {
+  if (__mergedLegacySeen) return;
+  __mergedLegacySeen = true;
+  try {
+    const keyMain = SEEN_FOREVER_PREFIX + "main";
+    const merged = new Set();
+    function eat(raw) {
+      try {
+        const arr = typeof raw === "string" ? JSON.parse(raw || "[]") : raw;
+        if (Array.isArray(arr)) arr.forEach((id) => merged.add(String(id)));
+      } catch (e) {}
+    }
+    eat(localStorage.getItem(keyMain));
+    eat(localStorage.getItem("seen_persistent_v1_main"));
+    eat(localStorage.getItem("seen_main"));
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || k === keyMain) continue;
+      if (/^seen_/.test(k) && /_\d{4}-\d{1,2}-\d{1,2}$/.test(k)) {
+        eat(localStorage.getItem(k));
+      }
+    }
+    localStorage.setItem(keyMain, JSON.stringify([...merged]));
+  } catch (e) {}
+}
+
 function getSeenKey(type) {
-  return "seen_persistent_v1_" + type;
+  return SEEN_FOREVER_PREFIX + type;
 }
+
 function getSeenVideos(type) {
-  try { return JSON.parse(localStorage.getItem(getSeenKey(type)) || "[]"); } catch(e) { return []; }
+  mergeLegacySeenIntoForever();
+  try {
+    const arr = JSON.parse(localStorage.getItem(getSeenKey(type)) || "[]");
+    return Array.isArray(arr) ? arr.map(String) : [];
+  } catch (e) {
+    return [];
+  }
 }
+
 function addSeenVideos(type, ids) {
-  let seen = getSeenVideos(type);
-  seen = [...new Set([...seen, ...ids])];
-  if (seen.length > 4000) seen = seen.slice(-4000);
-  try { localStorage.setItem(getSeenKey(type), JSON.stringify(seen)); } catch(e) {}
+  const s = new Set(getSeenVideos(type));
+  (ids || []).forEach((id) => s.add(String(id)));
+  try {
+    localStorage.setItem(getSeenKey(type), JSON.stringify([...s]));
+  } catch (e) {}
 }
+
 function resetSeen() {
   try {
+    const mainKey = getSeenKey("main");
     localStorage.removeItem("seen_main");
     localStorage.removeItem("seen_persistent_v1_main");
-    localStorage.removeItem(getSeenKey("main"));
+    localStorage.removeItem(mainKey);
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && /^seen_/.test(k) && /_\d{4}-\d{1,2}-\d{1,2}$/.test(k)) {
+        localStorage.removeItem(k);
+      }
+    }
     localStorage.removeItem(getCacheKey(activeCat, activePlat));
-  } catch(e) {}
+    __mergedLegacySeen = false;
+  } catch (e) {}
 }
 
 // FİLTRELER
@@ -1294,7 +1342,7 @@ async function fetchInstagramFeed() {
 }
 
 async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {
-  const seenVideos = getSeenVideos(seenType);
+  const seenSet = new Set(getSeenVideos(seenType));
   const rawItems = [];
 
   for (const q of queries) {
@@ -1325,7 +1373,7 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {
 
         if (views < 100000) continue;
         if (duration < minDur || duration > maxDur) continue;
-        if (seenVideos.includes(item.id)) continue;
+        if (seenSet.has(String(item.id))) continue;
         if (isBlocked(title, channel)) continue;
         if (activeCat === "comedy" && isComedyAnimalHeavy(title, channel)) continue;
         rawItems.push({
@@ -1370,9 +1418,9 @@ async function doSearch() {
   hideError();
 
   const cached = getCached(activeCat, activePlat);
-  const seenList = getSeenVideos("main");
+  const seenToday = new Set(getSeenVideos("main"));
   if (cached && cached.main && cached.main.length >= 8) {
-    const fresh = cached.main.filter((v) => v && v.id && !seenList.includes(String(v.id)));
+    const fresh = cached.main.filter((v) => v && v.id && !seenToday.has(String(v.id)));
     if (fresh.length >= 6) {
       const btn0 = document.getElementById("searchBtn");
       btn0.disabled = true;
