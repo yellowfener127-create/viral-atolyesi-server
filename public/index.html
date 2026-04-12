@@ -303,6 +303,10 @@
 
 <script>
 let savedKey = "";
+/** Her arama / load-more’da artar; sorgu sırasını çeşitlendirir */
+let searchQueryVersion = 0;
+/** Kanal abonesi bu değerin üstündeyse video listelenmez (1M+) */
+const MAX_CHANNEL_SUBSCRIBERS = 1000000;
 /** Tüm backend istekleri (indirme, YouTube proxy, caption) bu köke gider */
 const BACKEND_ORIGIN = "https://viral-atolyesi-server.onrender.com";
 function backendUrl(path) {
@@ -331,10 +335,10 @@ function uniqueTags(tags, max = 10) {
 }
 
 function buildEnglishCaptionPrompt(brand, title) {
-  const generic = ["#viral","#trending","#fyp","#foryou","#reels","#shorts","#watchtillend","#unexpected","#lol","#cute","#funny","#wholesome"];
-  const terapiTags = ["#cute","#adorable","#aww","#babylove","#babyfever","#littleone","#cutekids","#animals","#puppy","#kitten","#petsoftiktok","#catsoftiktok","#dogsoftiktok","#wholesome","#heartwarming","#sweet"];
-  const kaosTags = ["#chaos","#crazy","#wild","#wtf","#nope","#unbelievable","#plotTwist","#unexpected","#fail","#prank","#reaction","#comedy","#funnyvideos","#insane","#shock"];
-  const umutTags = ["#hope","#humanity","#kindness","#goodnews","#faithinhumanity","#heroes","#wholesome","#heartwarming","#inspiration","#gratitude","#reunion","#rescue","#community","#payitforward","#actsOfKindness"];
+  const generic = ["#viral","#trending","#fyp","#foryou","#reels","#shorts","#watchtillend","#unexpected","#lol","#cute","#funny","#wholesome","#mustwatch","#mindblown","#dailydose","#feelgood"];
+  const terapiTags = ["#cute","#adorable","#aww","#babylove","#babyfever","#littleone","#cutekids","#animals","#puppy","#kitten","#petsoftiktok","#catsoftiktok","#dogsoftiktok","#wholesome","#heartwarming","#sweet","#soft","#cozy","#smile","#goodvibes","#positivevibes"];
+  const kaosTags = ["#chaos","#crazy","#wild","#wtf","#nope","#unbelievable","#plotTwist","#unexpected","#fail","#prank","#reaction","#comedy","#funnyvideos","#insane","#shock","#meme","#savage","#sendthis","#tooreal","#chaoticenergy"];
+  const umutTags = ["#hope","#humanity","#kindness","#goodnews","#faithinhumanity","#heroes","#wholesome","#heartwarming","#inspiration","#gratitude","#reunion","#rescue","#community","#payitforward","#actsOfKindness","#nevergiveup","#together","#realstory","#emotion","#respect"];
 
   const hooksTerapi = [
     "Wait for it… this is too cute.",
@@ -351,7 +355,18 @@ function buildEnglishCaptionPrompt(brand, title) {
     "I could watch this on repeat forever.",
     "Who gave them permission to be this sweet?",
     "This belongs in a museum of wholesomeness.",
-    "Warning: extreme levels of cozy."
+    "Warning: extreme levels of cozy.",
+    "One clip. Zero bad vibes.",
+    "Your daily reminder that good still exists.",
+    "If this doesn’t warm you up, check your pulse.",
+    "Main character energy, wholesome edition.",
+    "This is what ‘aww’ sounds like.",
+    "Save this for when you’re having a rough day.",
+    "No drama—just pure joy.",
+    "The internet needed this today.",
+    "Soft. Simple. Perfect.",
+    "Tell me you’re healing without telling me.",
+    "This is the content I signed up for."
   ];
   const hooksKaos = [
     "Wait for it… you won’t believe the ending.",
@@ -368,7 +383,18 @@ function buildEnglishCaptionPrompt(brand, title) {
     "Someone explain this in one sentence.",
     "I’m sending this to the group chat immediately.",
     "The audacity. The drama. The timing.",
-    "If chaos had a highlight reel, this is clip one."
+    "If chaos had a highlight reel, this is clip one.",
+    "Plot twist speedrun: world record.",
+    "Calm before the storm? There was no calm.",
+    "My brain is still buffering.",
+    "This belongs in the chaos hall of fame.",
+    "I’m not okay. In the best way.",
+    "That ending should be illegal.",
+    "Zero chill. Maximum chaos.",
+    "You can’t make this up.",
+    "I screamed. Then I watched it again.",
+    "The timing is criminal.",
+    "If you blink, you miss the point."
   ];
   const hooksUmut = [
     "This restored my faith in people.",
@@ -380,14 +406,30 @@ function buildEnglishCaptionPrompt(brand, title) {
     "Kindness like this deserves the world.",
     "Wait for the end… it's beautiful.",
     "A real-life hero moment.",
-    "If you need hope today, watch this."
+    "If you need hope today, watch this.",
+    "Sometimes the internet gets it right.",
+    "Small act. Massive impact.",
+    "This is what compassion looks like.",
+    "They saw someone struggling and stepped in.",
+    "The world needs more of this energy.",
+    "No cap—this one hits different.",
+    "Hope isn’t loud. It looks like this.",
+    "This is the side of humanity we should amplify.",
+    "Grab tissues. You’ll understand why.",
+    "Strangers being human. That’s the whole caption.",
+    "We’re not crying. You’re crying.",
+    "Good people still exist—here’s proof.",
+    "Respect increased by 1000%.",
+    "Share this. Someone needs to see it.",
+    "The ending is everything.",
+    "This moment will stay with you."
   ];
 
   const hooks = brand === "kaos" ? hooksKaos : (brand === "umut" ? hooksUmut : hooksTerapi);
   const tagPool = brand === "kaos" ? [...generic, ...kaosTags] : (brand === "umut" ? [...generic, ...umutTags] : [...generic, ...terapiTags]);
+  const tone = brand === "kaos" ? "chaotic, comedic, shocking, high-energy, playful" : (brand === "umut" ? "hopeful, emotional, inspiring, heartwarming, sincere, human" : "cute, wholesome, heartwarming, gentle, uplifting");
 
-  // Modelden beklenen: 2 satır hook, 2-3 satır caption, 8-12 hashtag
-  return `You are a social media copywriter.\n\nWrite an English-only short caption for a vertical short-form video.\n\nConstraints:\n- Output plain text only (no quotes, no labels).\n- First line: a short hook (max ~55 characters).\n- Then 1-2 short lines that match the vibe.\n- Last line: 8-12 hashtags from this pool (you may pick and reorder, but stay within the pool):\n${tagPool.join(" ")}\n\nUse this hook style inspiration (do not copy exactly, vary it):\n${hooks.map(h => "- " + h).join("\\n")}\n\nVideo title/context (optional):\n${title ? `"${title}"` : "(not provided)"}\n\nTone:\n${brand === "kaos" ? "chaotic, comedic, shocking, high-energy" : (brand === "umut" ? "hopeful, emotional, inspiring, heartwarming, human" : "cute, wholesome, heartwarming")}\n\nRemember: English only.`;
+  return `You are a social media copywriter for vertical Shorts/Reels/TikTok.\n\nWrite an English-only caption.\n\nFormat:\n- Line 1: hook (max ~58 characters), punchy, no quotes.\n- Line 2–3: 1–2 short lines that fit ANY similar video (avoid claiming specific facts not in the title).\n- Last line: 9–12 hashtags ONLY from the pool below (pick, reorder, do not invent new tags).\n\nHashtag pool:\n${tagPool.join(" ")}\n\nHook inspiration (paraphrase—do not copy verbatim; rotate openings: questions, statements, POV, one-word lead, “Wait for it”, “This is why…”, “No one talks about…”):\n${hooks.map(h => "- " + h).join("\\n")}\n\nTitle/context (optional, may be vague):\n${title ? title : "(not provided)"}\n\nTone: ${tone}\n\nRules: English only. Plain text. No emojis unless the vibe truly needs one (max 1). No hashtags in the body lines—only on the last line. Vary structure each time.`;
 }
 
 function englishFallback(brand, title) {
@@ -397,7 +439,16 @@ function englishFallback(brand, title) {
     "This is the sweetest thing today.",
     "Pure serotonin in video form.",
     "If cuteness was a crime, this is evidence.",
-    "Bookmark this for bad days."
+    "Bookmark this for bad days.",
+    "One clip. Whole mood fixed.",
+    "The softest thing you’ll see today.",
+    "No notes. Just vibes.",
+    "This is what ‘aww’ feels like.",
+    "Main character energy (wholesome).",
+    "Your reminder that good still exists.",
+    "I’m not crying. You’re crying.",
+    "Save this for a rough day.",
+    "Tell me this isn’t perfect."
   ];
   const hooksKaos = [
     "Wait for it… you won’t believe this.",
@@ -406,31 +457,63 @@ function englishFallback(brand, title) {
     "Chaos entered the chat.",
     "I need witnesses for what I just saw.",
     "Plot twist speedrun any%.",
-    "Send help (and popcorn)."
+    "Send help (and popcorn).",
+    "What did I just watch?",
+    "My brain is still buffering.",
+    "That ending should be illegal.",
+    "Zero context. Maximum damage.",
+    "I screamed. Then I replayed it.",
+    "Calm was never an option.",
+    "The timing is criminal.",
+    "Group chat is not ready."
   ];
   const hooksUmut = [
     "This restored my faith in people.",
     "The kindest thing you'll see today.",
     "Proof humanity is still alive.",
     "A real-life hero moment.",
-    "Wait for the end… it's beautiful."
+    "Wait for the end… it's beautiful.",
+    "Sometimes the internet gets it right.",
+    "Small act. Big impact.",
+    "This is what hope looks like.",
+    "Strangers being human. That’s it.",
+    "Respect went up 1000%.",
+    "Good people still exist.",
+    "Share this—someone needs it.",
+    "No cap—this one hits different.",
+    "Hope isn’t loud. It looks like this."
   ];
-  const tagsTerapi = uniqueTags(["#cute","#adorable","#aww","#animals","#baby","#wholesome","#reels","#viral","#trending","#fyp","#shorts","#foryou","#heartwarming","#sweet"]);
-  const tagsKaos = uniqueTags(["#chaos","#crazy","#funny","#wtf","#plotTwist","#reaction","#reels","#viral","#trending","#fyp","#shorts","#unexpected","#comedy","#lol"]);
-  const tagsUmut = uniqueTags(["#hope","#humanity","#kindness","#faithinhumanity","#goodnews","#heroes","#heartwarming","#inspiration","#gratitude","#reunion","#rescue","#wholesome"]);
+  const tagsTerapi = uniqueTags(["#cute","#adorable","#aww","#animals","#baby","#wholesome","#reels","#viral","#trending","#fyp","#shorts","#foryou","#heartwarming","#sweet","#goodvibes","#feelgood"]);
+  const tagsKaos = uniqueTags(["#chaos","#crazy","#funny","#wtf","#plotTwist","#reaction","#reels","#viral","#trending","#fyp","#shorts","#unexpected","#comedy","#lol","#meme","#mustwatch"]);
+  const tagsUmut = uniqueTags(["#hope","#humanity","#kindness","#faithinhumanity","#goodnews","#heroes","#heartwarming","#inspiration","#gratitude","#reunion","#rescue","#wholesome","#community","#nevergiveup"]);
   const hook = brand === "kaos" ? pickOne(hooksKaos) : (brand === "umut" ? pickOne(hooksUmut) : pickOne(hooksTerapi));
   const line2 = title ? title : (brand === "kaos" ? pickOne([
     "I was NOT ready for that.",
     "My brain is still buffering.",
-    "That ending should be illegal."
+    "That ending should be illegal.",
+    "I watched it twice. Still confused.",
+    "No way that just happened.",
+    "The internet is unhinged—in a good way.",
+    "That pause before the chaos…",
+    "Someone check the script."
   ]) : (brand === "umut" ? pickOne([
     "Kindness like this hits different.",
     "This is the energy we need.",
-    "Hold onto moments like this."
+    "Hold onto moments like this.",
+    "We need more people like this.",
+    "This is what compassion looks like.",
+    "If you needed a sign, this is it.",
+    "The world needs to see this.",
+    "Quiet hero. Loud impact."
   ]) : pickOne([
     "Look at this cuteness.",
     "This is the vibe we deserve.",
-    "Instant mood boost."
+    "Instant mood boost.",
+    "Soft, simple, perfect.",
+    "Your daily dose of good.",
+    "No drama—just joy.",
+    "This belongs on repeat.",
+    "Tell me you smiled."
   ])));
   const tags = (brand === "kaos" ? tagsKaos : (brand === "umut" ? tagsUmut : tagsTerapi)).join(" ");
   return `${hook}\n${line2}\n${tags}`;
@@ -650,10 +733,9 @@ function setCache(cat, plat, main) {
   } catch(e) {}
 }
 
-// GÖRÜLEN VİDEOLAR
+// GÖRÜLEN VİDEOLAR (kalıcı: bir kez gösterilen ID bir daha önerilmez)
 function getSeenKey(type) {
-  // Günlük reset: aynı gün içinde tekrar etmesin, ertesi gün tazelensin
-  return "seen_" + type + "_" + getTodayKey();
+  return "seen_persistent_v1_" + type;
 }
 function getSeenVideos(type) {
   try { return JSON.parse(localStorage.getItem(getSeenKey(type)) || "[]"); } catch(e) { return []; }
@@ -661,15 +743,14 @@ function getSeenVideos(type) {
 function addSeenVideos(type, ids) {
   let seen = getSeenVideos(type);
   seen = [...new Set([...seen, ...ids])];
-  if (seen.length > 500) seen = seen.slice(-500);
+  if (seen.length > 4000) seen = seen.slice(-4000);
   try { localStorage.setItem(getSeenKey(type), JSON.stringify(seen)); } catch(e) {}
 }
 function resetSeen() {
   try {
-    // Legacy + bugünün anahtarı
     localStorage.removeItem("seen_main");
+    localStorage.removeItem("seen_persistent_v1_main");
     localStorage.removeItem(getSeenKey("main"));
-    // Bugünün cache'ini de sil
     localStorage.removeItem(getCacheKey(activeCat, activePlat));
   } catch(e) {}
 }
@@ -759,7 +840,10 @@ const ALL_QUERIES = {
     "baby animals being cute","funny pets compilation","animals doing funny things",
     "cute baby moments funny","funniest animal videos","funny cat videos",
     "dog funny moments","cute animal rescue","baby duck funny",
-    "funny hamster","cute rabbit funny","baby elephant funny","funny bird moments","cat vs dog funny"
+    "funny hamster","cute rabbit funny","baby elephant funny","funny bird moments","cat vs dog funny",
+    "wholesome animal clips viral shorts","try not to smile cute animals","adorable rescue animal moments",
+    "funny pet reactions viral","cute animal tiktok style compilation","heartwarming animal bond moments",
+    "silly animals being silly viral","tiny animal big personality shorts","funny zoo animal moments"
   ],
   comedy: [
     "people funny moments caught on camera viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
@@ -777,7 +861,12 @@ const ALL_QUERIES = {
     "people falling fails funny viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
     "funny interview moments viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
     "chaotic family dinner funny viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "funny sports bloopers people viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs"
+    "funny sports bloopers people viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "absurd public moments funny viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "funny misunderstanding caught camera -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "unexpected comedy in public viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "try not to laugh challenge people -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
+    "hilarious timing moments viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs"
   ],
   hope: [
     "random acts of kindness caught on camera",
@@ -795,7 +884,15 @@ const ALL_QUERIES = {
     "heartwarming rescue and recovery",
     "best wholesome moments",
     "gratitude reaction surprise",
-    "life changing kindness moment"
+    "life changing kindness moment",
+    "wholesome surprise for stranger viral",
+    "teacher student emotional moment",
+    "neighbor helping neighbor viral",
+    "donation surprise emotional reaction",
+    "small business kindness viral",
+    "kids doing the right thing wholesome",
+    "firefighter rescue emotional moment",
+    "medical staff kindness viral"
   ]
 };
 
@@ -815,9 +912,9 @@ function seededShuffle(arr, seed) {
   return a;
 }
 
-function getTodayQueries(cat) {
+function getTodayQueries(cat, rotation = 0) {
   const seed = getDaySeed();
-  return seededShuffle(ALL_QUERIES[cat], seed + cat.length * 7).slice(0, 8);
+  return seededShuffle(ALL_QUERIES[cat], seed + cat.length * 7 + rotation * 100003).slice(0, 8);
 }
 
 // YARDIMCI FONKSİYONLAR
@@ -1082,7 +1179,7 @@ async function loadMoreOrFetch() {
   }
   try {
     let batch = [];
-    const queries = getTodayQueries(activeCat);
+    const queries = getTodayQueries(activeCat, ++searchQueryVersion);
     let afterParam = "";
     if (activeCat === "comedy") {
       const d = new Date();
@@ -1137,19 +1234,29 @@ function setResults(allVideos, { fromCache, seenType } = {}) {
   renderVisibleList();
 }
 
-// TAKİPÇİ KONTROLÜ (5M+ engelle)
 async function getChannelSubscribers(channelIds) {
   if (!channelIds.length) return {};
   try {
     const ids = channelIds.join(",");
     const res = await fetch(backendUrl(`/youtube/channels?part=statistics&id=${encodeURIComponent(ids)}&key=${encodeURIComponent(savedKey)}`));
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     const map = {};
     (data.items || []).forEach(ch => {
-      map[ch.id] = parseInt(ch.statistics.subscriberCount || 0);
+      map[ch.id] = parseInt(ch.statistics.subscriberCount || 0, 10);
     });
     return map;
   } catch(e) { return {}; }
+}
+
+async function getChannelSubscribersMap(channelIds) {
+  const uniq = [...new Set(channelIds)].filter(Boolean);
+  const out = {};
+  for (let i = 0; i < uniq.length; i += 50) {
+    const chunk = uniq.slice(i, i + 50);
+    const m = await getChannelSubscribers(chunk);
+    Object.assign(out, m);
+  }
+  return out;
 }
 
 async function fetchTikTokFeed() {
@@ -1188,8 +1295,6 @@ async function fetchInstagramFeed() {
 
 async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {
   const seenVideos = getSeenVideos(seenType);
-  const results = [];
-  const channelIds = new Set();
   const rawItems = [];
 
   for (const q of queries) {
@@ -1223,7 +1328,6 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {
         if (seenVideos.includes(item.id)) continue;
         if (isBlocked(title, channel)) continue;
         if (activeCat === "comedy" && isComedyAnimalHeavy(title, channel)) continue;
-        channelIds.add(channelId);
         rawItems.push({
           id: item.id, title, channel, channelId,
           thumb: item.snippet.thumbnails?.medium?.url || "",
@@ -1235,8 +1339,16 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType) {
       }
     } catch(e) {}
   }
-const filtered = rawItems;
 
+  let filtered = rawItems;
+  if (filtered.length) {
+    const subMap = await getChannelSubscribersMap(filtered.map((r) => r.channelId));
+    filtered = filtered.filter((item) => {
+      const s = subMap[item.channelId];
+      if (s == null || !Number.isFinite(s)) return true;
+      return s <= MAX_CHANNEL_SUBSCRIBERS;
+    });
+  }
 
   filtered.sort((a,b) => b.score - a.score);
   const seen = new Set();
@@ -1258,14 +1370,17 @@ async function doSearch() {
   hideError();
 
   const cached = getCached(activeCat, activePlat);
-  // Cache bazen 1-2 videoda takılabiliyor; küçük listelerde yeniden arat.
+  const seenList = getSeenVideos("main");
   if (cached && cached.main && cached.main.length >= 8) {
-    const btn0 = document.getElementById("searchBtn");
-    btn0.disabled = true;
-    setResults(cached.main, { fromCache: true, seenType: "main" });
-    btn0.textContent = "🔍 Videoları Getir";
-    btn0.disabled = false;
-    return;
+    const fresh = cached.main.filter((v) => v && v.id && !seenList.includes(String(v.id)));
+    if (fresh.length >= 6) {
+      const btn0 = document.getElementById("searchBtn");
+      btn0.disabled = true;
+      setResults(fresh, { fromCache: true, seenType: "main" });
+      btn0.textContent = "🔍 Videoları Getir";
+      btn0.disabled = false;
+      return;
+    }
   }
 
   const btn = document.getElementById("searchBtn");
@@ -1274,7 +1389,8 @@ async function doSearch() {
   showSkeleton();
 
   try {
-    const queries = getTodayQueries(activeCat);
+    searchQueryVersion++;
+    const queries = getTodayQueries(activeCat, searchQueryVersion);
     let afterParam = "";
     if (activeCat === "comedy") {
       const d = new Date();
