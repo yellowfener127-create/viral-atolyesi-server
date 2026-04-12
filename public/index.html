@@ -761,6 +761,16 @@ function mergeLegacySeenIntoForever() {
       }
     }
     localStorage.setItem(keyMain, JSON.stringify([...merged]));
+    // Birleştirildi; eski günlük seen_*_YYYY-M-D anahtarlarını sil (kafa karışıklığı + kota)
+    localStorage.removeItem("seen_persistent_v1_main");
+    localStorage.removeItem("seen_main");
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (!k || k === keyMain) continue;
+      if (/^seen_/.test(k) && /_\d{4}-\d{1,2}-\d{1,2}$/.test(k)) {
+        localStorage.removeItem(k);
+      }
+    }
   } catch (e) {}
 }
 
