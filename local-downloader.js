@@ -314,7 +314,14 @@ async function runYtDlpToResponse(res, url) {
     'mp4',
     '-f',
     // Öncelik: mp4 video + m4a (aac) ses; yoksa tek parça mp4; en sonda best.
-    'bv*[ext=mp4][vcodec!=none]+ba[ext=m4a][acodec!=none]/b[ext=mp4][acodec!=none][vcodec!=none]/best',
+    // 1080p hedefi: Shorts'ta genişlik genelde 1080 (yükseklik 1920), yatayda yükseklik 1080 (genişlik 1920).
+    // Önce 1080 wide/1080 tall mp4+ m4a dene; yoksa "1080'e kadar" mp4; yoksa genel mp4.
+    'bv*[ext=mp4][vcodec!=none][width=1080]+ba[ext=m4a][acodec!=none]/' +
+      'bv*[ext=mp4][vcodec!=none][height=1080]+ba[ext=m4a][acodec!=none]/' +
+      'bv*[ext=mp4][vcodec!=none][width<=1080][height<=1920]+ba[ext=m4a][acodec!=none]/' +
+      'bv*[ext=mp4][vcodec!=none][height<=1080]+ba[ext=m4a][acodec!=none]/' +
+      'bv*[ext=mp4][vcodec!=none]+ba[ext=m4a][acodec!=none]/' +
+      'b[ext=mp4][acodec!=none][vcodec!=none]/best',
     '-o',
     outTpl,
     url

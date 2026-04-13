@@ -972,7 +972,7 @@ function seededShuffle(arr, seed) {
 
 function getTodayQueries(cat, rotation = 0) {
   const seed = getDaySeed();
-  return seededShuffle(ALL_QUERIES[cat], seed + cat.length * 7 + rotation * 100003).slice(0, 14);
+  return seededShuffle(ALL_QUERIES[cat], seed + cat.length * 7 + rotation * 100003).slice(0, 7);
 }
 
 // YARDIMCI FONKSİYONLAR
@@ -1351,14 +1351,24 @@ async function fetchInstagramFeed() {
   return out;
 }
 
+function youtubeApiUserMessage(err) {
+  const raw = String((err && err.message) || err || "");
+  const plain = raw.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  if (/quota|exceeded|403/i.test(plain)) {
+    return "YouTube API günlük kotası doldu (search 100 birim/istek). Yarın tekrar deneyin veya Google Cloud Console → APIs → YouTube Data API v3 → Quotas bölümünden kotayı kontrol edin.";
+  }
+  return plain || "Bilinmeyen API hatası";
+}
+
 async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, varietyIndex = 0) {
   const seenSet = new Set(getSeenVideos(seenType));
   const rawItems = [];
   const orders = ["relevance", "date", "viewCount"];
   const order = orders[Math.abs(varietyIndex) % orders.length];
-  const maxPagesPerQuery = 2;
+  const maxPagesPerQuery = 1;
+  const stopAfterRaw = 70;
 
-  for (const q of queries) {
+  outer: for (const q of queries) {
     let pageToken = "";
     for (let page = 0; page < maxPagesPerQuery; page++) {
       try {
@@ -1368,7 +1378,10 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
           { cache: "no-store" }
         );
         const sData = await sRes.json();
-        if (sData.error) { showError("API Hatası: " + sData.error.message); return []; }
+        if (sData.error) {
+          showError(youtubeApiUserMessage(sData.error));
+          return [];
+        }
 
         const ids = (sData.items || [])
           .map((i) => i && i.id && i.id.videoId)
@@ -1385,6 +1398,10 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
           { cache: "no-store" }
         );
         const vData = await vRes.json();
+        if (vData.error) {
+          showError(youtubeApiUserMessage(vData.error));
+          return [];
+        }
 
         for (const item of (vData.items || [])) {
           const views = parseInt(item.statistics.viewCount || 0);
@@ -1412,6 +1429,7 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
             url: "https://www.youtube.com/watch?v=" + item.id,
             platform: "youtube"
           });
+          if (rawItems.length >= stopAfterRaw) break outer;
         }
         if (!pageToken) break;
       } catch (e) {
@@ -1451,7 +1469,7 @@ async function doSearch() {
 
   const cached = getCached(activeCat, activePlat);
   const seenToday = new Set(getSeenVideos("main"));
-  if (cached && cached.main && cached.main.length >= 18) {
+  if (cached && cached.main && cached.main.length >= 10) {
     const fresh = cached.main.filter((v) => v && v.id && !seenToday.has(String(v.id)));
     if (fresh.length >= 5) {
       const btn0 = document.getElementById("searchBtn");
@@ -1478,21 +1496,8 @@ async function doSearch() {
       afterParam = "&publishedAfter=" + d.toISOString();
     }
     // 15 sn ≤ süre < 60 sn (1 dk altı Short aralığı)
-    let mainAll = await fetchVideos(queries, afterParam, 15, 59, "main", searchQueryVersion);
-    if (mainAll.length < 22) {
-      searchQueryVersion++;
-      const queries2 = getTodayQueries(activeCat, searchQueryVersion);
-      const more = await fetchVideos(queries2, afterParam, 15, 59, "main", searchQueryVersion);
-      const idSeen = new Set(mainAll.map((v) => String(v.id)));
-      for (const v of more) {
-        if (!v || v.id == null) continue;
-        const id = String(v.id);
-        if (idSeen.has(id)) continue;
-        idSeen.add(id);
-        mainAll.push(v);
-      }
-      mainAll.sort((a, b) => (b.score || 0) - (a.score || 0));
-    }
+    const mainAll = await fetchVideos(queries, afterParam, 15, 59, "main", searchQueryVersion);
+    // İkinci dalga kaldırıldı (kota: search başına 100 birim)
     // Cache'e tam listeyi yaz (butonla PAGE_SIZE'şer açılır)
     setCache(activeCat, activePlat, mainAll);
     setResults(mainAll, { fromCache: false, seenType: "main" });
