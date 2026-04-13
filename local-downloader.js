@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crush = require('./crush-pipeline');
 
 const app = express();
 app.use(cors());
@@ -106,60 +107,6 @@ function randRange(min, max) {
   const a = Number(min), b = Number(max);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return min;
   return a + Math.random() * (b - a);
-}
-
-function pickOne(arr) {
-  if (!arr || !arr.length) return '';
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function escapeDrawtextText(s) {
-  // drawtext special chars: \ : ' % need escaping
-  return String(s || '')
-    .replace(/\\/g, '\\\\')
-    .replace(/:/g, '\\:')
-    .replace(/'/g, "\\'")
-    .replace(/%/g, '\\%');
-}
-
-function pickHookText(brand) {
-  const kaos = [
-    'Ending is unbelievable ⚠️',
-    'Watch for the end! 🤣',
-    'Did not expect that 😂',
-    'End is crazy! 😱'
-  ];
-  // Terapi ve Umut: aynı drawtext hattı (Terapi ile birebir); sadece watermark PNG ve klasör adı Umut’ta farklı.
-  const terapi = [
-    'Ending is so sweet ✨',
-    'Wait for the sweet end! 😍',
-    'Watch till the end ❤️',
-    'Too cute to be real 🥰'
-  ];
-  if (brand === 'kaos') return pickOne(kaos);
-  return pickOne(terapi);
-}
-
-function pickFontFileForDrawtext() {
-  // drawtext on Windows is most reliable with fontfile.
-  // Prefer emoji-capable font to render the hook templates.
-  const candidates =
-    process.platform === 'win32'
-      ? [
-          'C:\\Windows\\Fonts\\seguiemj.ttf', // Segoe UI Emoji
-          'C:\\Windows\\Fonts\\segoeui.ttf',
-          'C:\\Windows\\Fonts\\arial.ttf'
-        ]
-      : [
-          '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-          '/usr/share/fonts/truetype/freefont/FreeSans.ttf'
-        ];
-  for (const p of candidates) {
-    try {
-      if (fs.existsSync(p)) return p;
-    } catch {}
-  }
-  return null;
 }
 
 function clamp(n, lo, hi) {
@@ -384,7 +331,6 @@ app.post('/crush', async (req, res) => {
   const outFile = path.join(brandDir, outName);
 
   try {
-    const speed = 1.10;
     const metaDur = await ytDlpGetDurationSec(url);
     if (metaDur && metaDur > 60) {
       return res.status(400).json({ error: `Bu araç sadece 60 saniye altı videolarda çalışır. Video süresi: ${Math.round(metaDur)}s` });
@@ -417,123 +363,71 @@ app.post('/crush', async (req, res) => {
       });
     }
 
-    // Kaos / Terapi / Umut: aynı watermark tuval boyutu (Umut = Kaos ile aynı px)
-    const wmSize = 96;
-    const vx = 130;
-    const vy = 85;
     const probedDur = await probeVideoDurationSec(inFile).catch(() => probeDurationSec(inFile).catch(() => null));
     // Süreyi meta'dan almayı tercih et: bazı dosyalarda container timestamp'leri bozuk olup saatler gösterebiliyor.
     const inDur = clamp(metaDur || probedDur || 20, 1, 60);
     if (inDur > 60) {
       return res.status(400).json({ error: `Bu araç sadece 60 saniye altı videolarda çalışır. Video süresi: ${Math.round(inDur)}s` });
     }
-    const outDur = Math.max(1, inDur / speed);
-    const outW = 720, outH = 1280;
+    const outW = 720;
+    const outH = 1280;
     const hasAudio = await probeHasAudio(inFile);
-    const uniqHex = Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
-    const uniqAlpha = 0.08; // tek karede çok hafif
-    const noiseOpacity = 0.005; // %0.5 opaklık
+    const musicFile = crush.pickRandomMusicFile(PUBLIC_DIR, brand);
 
-    // İzleyici konforu için küçük varyasyonlar (her videoda hafif değişsin)
-    const zoom = randRange(1.04, 1.08);
-    const contrast = randRange(1.03, 1.09);
-    const saturation = randRange(1.05, 1.15);
-    const brightness = randRange(-0.02, 0.04);
+    const runFfmpeg = async (plan) => {
+      await run('ffmpeg', [...plan.ffmpegArgsTail, outFile], { timeoutMs: 8 * 60 * 1000 });
+    };
 
-    // Hook text (ilk 3 saniye)
-    const hookText = pickHookText(brand);
-    const hookY = Math.round(randRange(110, 150)); // üstte ama tam tepede değil
-    const hookAlpha = randRange(0.85, 0.90);
-    const fontFile = pickFontFileForDrawtext();
-    const fontFileFilterPart = fontFile
-      ? `:fontfile='${escapeDrawtextText(fontFile.replace(/\\/g, '/'))}'`
-      : '';
-
-    const filterParts = [
-      // 9:16: bazı kaynaklar 1078x1920 gibi tam 720 genişlik vermez; scale=-2 + crop=720 patlar.
-      // increase: çerçeveyi doldur, sonra ortadan kırp (Parsed_crop invalid size önlenir).
-      `[0:v]setpts=PTS-STARTPTS,fps=30,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},` +
-        `scale=iw*${zoom.toFixed(4)}:ih*${zoom.toFixed(4)},crop=${outW}:${outH},` +
-        `eq=contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}:brightness=${brightness.toFixed(4)},` +
-        `setsar=1,setpts=PTS/${speed},trim=0:${outDur.toFixed(3)},setpts=PTS-STARTPTS[v0]`,
-      // Unique tek kare: ilk kareye çok hafif renk katmanı
-      `color=c=#${uniqHex}@${uniqAlpha}:s=${outW}x${outH}:d=1[uniq]`,
-      `[v0][uniq]overlay=0:0:enable='eq(n,0)'[v0u]`,
-      `[v0u]drawtext=text='${escapeDrawtextText(hookText)}'${fontFileFilterPart}:` +
-        `fontcolor=white@${hookAlpha.toFixed(3)}:fontsize=48:x=(w-text_w)/2:y=${hookY}:` +
-        `box=1:boxcolor=black@0.30:boxborderw=18:enable='between(t,0,3)'[v1]`,
-      `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
-        `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
-        `rotate='0.15*sin(2*PI*t/1.2)':c=none:ow=iw:oh=ih[wm0]`,
-      `[wm0]split=2[wmA][wmB]`,
-      `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
-      `[wmB][mask]alphamerge,colorchannelmixer=aa=0.30[wm]`,
-      `[v1][wm]overlay=` +
-        `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
-        `y='abs(mod(t*${vy},2*(H-h))-(H-h))':format=auto[v1m]`,
-      // Gizli piksel katmanı (noise): çok düşük opaklıkla overlay
-      `[v1m]split=2[vA][vB]`,
-      `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
-      `[vA][vN]blend=all_mode=overlay:all_opacity=${noiseOpacity},format=yuv420p[v]`
-    ];
-
-    if (hasAudio) {
-      // Sync fix: drift'in ana sebebi "asetrate + atempo + async" zincirinin bazı kaynaklarda
-      // zamanla kayması. Bunu rubberband ile (tempo+pitch tek adım) yapıp timeline'ı kilitliyoruz.
-      const semitone = -0.4;
-      const pitchFactor = Math.pow(2, semitone / 12); // <1 => pitch aşağı
-      const bumpDur = 0.25;
-      const bump = (t) => `between(t,${t.toFixed(3)},${(t + bumpDur).toFixed(3)})`;
-      const volExpr = `if(${bump(3)}+${bump(8)}+${bump(10)},1.02,1)`;
-      filterParts.push(
-        `[0:a]asetpts=PTS-STARTPTS,` +
-          `rubberband=tempo=${speed.toFixed(6)}:pitch=${pitchFactor.toFixed(8)},` +
-          `volume='${volExpr}',` +
-          // Bazı kaynaklarda ses video'dan kısa gelebiliyor; sonunu sessizlikle tamamla
-          `apad=pad_dur=${(outDur + 0.5).toFixed(3)},` +
-          `atrim=0:${outDur.toFixed(3)},asetpts=PTS-STARTPTS[a]`
-      );
+    let plan = await crush.buildCrushRenderPlan({
+      inFile,
+      wmFile,
+      musicFile,
+      brand,
+      outW,
+      outH,
+      sourceDurSec: inDur,
+      hasAudio,
+      ffmpegPath: 'ffmpeg',
+      ffprobePath: 'ffprobe',
+      useRubberband: true
+    });
+    try {
+      await runFfmpeg(plan);
+    } catch (e1) {
+      const msg = String((e1 && e1.message) || e1);
+      if (/rubberband|No such filter|not found|Invalid argument/i.test(msg)) {
+        plan = await crush.buildCrushRenderPlan({
+          inFile,
+          wmFile,
+          musicFile,
+          brand,
+          outW,
+          outH,
+          sourceDurSec: inDur,
+          hasAudio,
+          ffmpegPath: 'ffmpeg',
+          ffprobePath: 'ffprobe',
+          useRubberband: false
+        });
+        await runFfmpeg(plan);
+      } else {
+        throw e1;
+      }
     }
 
-    const filter = filterParts.join(';');
-
-    const ffArgs = [
-      '-y',
-      '-i', inFile,
-      '-loop', '1',
-      '-i', wmFile,
-      '-filter_complex', filter,
-      '-map', '[v]',
-      ...(hasAudio ? ['-map', '[a]'] : []),
-      // Output süresi: kesin bitir (donmuş kare + saatler süren çıktı olmasın)
-      '-t', outDur.toFixed(3),
-      // Drift'e karşı output CFR
-      '-fps_mode', 'cfr',
-      '-r', '30',
-      '-c:v', 'libx264',
-      '-preset', 'ultrafast',
-      '-crf', '24',
-      '-pix_fmt', 'yuv420p',
-      '-movflags', '+faststart',
-      // Gizlilik: metadata/chapter temizle
-      '-map_metadata', '-1',
-      '-map_chapters', '-1',
-      ...(hasAudio ? ['-c:a', 'aac', '-b:a', '128k'] : []),
-      outFile
-    ];
-    await run('ffmpeg', ffArgs, { timeoutMs: 8 * 60 * 1000 });
+    const verify = await crush.selfCheckCrushOutput('ffmpeg', 'ffprobe', outFile);
 
     return res.json({
       ok: true,
       savedTo: brandDir,
       file: path.basename(outFile),
-      settings: {
-        speed,
-        zoom: Number(zoom.toFixed(4)),
-        contrast: Number(contrast.toFixed(4)),
-        saturation: Number(saturation.toFixed(4)),
-        brightness: Number(brightness.toFixed(4))
-      }
+      settings: plan.debug,
+      verify,
+      musicDir: crush.getCrushMusicDir(PUBLIC_DIR, brand),
+      musicHint:
+        crush.listMusicFiles(crush.getCrushMusicDir(PUBLIC_DIR, brand)).length < 1
+          ? 'BGM yok: public/audio/crush/<konsept>/ içine lisanslı .mp3/.m4a ekleyin (README).'
+          : null
     });
   } catch (e) {
     return res.status(500).json({ error: (e && e.message) ? e.message : String(e) });

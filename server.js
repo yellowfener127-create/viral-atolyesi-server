@@ -7,6 +7,7 @@ const https = require('https');
 const os = require('os');
 const { pipeline } = require('stream/promises');
 const ffmpegPath = require('ffmpeg-static');
+const crush = require('./crush-pipeline');
 
 const app = express(); // 1. Sırada bu olmalı
 
@@ -510,58 +511,30 @@ app.post('/tools/crush', async (req, res) => {
       return res.status(500).json({ error: lastErr.slice(0, 1500) });
     }
 
-    // 9:16 + hafif zoom + küçük hız (1.03) + watermark "seken top"
-    // watermark konumu: DVD tarzı sekme (x,y mod/abs)
-    // Not: tek şablon — her video için aynı değerler.
-    const speed = 1.1; // her daim 1.10x
-    const wmSize = 110; // Kaos / Terapi / Umut aynı (Umut = Kaos ile aynı px)
-    const vx = 130; // px/s
-    const vy = 85; // px/s
-    const uniqHex = Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
-    const uniqAlpha = 0.08; // tek karede çok hafif
-    const noiseOpacity = 0.005; // %0.5 opaklık
+    const sourceDur = (await crush.probeContainerDurationSec(ffmpegPath, inFile)) || 30;
+    if (sourceDur > 60) {
+      return res.status(400).json({
+        error: `Bu araç sadece 60 saniye altı videolarda çalışır. Video süresi: ${Math.round(sourceDur)}s`
+      });
+    }
+    const hasAudio = await crush.probeHasAudioStream(ffmpegPath, inFile);
+    const musicFile = crush.pickRandomMusicFile(PUBLIC_DIR, brand);
 
-    const filter = [
-      // 9:16: dar genişlik (ör. 1078px) ile scale=-2:1920 sonrası crop=1080 geçersiz olabiliyor; increase + crop güvenli.
-      `[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,scale=iw*1.07:ih*1.07,crop=1080:1920,eq=contrast=1.06:saturation=1.10:brightness=0.02,setsar=1[v0]`,
-      // Unique tek kare: ilk kareye çok hafif renk katmanı (hash'i değiştirir, gözle fark edilmez)
-      `color=c=#${uniqHex}@${uniqAlpha}:s=1080x1920:d=1[uniq]`,
-      `[v0][uniq]overlay=0:0:enable='eq(n,0)'[v0u]`,
-      // Watermark: daha saydam (aa)
-      `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,colorchannelmixer=aa=0.35[wm]`,
-      `[v0u][wm]overlay=` +
-        `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
-        `y='abs(mod(t*${vy},2*(H-h))-(H-h))':` +
-        `format=auto[v1]`,
-      // Gizli piksel katmanı (noise): çok düşük opaklıkla overlay
-      `[v1]split=2[vA][vB]`,
-      `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
-      `[vA][vN]blend=all_mode=overlay:all_opacity=${noiseOpacity},format=yuv420p[v]`
-    ].join(';');
+    const plan = await crush.buildCrushRenderPlan({
+      inFile,
+      wmFile,
+      musicFile,
+      brand,
+      outW: 1080,
+      outH: 1920,
+      sourceDurSec: sourceDur,
+      hasAudio,
+      ffmpegPath,
+      ffprobePath: null,
+      useRubberband: false
+    });
 
-    const args = [
-      '-y',
-      '-i', inFile,
-      '-loop', '1',
-      '-i', wmFile,
-      '-filter_complex', filter,
-      '-map', '[v]',
-      // audio olmayabilir; varsa map et + hızlandır
-      '-map', '0:a?',
-      '-af', `atempo=${speed}`,
-      '-r', '30',
-      '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-crf', '22',
-      '-pix_fmt', 'yuv420p',
-      '-movflags', '+faststart',
-      '-c:a', 'aac',
-      '-b:a', '128k',
-      '-shortest',
-      outFile
-    ];
-
-    await runChild(ffmpegPath, args, { timeoutMs: 6 * 60 * 1000 });
+    await runChild(ffmpegPath, [...plan.ffmpegArgsTail, outFile], { timeoutMs: 6 * 60 * 1000 });
 
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Disposition', `attachment; filename="crushed_${brand}_9x16.mp4"`);

@@ -269,7 +269,20 @@
     <!-- Telif Ezici (9:16 + watermark) -->
     <div class="tool-card">
       <div class="tool-title">🧨 Telif Ezici (9:16)</div>
-      <div class="tool-desc">Linki yapıştır. Video sunucudan indirilir, 9:16 yapılır, hafif zoom + küçük hız uygulanır ve seçtiğin logoyla “seken top” watermark eklenir.</div>
+      <div class="tool-desc">
+        <strong>Telif Ezici</strong> tek bir ffmpeg render’ında şunları yapar (orijinal/transformative kurgu + gizlilik odaklı):
+        <ul style="margin:8px 0 0 18px;padding:0;font-size:12px;line-height:1.45;color:var(--muted)">
+          <li>9:16 kare, hafif zoom/renk, ~1.1× temel hız + küçük rastgele hız varyasyonu (±%2–%4)</li>
+          <li>Gömülü altyazı yoksa yatay çevirme (metinli içerikleri korumak için)</li>
+          <li>Kenarlardan 4–6 px mikro kırpma + merkez sabitleme</li>
+          <li>İlk 3 sn İngilizce hook: yarı saydam üst bar + 3 fonttan rastgele biri</li>
+          <li>Çok hafif grain + mevcut “gizli” noise katmanı (piksel düzeyinde hafif varyasyon)</li>
+          <li>Kaos / Terapi / Umut watermark (seken hareket)</li>
+          <li>Arka plan müziği: <code>public/audio/crush/&lt;konsept&gt;/</code> içinden rastgele parça; orijinal sesin altında %7–%10; rastgele başlangıç offset (klasörde en az 15 lisanslı parça eklemeniz önerilir — README)</li>
+          <li>Çıkışta metadata/chapter temizliği; yeni <code>creation_time</code> ve genel işlem etiketi (kaynak cihaz sızmaz)</li>
+        </ul>
+        <span style="font-size:11px;color:var(--muted)">PC’de <code>localhost:8787/crush</code> (Local Downloader) tam özellik; sunucuda <code>/tools/crush</code> aynı pipeline (rubberband yoksa otomatik atempo).</span>
+      </div>
       <input class="tool-input" type="url" id="crushUrl" placeholder="YouTube / TikTok / Instagram linki"/>
       <select class="platform-select" id="crushBrand">
         <option value="terapi" selected>TERAPİ ATÖLYESİ</option>
@@ -1517,4 +1530,4 @@ async function doSearch() {
 </script>
 </body>
 </html>
-<!-- build-stamp: 2026-04-13T00:00:00Z load-more-bar-static -->
+<!-- build-stamp: 2026-04-13T18:30:00Z crush-pipeline-v1 -->
