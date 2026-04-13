@@ -148,6 +148,111 @@ async function probeAudioDuration(ffmpegPath, ffprobePath, filePath) {
   return probeDurationViaFfmpeg(ffmpegPath, filePath);
 }
 
+function resolveFfprobePath(ffmpegPath, explicit) {
+  if (explicit && typeof explicit === 'string' && explicit.trim()) {
+    const e = explicit.trim();
+    try {
+      if (e === 'ffprobe' || fs.existsSync(e)) return e;
+    } catch {}
+  }
+  if (process.env.FFPROBE_PATH) {
+    try {
+      if (fs.existsSync(process.env.FFPROBE_PATH)) return process.env.FFPROBE_PATH;
+    } catch {}
+  }
+  if (ffmpegPath) {
+    try {
+      const dir = path.dirname(ffmpegPath);
+      const n = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe';
+      const p = path.join(dir, n);
+      if (fs.existsSync(p)) return p;
+    } catch {}
+  }
+  return 'ffprobe';
+}
+
+/**
+ * Gömülü altyazı akışı var mı? (kapak/thumbnail değil; container içi subtitle stream’leri)
+ * @returns {Promise<boolean|null>} true=var, false=yok (emin), null=okunamadı → flip yapılmaz (güvenli)
+ */
+async function probeHasEmbeddedSubtitleStreams(ffmpegPath, ffprobePath, filePath) {
+  const fp = resolveFfprobePath(ffmpegPath, ffprobePath);
+
+  const viaJson = await new Promise((resolve) => {
+    const child = spawn(
+      fp,
+      ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name', '-of', 'json', filePath],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (d) => {
+      out += d.toString();
+    });
+    child.stderr.on('data', (d) => {
+      err += d.toString();
+    });
+    child.on('error', () => resolve(null));
+    child.on('close', (code) => {
+      if (code !== 0) return resolve(null);
+      try {
+        const j = JSON.parse(out);
+        const streams = Array.isArray(j.streams) ? j.streams : [];
+        const has = streams.some((s) => s && String(s.codec_type || '').toLowerCase() === 'subtitle');
+        resolve(has);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+
+  if (viaJson === true || viaJson === false) return viaJson;
+
+  const viaSelect = await new Promise((resolve) => {
+    const child = spawn(
+      fp,
+      ['-v', 'error', '-select_streams', 's', '-show_entries', 'stream=index', '-of', 'csv=p=0', filePath],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+    let out = '';
+    child.stdout.on('data', (d) => {
+      out += d.toString();
+    });
+    child.on('error', () => resolve(null));
+    child.on('close', (code) => {
+      if (code !== 0) return resolve(null);
+      const lines = String(out || '')
+        .split(/\r?\n/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+      resolve(lines.length > 0);
+    });
+  });
+
+  if (viaSelect === true || viaSelect === false) return viaSelect;
+
+  return new Promise((resolve) => {
+    const child = spawn(ffmpegPath, ['-hide_banner', '-i', filePath], {
+      stdio: ['ignore', 'ignore', 'pipe']
+    });
+    let err = '';
+    child.stderr.on('data', (d) => {
+      err += d.toString();
+    });
+    child.on('error', () => resolve(null));
+    child.on('close', () => {
+      const e = String(err || '');
+      if (/Stream\s+#\d+:\d+(?:\([^)]*\))?:\s*Subtitle:/i.test(e)) return resolve(true);
+      if (/\bcodec_type=subtitle\b/i.test(e)) return resolve(true);
+      if (/\bSubtitle:\s*(subrip|ass|ssa|mov_text|webvtt|hdmv_pgs_subtitle|dvd_subtitle)/i.test(e)) {
+        return resolve(true);
+      }
+      if (/Stream\s+#\d+:\d+.*:\s*Subtitle:/i.test(e)) return resolve(true);
+      resolve(null);
+    });
+  });
+}
+
 /** Gömülü altyazı akışı varsa yatay çevirme yapılmaz (metin aynada bozulur). */
 function probeHasAudioStream(ffmpegPath, filePath) {
   return new Promise((resolve) => {
@@ -160,22 +265,6 @@ function probeHasAudioStream(ffmpegPath, filePath) {
     });
     child.on('close', () => {
       resolve(/\bAudio:\b/i.test(err));
-    });
-    child.on('error', () => resolve(false));
-  });
-}
-
-function probeHasEmbeddedSubtitles(ffmpegPath, filePath) {
-  return new Promise((resolve) => {
-    const child = spawn(ffmpegPath, ['-hide_banner', '-i', filePath], {
-      stdio: ['ignore', 'ignore', 'pipe']
-    });
-    let err = '';
-    child.stderr.on('data', (d) => {
-      err += d.toString();
-    });
-    child.on('close', () => {
-      resolve(/\bSubtitle:\b/i.test(err));
     });
     child.on('error', () => resolve(false));
   });
@@ -287,8 +376,8 @@ async function buildCrushRenderPlan(o) {
   const inDur = clampDur(sourceDurSec, 1, 60);
   const outDur = Math.min(60, Math.max(1, inDur / effectiveSpeed));
 
-  const hasSubs = await probeHasEmbeddedSubtitles(ffmpegPath, inFile);
-  const doFlip = !hasSubs;
+  const subProbe = await probeHasEmbeddedSubtitleStreams(ffmpegPath, ffprobePath, inFile);
+  const doFlip = subProbe === false;
 
   const edge = randInt(4, 6);
   const cropW = Math.max(16, outW - 2 * edge);
@@ -467,7 +556,7 @@ async function buildCrushRenderPlan(o) {
       effectiveSpeed: Number(effectiveSpeed.toFixed(6)),
       doFlip,
       edge,
-      hasSubs,
+      subtitleStreams: subProbe === true ? 'yes' : subProbe === false ? 'no' : 'unknown',
       musicFile: musicFile && fs.existsSync(musicFile) ? path.basename(musicFile) : null,
       hookFont: fontFile ? path.basename(fontFile) : null
     }
@@ -525,7 +614,7 @@ module.exports = {
   pickRandomMusicFile,
   buildCrushRenderPlan,
   selfCheckCrushOutput,
-  probeHasEmbeddedSubtitles,
+  probeHasEmbeddedSubtitleStreams,
   probeHasAudioStream,
   probeAudioDuration,
   probeContainerDurationSec: probeDurationViaFfmpeg,
