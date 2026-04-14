@@ -26,6 +26,37 @@ function stripJsonFences(s) {
   return (m && m[1]) ? m[1].trim() : t;
 }
 
+function pickOne(arr) {
+  if (!arr || !arr.length) return '';
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function fallbackHookTextForBrand(brand) {
+  const b = String(brand || 'terapi').toLowerCase();
+  if (b === 'kaos') {
+    return pickOne([
+      'Ending is unbelievable ⚠️',
+      'Watch for the end! 🤣',
+      'Did not expect that 😂',
+      'End is crazy! 😱'
+    ]);
+  }
+  if (b === 'umut') {
+    return pickOne([
+      'This moment hits different ✨',
+      'Wait for the payoff',
+      'Proof people are amazing',
+      'Ending feels earned'
+    ]);
+  }
+  return pickOne([
+    'Ending is so sweet ✨',
+    'Wait for the sweet end! 😍',
+    'Watch till the end ❤️',
+    'Too cute to be real 🥰'
+  ]);
+}
+
 async function ffmpegExtractFrame(inFile, outFile, tSec) {
   const args = [
     '-y',
@@ -33,7 +64,7 @@ async function ffmpegExtractFrame(inFile, outFile, tSec) {
     '-i', inFile,
     '-frames:v', '1',
     '-q:v', '4',
-    '-vf', 'scale=512:-1',
+    '-vf', 'scale=768:-1',
     outFile
   ];
   await run('ffmpeg', args, { timeoutMs: 45_000 });
@@ -69,36 +100,36 @@ async function geminiDirectorAnalyze({ geminiKey, brand, framePaths, audioPath }
         : 'TERAPİ: Çocuk, köpek, tatlı ve komik anlar, huzur odaklı.';
 
   const prompt =
-`Sen bir \"AI Director\"sun. Aşağıdaki konseptten sapma:
+`Sen bir \"AI Director\"sun. Konsept:
 ${concept}
 
-GÖREV:
-1) Karelerde videonun orijinalinde HALİHAZIRDA bir yazı/başlık (hook) var mı? (videoya yakılmış yazı olabilir)
-2) Varsa: yaklaşık konumu ve kapladığı alanı tespit et ve yeni hook'un bunu %100 kapatacağı şekilde bir KAPATMA KUTUSU öner.
-3) Yoksa: yeni hook'u Y ekseninde 70–95 aralığında (üst kısım) konumlandır.
-4) Yeni hook arka plan kuralı:
-   - Eski yazı varsa: arka plan TAM OPAK (opacity=1.0) kutu
-   - Yoksa: arka plan yarı saydam/gölgeli olabilir (0.30–0.50)
-5) Videonun \"Ranked\" / \"Listicle\" (liste/sıralama) içeriği olup olmadığını kontrol et.
-   - Eğer ranked/listicle ise hook metninde sıralamaya atıf yap (örn: \"Wait for #1…\", \"The best is last…\", \"Top picks — #1 is wild\" gibi).
-6) Hook metnini ve caption’ı, videonun GÖRSEL konusuna doğrudan uygun üret:
-   - Düşme / fail / kaza / sakarlık / komik anlar → KAOS tarzı (chaos/fails) dil
-   - Tatlı / bebek / hayvan / sevimli anlar → TERAPİ tarzı (cute/wholesome) dil
-   - Motivasyon / başarı / insanlık → UMUT tarzı (hope/inspiration) dil
-   Genel geçer, alakasız “sweet end” gibi cümleler yazma. Karelerde gördüğün ana aksiyona odaklan.
-7) Hook metin rengi için videonun genel tonuna zıt (yüksek kontrast) bir HEX renk öner (örn: \"#FFFFFF\", \"#FFD400\", \"#9BFF57\").
-8) Konsepte uygun 5–6 kelimelik etkileyici bir CAPTION ve 5 HASHTAG üret.
+KRİTİK — GÖRDÜKLERİN:
+- Tam videoyu izlemiyorsun. Sadece 5 adet JPEG kare (videonun yaklaşık %10, %25, %50, %75, %90 sürelerinde) ve en fazla ~12 sn’lik tek kanallı ses önizlemesi var.
+- Bu yüzden “videoyu okuyamıyor” gibi hissettiren şey normal: senin görevin bu karelerde ve sesteki ipuçlarıyla en iyi çıkarımı yapmak.
+- Karelerde net göremediğin bir şeyi kesinmiş gibi yazma. Şüpheliyse hook’u daha genel ama yine de karelerle uyumlu tut.
+- Eğer karelerde belirgin bir aksiyon göremiyorsan, ses kaydındaki tepkilere (çığlık, gülme, çarpma sesi) odaklan ve başlığı ona göre kurgula. Örnek: kaykayda net görüntü yoksa bile “pat” / çarpma sesi düşme veya sert iniş sinyali olabilir.
+- Hook (newHook.text) İngilizce olsun; 4–9 kelime; karelerde gördüğün somut aksiyona/ortama veya ses ipuçlarına değsin (nesne, yer, hareket, ses). “sweet end / wait for the end” gibi jenerik viral cümlelerden kaçın.
 
-ÇIKTI FORMAT (SADECE JSON):
+GÖREV:
+1) Karelerde videoya yakılmış bir yazı/başlık (hook) var mı?
+2) Varsa: yaklaşık dikey konumunu (yPct, hPct, 0–100) tahmin et; yeni başlık kutusu bunu kapatsın.
+3) Yoksa: yeni hook Y konumu 70–95 (üst bölge, piksel mantığı kullanıcıda).
+4) Arka plan: eski yazı varsa kutu opak 1.0; yoksa 0.30–0.50.
+5) Ranked/listicle mi? Evetse hook’ta sıraya gönderme yap (“Wait for #1…” vb.).
+6) Kontrast için hookColor: #RRGGBB.
+7) Caption: 5–6 kelime İngilizce; 5 hashtag.
+
+ÇIKTI: SADECE geçerli JSON (başka metin yok):
 {
-  \"hasOldHook\": true/false,
-  \"oldHook\": {\"yPct\": 0-100, \"hPct\": 0-100} | null,
-  \"newHook\": {\"text\": \"...\", \"yPx\": 70-95, \"boxOpacity\": 0-1},
-  \"isListicle\": true/false,
-  \"rankHookHint\": \"...\" | null,
-  \"hookColor\": \"#RRGGBB\",
-  \"caption\": \"...\",\n  \"hashtags\": [\"#tag1\",\"#tag2\",\"#tag3\",\"#tag4\",\"#tag5\"]\n}
-`;
+  \"hasOldHook\": true,
+  \"oldHook\": {\"yPct\": 10, \"hPct\": 12},
+  \"newHook\": {\"text\": \"Example hook text\", \"yPx\": 82, \"boxOpacity\": 0.42},
+  \"isListicle\": false,
+  \"rankHookHint\": null,
+  \"hookColor\": \"#FFD400\",
+  \"caption\": \"Short caption here\",
+  \"hashtags\": [\"#a\",\"#b\",\"#c\",\"#d\",\"#e\"]
+}`;
 
   const parts = [{ text: prompt }];
   for (const p of framePaths || []) {
@@ -110,14 +141,17 @@ GÖREV:
 
   const body = {
     contents: [{ role: 'user', parts }],
-    generationConfig: { temperature: 0.4, maxOutputTokens: 500 }
+    generationConfig: {
+      temperature: 0.55,
+      maxOutputTokens: 1024
+    }
   };
 
   const url = `${GEMINI_ENDPOINT}?key=${encodeURIComponent(String(geminiKey).trim())}`;
   const ac = new AbortController();
   const t = setTimeout(() => {
     try { ac.abort(); } catch {}
-  }, 12_000);
+  }, 28_000);
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -132,10 +166,11 @@ GÖREV:
   return parsed || null;
 }
 
-function normalizeDirectorResult(raw, outH) {
+function normalizeDirectorResult(raw, outH, brand) {
   if (!raw || typeof raw !== 'object') return null;
   const hasOriginal =
     raw.has_original_hook != null ? !!raw.has_original_hook
+    : raw.has_old_hook != null ? !!raw.has_old_hook
     : raw.hasOriginalHook != null ? !!raw.hasOriginalHook
     : raw.hasOldHook != null ? !!raw.hasOldHook
     : false;
@@ -144,7 +179,6 @@ function normalizeDirectorResult(raw, outH) {
   const oldYPct = old && Number.isFinite(Number(old.yPct)) ? Number(old.yPct) : (old && Number.isFinite(Number(old.y_pct)) ? Number(old.y_pct) : null);
   const oldHPct = old && Number.isFinite(Number(old.hPct)) ? Number(old.hPct) : (old && Number.isFinite(Number(old.h_pct)) ? Number(old.h_pct) : null);
 
-  const nh = raw.new_hook || raw.newHook || raw.newHookPlacement || raw.new_hook_placement || raw.newHookPos || raw.new_hook_pos || raw.newHookPosition || raw.new_hook_position || raw.newHookText || raw.new_hook_text || raw.newHook || raw.newHook || raw.newHook || null;
   const newHook = raw.newHook || raw.new_hook || (raw.newHook && typeof raw.newHook === 'object' ? raw.newHook : null) || (raw.new_hook && typeof raw.new_hook === 'object' ? raw.new_hook : null) || (raw.newHookPlacement && typeof raw.newHookPlacement === 'object' ? raw.newHookPlacement : null) || (raw.new_hook_placement && typeof raw.new_hook_placement === 'object' ? raw.new_hook_placement : null) || null;
 
   const yPxRaw = newHook ? (newHook.yPx ?? newHook.y_px ?? newHook.y ?? null) : null;
@@ -197,13 +231,14 @@ function normalizeDirectorResult(raw, outH) {
   if (!Number.isFinite(out.newHook.yPx)) out.newHook.yPx = randRange(70, 95);
   // boxOpacity yoksa: eski yazı yoksa 0.30–0.50
   if (!Number.isFinite(out.newHook.boxOpacity)) out.newHook.boxOpacity = randRange(0.30, 0.50);
+  if (hasOriginal) out.newHook.boxOpacity = 1;
   // text boşsa fallback
   if (!out.newHook.text && out.isListicle) {
     out.newHook.text =
       out.rankHookHint ||
       pickOne(['Wait for #1…', 'The best is last…', 'Top picks — #1 is wild…', 'Wait for the final one…']);
   }
-  if (!out.newHook.text) out.newHook.text = '';
+  if (!out.newHook.text) out.newHook.text = fallbackHookTextForBrand(brand);
 
   return out;
 }
@@ -582,7 +617,7 @@ app.post('/crush', async (req, res) => {
       await ffmpegExtractAudioPreview(inFile, audioPrev, Math.min(12, inDur));
       tmpArtifacts.push(...frames, audioPrev);
       const rawDir = await geminiDirectorAnalyze({ geminiKey, brand, framePaths: frames, audioPath: audioPrev });
-      director = rawDir ? normalizeDirectorResult(rawDir, outH) : null;
+      director = rawDir ? normalizeDirectorResult(rawDir, outH, brand) : null;
     } catch (e) {
       director = { error: (e && e.message) ? e.message : String(e) };
     } finally {
@@ -606,9 +641,10 @@ app.post('/crush', async (req, res) => {
         coverBox = {
           y: (outH * (Number(director.oldHook.yPct) / 100)),
           h: (outH * (Number(director.oldHook.hPct) / 100)),
+          w: outW,
           opacity: 1
         };
-        // Eski yazı varsa hook arka planı da opak olsun
+        // Eski yazı varsa hook şeridi de tam opak (render’da da aynı şekilde zorlanır)
         if (hook) hook.boxOpacity = 1;
       }
       // Eski yazı yoksa: 70–95 arası random (Gemini yanlış/vermemişse)
@@ -655,6 +691,8 @@ app.post('/crush', async (req, res) => {
           outW,
           outH,
           sourceDurSec: inDur,
+          hook,
+          coverBox,
           hasAudio,
           ffmpegPath: 'ffmpeg',
           ffprobePath: 'ffprobe',

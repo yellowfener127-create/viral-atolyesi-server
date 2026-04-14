@@ -331,22 +331,28 @@ async function buildCrushRenderPlan(o) {
   } = o;
 
   const wmSize = outW >= 1080 ? 110 : 96;
-  // Watermark hareketi: yavaş/akıcı drift (başlangıçta kenar/köşe yakınında başlat)
-  const driftT = randRange(14, 22); // per-video periyot (sn)
-  const driftT2 = randRange(9, 15);
-  const sx0 = Math.random() < 0.5 ? -1 : 1;
-  const sy0 = Math.random() < 0.5 ? -1 : 1;
-  // sin(±pi/2)=±1 → başlangıçta kenara yakın
-  const phx = sx0 > 0 ? Math.PI / 2 : -Math.PI / 2;
-  const phy = sy0 > 0 ? Math.PI / 2 : -Math.PI / 2;
-  // ikinci bileşen fazı hafif değişsin
-  const phx2 = phx + randRange(-0.65, 0.65);
-  const phy2 = phy + randRange(-0.65, 0.65);
-  const ph = (n) => `(${Number(n).toFixed(4)})`; // "+-x" parse hatasını önle
-  const driftXExpr =
-    `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${ph(phx)})+0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${ph(phx2)}))`;
-  const driftYExpr =
-    `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${ph(phy)})+0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${ph(phy2)}))`;
+  // Watermark: eski basit opaklık + tek ek: DVD gibi köşelerden seken hareket + hafif rastgele eğim
+  const wmMargin = 10;
+  const wmBounceVx = randRange(0.11, 0.2);
+  const wmBounceVy = randRange(0.1, 0.19);
+  // t=0’da farklı köşelere yakın başlat (px,py ∈ {0,1} → abs(mod(px,2)-1) ile min/max)
+  const corner = pickOne([
+    { px: 1, py: 1 },
+    { px: 0, py: 1 },
+    { px: 1, py: 0 },
+    { px: 0, py: 0 }
+  ]);
+  const phaseX = Math.min(1.98, Math.max(0.02, corner.px + randRange(-0.08, 0.08)));
+  const phaseY = Math.min(1.98, Math.max(0.02, corner.py + randRange(-0.08, 0.08)));
+  const tiltAmp = randRange(0.09, 0.22);
+  const tiltPeriod = randRange(3.8, 8.5);
+  const tiltRotateExpr = `${tiltAmp.toFixed(4)}*sin(2*PI*t/${tiltPeriod.toFixed(3)})`;
+  // filtergraph içinde virgül seçenek ayırıcı; mod(a\,2) içindeki virgül kaçırılmalı
+  const wmComma = '\\,';
+  const wmXExpr =
+    `${wmMargin}+(W-w-2*${wmMargin})*abs(mod(${wmBounceVx.toFixed(4)}*t+(${phaseX.toFixed(4)})${wmComma}2)-1)`;
+  const wmYExpr =
+    `${wmMargin}+(H-h-2*${wmMargin})*abs(mod(${wmBounceVy.toFixed(4)}*t+(${phaseY.toFixed(4)})${wmComma}2)-1)`;
   const speedRamp = pickSpeedRampFactor();
   const effectiveSpeed = BASE_EDIT_SPEED * speedRamp;
   const inDur = clampDur(sourceDurSec, 1, 60);
@@ -368,11 +374,8 @@ async function buildCrushRenderPlan(o) {
   const uniqAlpha = 0.08;
   const noiseOpacity = 0.005;
   const grainOpacity = 0.018;
-  // Watermark opaklığı: FFmpeg’de t/sin ile “merkezde soluk / kenarda belirgin” ifadesi birçok filtrede kırılıyor;
-  // bu yüzden videoya özel tek bir sayı (kenar–merkez bandı içinde rastgele) kullanıyoruz. Drift (hareket) aynı.
-  const wmAlphaLo = randRange(0.06, 0.12);
-  const wmAlphaHi = randRange(0.20, 0.30);
-  const wmAlphaFinal = randRange(Math.min(wmAlphaLo, wmAlphaHi), Math.max(wmAlphaLo, wmAlphaHi));
+  // Eski tarz tek katmanlı opaklık (videoya göre hafif rastgele)
+  const wmAlphaFinal = randRange(0.48, 0.65);
 
   const hookText = pickHookText(brand);
   // Director yoksa: istenen aralık (70–95) içinde konumlandır.
@@ -405,6 +408,9 @@ async function buildCrushRenderPlan(o) {
 
   // Eski başlık varsa maske + hook uzun sürsün (video boyunca); yoksa 3 sn
   const hookEnable = cover ? "between(t,0,1e9)" : "between(t,0,3)";
+  // Eski yazı kapatma: tam genişlik W, tam opak siyah (saydam yok)
+  const coverFillOpacity = cover ? 1.0 : 0;
+  const hookBarOpacityFinal = cover ? 1.0 : boxOpacity;
 
   // hflip kapalı: yakılmış (burned-in) yazı pikseldir; altyazı akışı yoksa tespit edilemez, flip metni ters çevirir.
   let vChain = `[0:v]setpts=PTS-STARTPTS,fps=${targetFps}`;
@@ -423,8 +429,8 @@ async function buildCrushRenderPlan(o) {
     `[v0][uniq]overlay=0:0:enable='eq(n,0)'[v0u]`,
     ...(cover
       ? [
-          `[v0u]drawbox=x=0:y=${cover.y}:w=iw:h=${cover.h}:color=black@${cover.opacity.toFixed(3)}:t=fill[vcover]`,
-          `[vcover]drawbox=x=0:y=${barY}:w=iw:h=${barH}:color=black@${boxOpacity.toFixed(3)}:t=fill:enable='${hookEnable}'[vbox]`
+          `[v0u]drawbox=x=0:y=${cover.y}:w=${outW}:h=${cover.h}:color=black@${coverFillOpacity.toFixed(3)}:t=fill[vcover]`,
+          `[vcover]drawbox=x=0:y=${barY}:w=${outW}:h=${barH}:color=black@${hookBarOpacityFinal.toFixed(3)}:t=fill:enable='${hookEnable}'[vbox]`
         ]
       : [
           `[v0u]drawbox=x=0:y=${barY}:w=iw:h=${barH}:color=black@${boxOpacity.toFixed(3)}:t=fill:enable='${hookEnable}'[vbox]`
@@ -434,15 +440,9 @@ async function buildCrushRenderPlan(o) {
       `enable='${hookEnable}'[v1]`,
     `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
       `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
-      `rotate='0.15*sin(2*PI*t/1.2)':c=none:ow=iw:oh=ih[wm0]`,
-    `[wm0]split=2[wmA][wmB]`,
-    `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
-    `[wmB][mask]alphamerge[wmLoSrc]`,
-    `[wmLoSrc]format=rgba,colorchannelmixer=aa=${wmAlphaFinal.toFixed(4)}[wm]`,
-    // Akıcı drift (köşe→merkez→diğer kenar)
-    `[v1][wm]overlay=` +
-      `x='(W-w)/2 + (W-w)/2*${driftXExpr}':` +
-      `y='(H-h)/2 + (H-h)/2*${driftYExpr}':format=auto[v1m]`,
+      `rotate='${tiltRotateExpr}':c=none:ow=iw:oh=ih[wm0]`,
+    `[wm0]format=rgba,colorchannelmixer=aa=${wmAlphaFinal.toFixed(4)}[wm]`,
+    `[v1][wm]overlay=x='${wmXExpr}':y='${wmYExpr}':format=auto[v1m]`,
     `[v1m]split=2[vA][vB]`,
     `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
     `[vA][vN]blend=all_mode=overlay:all_opacity=${noiseOpacity},format=yuv420p[vblend]`,
