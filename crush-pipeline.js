@@ -441,8 +441,10 @@ async function buildCrushRenderPlan(o) {
     // İki sabit-alpha watermark üret → sinüs “merkez/kenar” ölçüsüne göre arada blend et.
     `[wmB][mask]alphamerge,split=2[wmLoSrc][wmHiSrc]`,
     // Merkezde daha saydam, kenarda daha görünür: alpha'yı doğrudan yeniden hesapla (blend expr sorunlarını önle)
+    // geq RGB isimleri bu build'de sorun çıkarabiliyor; alpha'yı lut ile ölçekle.
+    // val: mevcut alpha (0..255). kExpr: 0=merkez, 1=kenar.
     `[wmLoSrc]format=rgba,` +
-      `geq=r='r':g='g':b='b':a='a*(${wmAlphaCenter.toFixed(4)}+(${(wmAlphaEdge - wmAlphaCenter).toFixed(4)})*(${kExpr}))'[wm]`,
+      `lut=a='val*(${wmAlphaCenter.toFixed(4)}+(${(wmAlphaEdge - wmAlphaCenter).toFixed(4)})*(${kExpr}))'[wm]`,
     // Akıcı drift (köşe→merkez→diğer kenar): aynı sinüs bileşenleri ile
     `[v1][wm]overlay=` +
       `x='(W-w)/2 + (W-w)/2*${driftXExpr}':` +
