@@ -342,8 +342,13 @@ async function buildCrushRenderPlan(o) {
   // ikinci bileşen fazı hafif değişsin
   const phx2 = phx + randRange(-0.65, 0.65);
   const phy2 = phy + randRange(-0.65, 0.65);
-  const driftXExpr = `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phx.toFixed(4)})+0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phx2.toFixed(4)}))`;
-  const driftYExpr = `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phy.toFixed(4)})+0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phy2.toFixed(4)}))`;
+  const ph = (n) => `(${Number(n).toFixed(4)})`; // "+-x" parse hatasını önle
+  const driftXExpr =
+    `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${ph(phx)})+` +
+    `0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${ph(phx2)}))`;
+  const driftYExpr =
+    `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${ph(phy)})+` +
+    `0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${ph(phy2)}))`;
   // k: 0=merkez, 1=kenar
   const kExpr = `min(1,max(0,sqrt(pow(${driftXExpr},2)+pow(${driftYExpr},2))/1.12))`;
   const speedRamp = pickSpeedRampFactor();
