@@ -359,11 +359,8 @@ async function buildCrushRenderPlan(o) {
   const uniqAlpha = 0.08;
   const noiseOpacity = 0.005;
   const grainOpacity = 0.018;
-  // Watermark opaklığı: hafif “breathing” (okunabilir ama daha yumuşak)
-  const wmBaseAlpha = randRange(0.28, 0.40);
-  const wmBreathAmp = randRange(0.04, 0.08);
-  const wmBreathT = randRange(6, 10);
-  const wmBreathPh = randRange(0, Math.PI * 2);
+  // Watermark opaklığı: sabit ama per-video değişken (FFmpeg colorchannelmixer aa expr kabul etmez)
+  const wmAlpha = randRange(0.28, 0.40);
 
   const hookText = pickHookText(brand);
   // Director yoksa: istenen aralık (70–95) içinde konumlandır.
@@ -431,7 +428,7 @@ async function buildCrushRenderPlan(o) {
     `[wmB][mask]alphamerge,split=2[wmS][wmF]`,
     // Shadow blur: gblur is widely supported (avoid invalid blur params)
     `[wmS]colorchannelmixer=aa=0.55,gblur=sigma=2:steps=1,format=rgba[wmSh]`,
-    `[wmF]colorchannelmixer=aa='min(1,max(0,${wmBaseAlpha.toFixed(4)}+${wmBreathAmp.toFixed(4)}*sin(2*PI*t/${wmBreathT.toFixed(3)}+${wmBreathPh.toFixed(4)})))'[wm]`,
+    `[wmF]colorchannelmixer=aa=${wmAlpha.toFixed(4)}[wm]`,
     // Akıcı drift: iki sinüs bileşeni ile (köşeden köşeye “zıplama” yerine yumuşak gezinme)
     `[v1][wmSh]overlay=` +
       `x='(W-w)/2 + (W-w)/2*(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phx.toFixed(4)}) + 0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phx2.toFixed(4)}))':` +
