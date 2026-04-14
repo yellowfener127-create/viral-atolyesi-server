@@ -344,13 +344,11 @@ async function buildCrushRenderPlan(o) {
   const phy2 = phy + randRange(-0.65, 0.65);
   const ph = (n) => `(${Number(n).toFixed(4)})`; // "+-x" parse hatasını önle
   const driftXExpr =
-    `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${ph(phx)})+` +
-    `0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${ph(phx2)}))`;
+    `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${ph(phx)})+0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${ph(phx2)}))`;
   const driftYExpr =
-    `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${ph(phy)})+` +
-    `0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${ph(phy2)}))`;
-  // k: 0=merkez, 1=kenar
-  const kExpr = `min(1,max(0,sqrt(pow(${driftXExpr},2)+pow(${driftYExpr},2))/1.12))`;
+    `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${ph(phy)})+0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${ph(phy2)}))`;
+  // k: 0=merkez, 1=kenar (pow/sqrt yerine daha uyumlu L1 norm yaklaşımı)
+  const kExpr = `min(1,max(0,(abs(${driftXExpr})+abs(${driftYExpr}))/1.60))`;
   const speedRamp = pickSpeedRampFactor();
   const effectiveSpeed = BASE_EDIT_SPEED * speedRamp;
   const inDur = clampDur(sourceDurSec, 1, 60);
@@ -442,10 +440,9 @@ async function buildCrushRenderPlan(o) {
     // Gölge KALDIRILDI. Yeni mantık: merkezde daha saydam, kenara yaklaştıkça daha görünür.
     // İki sabit-alpha watermark üret → sinüs “merkez/kenar” ölçüsüne göre arada blend et.
     `[wmB][mask]alphamerge,split=2[wmLoSrc][wmHiSrc]`,
-    `[wmLoSrc]colorchannelmixer=aa=${wmAlphaCenter.toFixed(4)}[wmLo]`,
-    `[wmHiSrc]colorchannelmixer=aa=${wmAlphaEdge.toFixed(4)}[wmHi]`,
-    // Merkezde daha saydam, kenarda daha görünür: wmLo (center) ↔ wmHi (edge) blend
-    `[wmLo][wmHi]blend=all_expr='A*(1-(${kExpr}))+B*(${kExpr})'[wm]`,
+    // Merkezde daha saydam, kenarda daha görünür: alpha'yı doğrudan yeniden hesapla (blend expr sorunlarını önle)
+    `[wmLoSrc]format=rgba,` +
+      `geq=r='r':g='g':b='b':a='a*(${wmAlphaCenter.toFixed(4)}+(${(wmAlphaEdge - wmAlphaCenter).toFixed(4)})*(${kExpr}))'[wm]`,
     // Akıcı drift (köşe→merkez→diğer kenar): aynı sinüs bileşenleri ile
     `[v1][wm]overlay=` +
       `x='(W-w)/2 + (W-w)/2*${driftXExpr}':` +
