@@ -347,8 +347,8 @@ async function buildCrushRenderPlan(o) {
     `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${ph(phx)})+0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${ph(phx2)}))`;
   const driftYExpr =
     `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${ph(phy)})+0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${ph(phy2)}))`;
-  // k: 0=merkez, 1=kenar (pow/sqrt yerine daha uyumlu L1 norm yaklaşımı)
-  const kExpr = `min(1,max(0,(abs(${driftXExpr})+abs(${driftYExpr}))/1.60))`;
+  // k: 0=merkez, 1=kenar (min/max yerine clip() kullan: bazı build'lerde daha uyumlu)
+  const kExpr = `clip((abs(${driftXExpr})+abs(${driftYExpr}))/1.60,0,1)`;
   const speedRamp = pickSpeedRampFactor();
   const effectiveSpeed = BASE_EDIT_SPEED * speedRamp;
   const inDur = clampDur(sourceDurSec, 1, 60);
@@ -438,13 +438,11 @@ async function buildCrushRenderPlan(o) {
     `[wm0]split=2[wmA][wmB]`,
     `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
     // Gölge KALDIRILDI. Yeni mantık: merkezde daha saydam, kenara yaklaştıkça daha görünür.
-    // Tek çıkış: dinamik alpha lut ile (eski split=2[wmHiSrc] bağlanmıyordu → graph hatası)
+    // NOT: `lut` filtresi zaman değişkeni `t` desteklemediği için (Unknown function hatası),
+    // alpha modülasyonunu `colorchannelmixer=aa='expr'` içine taşıyoruz.
     `[wmB][mask]alphamerge[wmLoSrc]`,
-    // Merkezde daha saydam, kenarda daha görünür: alpha'yı doğrudan yeniden hesapla (blend expr sorunlarını önle)
-    // geq RGB isimleri bu build'de sorun çıkarabiliyor; alpha'yı lut ile ölçekle.
-    // val: mevcut alpha (0..255). kExpr: 0=merkez, 1=kenar.
     `[wmLoSrc]format=rgba,` +
-      `lut=a='val*(${wmAlphaCenter.toFixed(4)}+(${(wmAlphaEdge - wmAlphaCenter).toFixed(4)})*(${kExpr}))'[wm]`,
+      `colorchannelmixer=aa='${wmAlphaCenter.toFixed(4)}+(${(wmAlphaEdge - wmAlphaCenter).toFixed(4)})*(${kExpr})'[wm]`,
     // Akıcı drift (köşe→merkez→diğer kenar): aynı sinüs bileşenleri ile
     `[v1][wm]overlay=` +
       `x='(W-w)/2 + (W-w)/2*${driftXExpr}':` +
