@@ -225,12 +225,15 @@ function probeHasAudioStream(ffmpegPath, filePath) {
 function pickThreeFonts() {
   if (process.platform === 'win32') {
     return [
-      'C:\\Windows\\Fonts\\arialbd.ttf',
-      'C:\\Windows\\Fonts\\calibri.ttf',
-      'C:\\Windows\\Fonts\\segoeui.ttf'
+      // Popüler “social” fontlar (kuruluysa otomatik seçilir)
+      'C:\\Windows\\Fonts\\Montserrat-Bold.ttf', // kullanıcı yüklediyse
+      'C:\\Windows\\Fonts\\LuckiestGuy-Regular.ttf', // kullanıcı yüklediyse
+      'C:\\Windows\\Fonts\\ariblk.ttf', // Arial Black
+      'C:\\Windows\\Fonts\\impact.ttf' // Impact
     ];
   }
   return [
+    '/usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf',
     '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
     '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
     '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf'
@@ -247,6 +250,12 @@ function pickExistingFontForDrawtext() {
     }
   });
   return pickOne(existing.length ? existing : fonts);
+}
+
+function sanitizeHexColor(c, fallback) {
+  const s = String(c || '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s;
+  return fallback;
 }
 
 /** ±%2–%4 hız varyasyonu (1.0 etrafında) */
@@ -360,6 +369,8 @@ async function buildCrushRenderPlan(o) {
   // Director yoksa: istenen aralık (70–95) içinde konumlandır.
   const hookY = Number.isFinite(hook?.y) ? Math.round(hook.y) : Math.round(randRange(70, 95));
   const hookTextFinal = (hook && typeof hook.text === 'string' && hook.text.trim()) ? hook.text.trim() : hookText;
+  const hookColorPool = ['#FFFFFF', '#FFD400', '#9BFF57']; // Beyaz / Sarı / Açık yeşil
+  const hookColor = sanitizeHexColor(hook?.color, pickOne(hookColorPool));
   const hookAlpha = randRange(0.88, 0.94);
   const barH = 110;
   const barY = Math.max(0, hookY - 36);
@@ -409,7 +420,7 @@ async function buildCrushRenderPlan(o) {
           `[v0u]drawbox=x=0:y=${barY}:w=iw:h=${barH}:color=black@${boxOpacity.toFixed(3)}:t=fill:enable='${hookEnable}'[vbox]`
         ]),
     `[vbox]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
-      `fontcolor=white@${hookAlpha.toFixed(3)}:fontsize=48:x=(w-text_w)/2:y=${hookY}:` +
+      `fontcolor=${hookColor}@${hookAlpha.toFixed(3)}:fontsize=48:x=(w-text_w)/2:y=${hookY}:` +
       `enable='${hookEnable}'[v1]`,
     `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
       `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
@@ -562,6 +573,7 @@ async function buildCrushRenderPlan(o) {
       horizontalFlip: false,
       originalFps: origFps,
       targetFps,
+      outDurSec: Number(outDur.toFixed(3)),
       edge,
       musicFile: musicFile && fs.existsSync(musicFile) ? path.basename(musicFile) : null,
       hookFont: fontFile ? path.basename(fontFile) : null

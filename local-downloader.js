@@ -81,6 +81,7 @@ GÖREV:
    - Yoksa: arka plan yarı saydam/gölgeli olabilir (0.30–0.50)
 5) Videonun \"Ranked\" / \"Listicle\" (liste/sıralama) içeriği olup olmadığını kontrol et.
    - Eğer ranked/listicle ise hook metninde sıralamaya atıf yap (örn: \"Wait for #1…\", \"The best is last…\", \"Top picks — #1 is wild\" gibi).
+6) Hook metin rengi için videonun genel tonuna zıt (yüksek kontrast) bir HEX renk öner (örn: \"#FFFFFF\", \"#FFD400\", \"#9BFF57\").
 6) Konsepte uygun 5–6 kelimelik etkileyici bir CAPTION ve 5 HASHTAG üret.
 
 ÇIKTI FORMAT (SADECE JSON):
@@ -90,6 +91,7 @@ GÖREV:
   \"newHook\": {\"text\": \"...\", \"yPx\": 70-95, \"boxOpacity\": 0-1},
   \"isListicle\": true/false,
   \"rankHookHint\": \"...\" | null,
+  \"hookColor\": \"#RRGGBB\",
   \"caption\": \"...\",\n  \"hashtags\": [\"#tag1\",\"#tag2\",\"#tag3\",\"#tag4\",\"#tag5\"]\n}
 `;
 
@@ -168,12 +170,20 @@ function normalizeDirectorResult(raw, outH) {
     : typeof raw.ranked_hook === 'string' ? raw.ranked_hook
     : null;
 
+  const hookColor =
+    typeof raw.hookColor === 'string' ? raw.hookColor
+    : typeof raw.hook_color === 'string' ? raw.hook_color
+    : (raw.newHook && typeof raw.newHook.color === 'string') ? raw.newHook.color
+    : (raw.new_hook && typeof raw.new_hook.color === 'string') ? raw.new_hook.color
+    : null;
+
   const out = {
     hasOriginalHook: hasOriginal,
     oldHook: (hasOriginal && oldYPct != null && oldHPct != null) ? { yPct: oldYPct, hPct: oldHPct } : null,
     newHook: { text: String(text || '').trim(), yPx, boxOpacity },
     isListicle,
     rankHookHint: rankHookHint ? String(rankHookHint).trim() : null,
+    hookColor: hookColor ? String(hookColor).trim() : null,
     caption: String(caption || '').trim(),
     hashtags: (hashtags || []).map(String).filter(Boolean).slice(0, 5)
   };
@@ -584,7 +594,8 @@ app.post('/crush', async (req, res) => {
       hook = {
         text: director.newHook.text,
         y: Number(director.newHook.yPx),
-        boxOpacity: Number(director.newHook.boxOpacity)
+        boxOpacity: Number(director.newHook.boxOpacity),
+        color: director.hookColor || null
       };
       if (director.hasOriginalHook && director.oldHook && Number.isFinite(director.oldHook.yPct) && Number.isFinite(director.oldHook.hPct)) {
         coverBox = {
@@ -604,7 +615,7 @@ app.post('/crush', async (req, res) => {
       }
     } else {
       // Fallback (Gemini hata/timeout): kod çökmesin, render devam etsin
-      hook = { text: '', y: randRange(70, 95), boxOpacity: randRange(0.30, 0.50) };
+      hook = { text: '', y: randRange(70, 95), boxOpacity: randRange(0.30, 0.50), color: null };
     }
 
     const runFfmpeg = async (plan) => {
@@ -652,12 +663,31 @@ app.post('/crush', async (req, res) => {
 
     const verify = await crush.selfCheckCrushOutput('ffmpeg', 'ffprobe', outFile);
 
+    // Thumbnail: video içinden rastgele yüksek kaliteli kare (referans için)
+    let thumbnail = null;
+    try {
+      const tPick = Math.max(0.2, Math.min( (plan.debug?.outDurSec || 999), randRange(0.35, 0.75) * Math.max(1, inDur / (plan.debug?.effectiveSpeed || 1)) ));
+      const thumbName = path.basename(outFile, path.extname(outFile)) + "_thumbnail.jpg";
+      const thumbPath = path.join(brandDir, thumbName);
+      await run('ffmpeg', [
+        '-y',
+        '-ss', String(tPick.toFixed(3)),
+        '-i', outFile,
+        '-frames:v', '1',
+        '-q:v', '2',
+        '-vf', 'scale=1080:-1',
+        thumbPath
+      ], { timeoutMs: 45_000 });
+      thumbnail = thumbName;
+    } catch {}
+
     return res.json({
       ok: true,
       savedTo: brandDir,
       file: path.basename(outFile),
       settings: plan.debug,
       verify,
+      thumbnail,
       director: director && director.error
         ? { ok: false, error: director.error }
         : director
