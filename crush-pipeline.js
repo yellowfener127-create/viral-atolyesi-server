@@ -347,8 +347,6 @@ async function buildCrushRenderPlan(o) {
     `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${ph(phx)})+0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${ph(phx2)}))`;
   const driftYExpr =
     `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${ph(phy)})+0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${ph(phy2)}))`;
-  // k: 0=merkez, 1=kenar (min/max yerine clip() kullan: bazı build'lerde daha uyumlu)
-  const kExpr = `clip((abs(${driftXExpr})+abs(${driftYExpr}))/1.60,0,1)`;
   const speedRamp = pickSpeedRampFactor();
   const effectiveSpeed = BASE_EDIT_SPEED * speedRamp;
   const inDur = clampDur(sourceDurSec, 1, 60);
@@ -370,9 +368,11 @@ async function buildCrushRenderPlan(o) {
   const uniqAlpha = 0.08;
   const noiseOpacity = 0.005;
   const grainOpacity = 0.018;
-  // Watermark opaklığı: daha saydam (izleyiciyi rahatsız etmesin)
-  const wmAlphaEdge = randRange(0.20, 0.30); // kenarda “imza gibi”
-  const wmAlphaCenter = randRange(0.06, 0.12); // merkezde neredeyse görünmesin
+  // Watermark opaklığı: FFmpeg’de t/sin ile “merkezde soluk / kenarda belirgin” ifadesi birçok filtrede kırılıyor;
+  // bu yüzden videoya özel tek bir sayı (kenar–merkez bandı içinde rastgele) kullanıyoruz. Drift (hareket) aynı.
+  const wmAlphaLo = randRange(0.06, 0.12);
+  const wmAlphaHi = randRange(0.20, 0.30);
+  const wmAlphaFinal = randRange(Math.min(wmAlphaLo, wmAlphaHi), Math.max(wmAlphaLo, wmAlphaHi));
 
   const hookText = pickHookText(brand);
   // Director yoksa: istenen aralık (70–95) içinde konumlandır.
@@ -437,13 +437,9 @@ async function buildCrushRenderPlan(o) {
       `rotate='0.15*sin(2*PI*t/1.2)':c=none:ow=iw:oh=ih[wm0]`,
     `[wm0]split=2[wmA][wmB]`,
     `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
-    // Gölge KALDIRILDI. Yeni mantık: merkezde daha saydam, kenara yaklaştıkça daha görünür.
-    // NOT: `lut` filtresi zaman değişkeni `t` desteklemediği için (Unknown function hatası),
-    // alpha modülasyonunu `colorchannelmixer=aa='expr'` içine taşıyoruz.
     `[wmB][mask]alphamerge[wmLoSrc]`,
-    `[wmLoSrc]format=rgba,` +
-      `colorchannelmixer=aa='${wmAlphaCenter.toFixed(4)}+(${(wmAlphaEdge - wmAlphaCenter).toFixed(4)})*(${kExpr})'[wm]`,
-    // Akıcı drift (köşe→merkez→diğer kenar): aynı sinüs bileşenleri ile
+    `[wmLoSrc]format=rgba,colorchannelmixer=aa=${wmAlphaFinal.toFixed(4)}[wm]`,
+    // Akıcı drift (köşe→merkez→diğer kenar)
     `[v1][wm]overlay=` +
       `x='(W-w)/2 + (W-w)/2*${driftXExpr}':` +
       `y='(H-h)/2 + (H-h)/2*${driftYExpr}':format=auto[v1m]`,
