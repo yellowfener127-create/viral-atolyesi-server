@@ -438,8 +438,8 @@ async function buildCrushRenderPlan(o) {
     `[wm0]split=2[wmA][wmB]`,
     `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
     // Gölge KALDIRILDI. Yeni mantık: merkezde daha saydam, kenara yaklaştıkça daha görünür.
-    // İki sabit-alpha watermark üret → sinüs “merkez/kenar” ölçüsüne göre arada blend et.
-    `[wmB][mask]alphamerge,split=2[wmLoSrc][wmHiSrc]`,
+    // Tek çıkış: dinamik alpha lut ile (eski split=2[wmHiSrc] bağlanmıyordu → graph hatası)
+    `[wmB][mask]alphamerge[wmLoSrc]`,
     // Merkezde daha saydam, kenarda daha görünür: alpha'yı doğrudan yeniden hesapla (blend expr sorunlarını önle)
     // geq RGB isimleri bu build'de sorun çıkarabiliyor; alpha'yı lut ile ölçekle.
     // val: mevcut alpha (0..255). kExpr: 0=merkez, 1=kenar.
