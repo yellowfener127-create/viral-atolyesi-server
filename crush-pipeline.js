@@ -11,11 +11,9 @@ const BASE_EDIT_SPEED = 1.1; // mevcut 1.10x hız
 const AUDIO_EXTS = new Set(['.mp3', '.m4a', '.wav', '.aac', '.ogg', '.flac']);
 
 const MOBILE_DEVICE_LABELS = [
-  'iPhone 15 Pro',
+  'iPhone 13',
   'iPhone 14',
-  'Google Pixel 8',
-  'Samsung Galaxy S24',
-  'Xiaomi 14'
+  'iPhone 15'
 ];
 
 function randRange(min, max) {
@@ -259,9 +257,8 @@ function pickSpeedRampFactor() {
 }
 
 function buildCreationTimeUtc() {
-  const now = Date.now();
-  const past = now - Math.floor(Math.random() * 14 * 24 * 60 * 60 * 1000);
-  const d = new Date(past);
+  // Her zaman işlem anı (şimdi)
+  const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   return (
     `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}` +
