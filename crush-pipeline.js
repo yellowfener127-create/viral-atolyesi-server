@@ -342,6 +342,10 @@ async function buildCrushRenderPlan(o) {
   // ikinci bileşen fazı hafif değişsin
   const phx2 = phx + randRange(-0.65, 0.65);
   const phy2 = phy + randRange(-0.65, 0.65);
+  const driftXExpr = `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phx.toFixed(4)})+0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phx2.toFixed(4)}))`;
+  const driftYExpr = `(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phy.toFixed(4)})+0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phy2.toFixed(4)}))`;
+  // k: 0=merkez, 1=kenar
+  const kExpr = `min(1,max(0,sqrt(pow(${driftXExpr},2)+pow(${driftYExpr},2))/1.12))`;
   const speedRamp = pickSpeedRampFactor();
   const effectiveSpeed = BASE_EDIT_SPEED * speedRamp;
   const inDur = clampDur(sourceDurSec, 1, 60);
@@ -435,27 +439,12 @@ async function buildCrushRenderPlan(o) {
     `[wmB][mask]alphamerge,split=2[wmLoSrc][wmHiSrc]`,
     `[wmLoSrc]colorchannelmixer=aa=${wmAlphaCenter.toFixed(4)}[wmLo]`,
     `[wmHiSrc]colorchannelmixer=aa=${wmAlphaEdge.toFixed(4)}[wmHi]`,
-    // k: 0=merkez, 1=kenar (aynı drift sinüslerinden türetilir)
-    // blend filtresinde ayrı bir k parametresi yok; k'yı all_expr içinde hesaplıyoruz.
-    `[wmLo][wmHi]blend=all_expr='` +
-      `A*(1-min(1,max(0,` +
-        `sqrt(` +
-          `pow(0.55*sin(2*PI*T/${driftT.toFixed(3)}+${phx.toFixed(4)})+0.45*sin(2*PI*T/${driftT2.toFixed(3)}+${phx2.toFixed(4)}),2)` +
-          `+pow(0.55*sin(2*PI*T/${driftT.toFixed(3)}+${phy.toFixed(4)})+0.45*sin(2*PI*T/${driftT2.toFixed(3)}+${phy2.toFixed(4)}),2)` +
-        `)/1.12` +
-      `)))` +
-      `)+` +
-      `B*min(1,max(0,` +
-        `sqrt(` +
-          `pow(0.55*sin(2*PI*T/${driftT.toFixed(3)}+${phx.toFixed(4)})+0.45*sin(2*PI*T/${driftT2.toFixed(3)}+${phx2.toFixed(4)}),2)` +
-          `+pow(0.55*sin(2*PI*T/${driftT.toFixed(3)}+${phy.toFixed(4)})+0.45*sin(2*PI*T/${driftT2.toFixed(3)}+${phy2.toFixed(4)}),2)` +
-        `)/1.12` +
-      `))'` +
-    `[wm]`,
+    // Merkezde daha saydam, kenarda daha görünür: wmLo (center) ↔ wmHi (edge) blend
+    `[wmLo][wmHi]blend=all_expr='A*(1-(${kExpr}))+B*(${kExpr})'[wm]`,
     // Akıcı drift (köşe→merkez→diğer kenar): aynı sinüs bileşenleri ile
     `[v1][wm]overlay=` +
-      `x='(W-w)/2 + (W-w)/2*(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phx.toFixed(4)}) + 0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phx2.toFixed(4)}))':` +
-      `y='(H-h)/2 + (H-h)/2*(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phy.toFixed(4)}) + 0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phy2.toFixed(4)}))':format=auto[v1m]`,
+      `x='(W-w)/2 + (W-w)/2*${driftXExpr}':` +
+      `y='(H-h)/2 + (H-h)/2*${driftYExpr}':format=auto[v1m]`,
     `[v1m]split=2[vA][vB]`,
     `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
     `[vA][vN]blend=all_mode=overlay:all_opacity=${noiseOpacity},format=yuv420p[vblend]`,
