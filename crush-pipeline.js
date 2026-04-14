@@ -42,6 +42,20 @@ function escapeDrawtextText(s) {
     .replace(/%/g, '\\%');
 }
 
+function resolveFfprobePath(ffmpegPath, explicit) {
+  if (explicit && typeof explicit === 'string' && explicit.trim()) return explicit.trim();
+  if (process.env.FFPROBE_PATH) return String(process.env.FFPROBE_PATH);
+  if (ffmpegPath && typeof ffmpegPath === 'string') {
+    try {
+      const dir = path.dirname(ffmpegPath);
+      const n = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe';
+      const p = path.join(dir, n);
+      if (fs.existsSync(p)) return p;
+    } catch {}
+  }
+  return 'ffprobe';
+}
+
 function brandFolderKey(brand) {
   const b = String(brand || 'terapi').toLowerCase();
   if (b === 'kaos') return 'kaos';
@@ -114,10 +128,11 @@ function probeDurationViaFfmpeg(ffmpegPath, filePath) {
 
 /** ffprobe varsa süre */
 function probeDurationViaFfprobe(ffprobePath, filePath) {
-  if (!ffprobePath || !fs.existsSync(ffprobePath)) return Promise.resolve(null);
+  if (!ffprobePath) return Promise.resolve(null);
+  const fp = resolveFfprobePath(null, ffprobePath);
   return new Promise((resolve) => {
     const child = spawn(
-      ffprobePath,
+      fp,
       [
         '-v',
         'error',
@@ -146,6 +161,51 @@ async function probeAudioDuration(ffmpegPath, ffprobePath, filePath) {
   const a = await probeDurationViaFfprobe(ffprobePath, filePath);
   if (a) return a;
   return probeDurationViaFfmpeg(ffmpegPath, filePath);
+}
+
+function parseRFrameRateToInt(rate) {
+  const s = String(rate || '').trim();
+  if (!s) return null;
+  const frac = s.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+  if (frac) {
+    const a = Number(frac[1]);
+    const b = Number(frac[2]);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b === 0) return null;
+    const v = a / b;
+    const r = Math.round(v);
+    return Number.isFinite(r) && r > 0 ? r : null;
+  }
+  const n = Number(s);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n);
+}
+
+async function probeOriginalFpsInt(ffmpegPath, ffprobePath, filePath) {
+  const fp = resolveFfprobePath(ffmpegPath, ffprobePath);
+  return await new Promise((resolve) => {
+    const child = spawn(
+      fp,
+      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=r_frame_rate', '-of', 'default=nw=1:nk=1', filePath],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+    let out = '';
+    child.stdout.on('data', (d) => {
+      out += d.toString();
+    });
+    child.on('error', () => resolve(null));
+    child.on('close', (code) => {
+      if (code !== 0) return resolve(null);
+      resolve(parseRFrameRateToInt(out));
+    });
+  });
+}
+
+function computeTargetFpsInt(orig) {
+  const o = Number(orig);
+  if (!Number.isFinite(o) || o <= 0) return 31;
+  if (o <= 30) return Math.min(62, Math.round(o) + 1);
+  if (o >= 55) return o <= 60 ? 61 : 62;
+  return Math.min(62, Math.round(o) + 1);
 }
 
 function probeHasAudioStream(ffmpegPath, filePath) {
@@ -256,6 +316,8 @@ async function buildCrushRenderPlan(o) {
     outW,
     outH,
     sourceDurSec,
+    hook,
+    coverBox,
     hasAudio,
     ffmpegPath,
     ffprobePath,
@@ -263,12 +325,20 @@ async function buildCrushRenderPlan(o) {
   } = o;
 
   const wmSize = outW >= 1080 ? 110 : 96;
-  const vx = 130;
-  const vy = 85;
+  // Watermark hareketi: izleyiciyi rahatsız etmeyecek yavaş/akıcı drift
+  const driftT = randRange(14, 22); // per-video periyot (sn)
+  const driftT2 = randRange(9, 15);
+  const phx = randRange(0, Math.PI * 2);
+  const phy = randRange(0, Math.PI * 2);
+  const phx2 = randRange(0, Math.PI * 2);
+  const phy2 = randRange(0, Math.PI * 2);
   const speedRamp = pickSpeedRampFactor();
   const effectiveSpeed = BASE_EDIT_SPEED * speedRamp;
   const inDur = clampDur(sourceDurSec, 1, 60);
   const outDur = Math.min(60, Math.max(1, inDur / effectiveSpeed));
+
+  const origFps = (await probeOriginalFpsInt(ffmpegPath, ffprobePath, inFile)) || 30;
+  const targetFps = computeTargetFpsInt(origFps);
 
   const edge = randInt(4, 6);
   const cropW = Math.max(16, outW - 2 * edge);
@@ -283,12 +353,33 @@ async function buildCrushRenderPlan(o) {
   const uniqAlpha = 0.08;
   const noiseOpacity = 0.005;
   const grainOpacity = 0.018;
+  // Watermark opaklığı: hafif “breathing” (okunabilir ama daha yumuşak)
+  const wmBaseAlpha = randRange(0.28, 0.40);
+  const wmBreathAmp = randRange(0.04, 0.08);
+  const wmBreathT = randRange(6, 10);
+  const wmBreathPh = randRange(0, Math.PI * 2);
 
   const hookText = pickHookText(brand);
-  const hookY = Math.round(randRange(110, 150));
+  // Director yoksa: istenen aralık (70–95) içinde konumlandır.
+  const hookY = Number.isFinite(hook?.y) ? Math.round(hook.y) : Math.round(randRange(70, 95));
+  const hookTextFinal = (hook && typeof hook.text === 'string' && hook.text.trim()) ? hook.text.trim() : hookText;
   const hookAlpha = randRange(0.88, 0.94);
   const barH = 110;
   const barY = Math.max(0, hookY - 36);
+  const boxOpacity =
+    typeof hook?.boxOpacity === 'number' && Number.isFinite(hook.boxOpacity)
+      ? Math.max(0, Math.min(1, hook.boxOpacity))
+      : 0.38;
+
+  const cover = coverBox && Number.isFinite(coverBox.y) && Number.isFinite(coverBox.h)
+    ? {
+        y: Math.max(0, Math.min(outH - 2, Math.round(coverBox.y))),
+        h: Math.max(2, Math.min(outH, Math.round(coverBox.h))),
+        opacity: typeof coverBox.opacity === 'number' && Number.isFinite(coverBox.opacity)
+          ? Math.max(0, Math.min(1, coverBox.opacity))
+          : 1
+      }
+    : null;
 
   const fontFile = pickExistingFontForDrawtext();
   const fontPart = fontFile
@@ -298,20 +389,29 @@ async function buildCrushRenderPlan(o) {
   const hookEnable = "between(t,0,3)";
 
   // hflip kapalı: yakılmış (burned-in) yazı pikseldir; altyazı akışı yoksa tespit edilemez, flip metni ters çevirir.
-  let vChain = `[0:v]setpts=PTS-STARTPTS,fps=30`;
+  let vChain = `[0:v]setpts=PTS-STARTPTS,fps=${targetFps}`;
   vChain +=
     `,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}` +
     `,crop=${cropW}:${cropH}:(iw-ow)/2:(ih-oh)/2` +
     `,scale=iw*${zoom.toFixed(4)}:ih*${zoom.toFixed(4)},crop=${outW}:${outH}` +
     `,eq=contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}:brightness=${brightness.toFixed(4)}` +
+    // Zoom kaynaklı yumuşamayı hafif toparla (çok agresif değil)
+    `,unsharp=5:5:0.70:3:3:0.35` +
     `,setsar=1,setpts=PTS/${effectiveSpeed.toFixed(6)},trim=0:${outDur.toFixed(3)},setpts=PTS-STARTPTS[v0]`;
 
   const parts = [
     vChain,
     `color=c=#${uniqHex}@${uniqAlpha}:s=${outW}x${outH}:d=1[uniq]`,
     `[v0][uniq]overlay=0:0:enable='eq(n,0)'[v0u]`,
-    `[v0u]drawbox=x=0:y=${barY}:w=iw:h=${barH}:color=black@0.38:t=fill:enable='${hookEnable}'[vbox]`,
-    `[vbox]drawtext=text='${escapeDrawtextText(hookText)}'${fontPart}:` +
+    ...(cover
+      ? [
+          `[v0u]drawbox=x=0:y=${cover.y}:w=iw:h=${cover.h}:color=black@${cover.opacity.toFixed(3)}:t=fill[vcover]`,
+          `[vcover]drawbox=x=0:y=${barY}:w=iw:h=${barH}:color=black@${boxOpacity.toFixed(3)}:t=fill:enable='${hookEnable}'[vbox]`
+        ]
+      : [
+          `[v0u]drawbox=x=0:y=${barY}:w=iw:h=${barH}:color=black@${boxOpacity.toFixed(3)}:t=fill:enable='${hookEnable}'[vbox]`
+        ]),
+    `[vbox]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
       `fontcolor=white@${hookAlpha.toFixed(3)}:fontsize=48:x=(w-text_w)/2:y=${hookY}:` +
       `enable='${hookEnable}'[v1]`,
     `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
@@ -319,16 +419,24 @@ async function buildCrushRenderPlan(o) {
       `rotate='0.15*sin(2*PI*t/1.2)':c=none:ow=iw:oh=ih[wm0]`,
     `[wm0]split=2[wmA][wmB]`,
     `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
-    `[wmB][mask]alphamerge,colorchannelmixer=aa=0.30[wm]`,
-    `[v1][wm]overlay=` +
-      `x='abs(mod(t*${vx},2*(W-w))-(W-w))':` +
-      `y='abs(mod(t*${vy},2*(H-h))-(H-h))':format=auto[v1m]`,
+    // Drop shadow + hafif breathing alpha
+    `[wmB][mask]alphamerge,split=2[wmS][wmF]`,
+    `[wmS]colorchannelmixer=aa=0.55,blur=2:1,format=rgba[wmSh]`,
+    `[wmF]colorchannelmixer=aa='min(1,max(0,${wmBaseAlpha.toFixed(4)}+${wmBreathAmp.toFixed(4)}*sin(2*PI*t/${wmBreathT.toFixed(3)}+${wmBreathPh.toFixed(4)})))'[wm]`,
+    // Akıcı drift: iki sinüs bileşeni ile (köşeden köşeye “zıplama” yerine yumuşak gezinme)
+    `[v1][wmSh]overlay=` +
+      `x='(W-w)/2 + (W-w)/2*(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phx.toFixed(4)}) + 0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phx2.toFixed(4)}))':` +
+      `y='(H-h)/2 + (H-h)/2*(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phy.toFixed(4)}) + 0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phy2.toFixed(4)}))':format=auto[v1s]`,
+    `[v1s][wm]overlay=` +
+      `x='(W-w)/2 + (W-w)/2*(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phx.toFixed(4)}) + 0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phx2.toFixed(4)})) + 2':` +
+      `y='(H-h)/2 + (H-h)/2*(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phy.toFixed(4)}) + 0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phy2.toFixed(4)})) + 2':format=auto[v1m]`,
     `[v1m]split=2[vA][vB]`,
     `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
     `[vA][vN]blend=all_mode=overlay:all_opacity=${noiseOpacity},format=yuv420p[vblend]`,
     `[vblend]split=2[vC][vD]`,
     `[vD]noise=alls=3:allf=t+u,format=yuv420p[vGrain]`,
-    `[vC][vGrain]blend=all_mode=overlay:all_opacity=${grainOpacity},format=yuv420p[v]`
+    `[vC][vGrain]blend=all_mode=overlay:all_opacity=${grainOpacity},format=yuv420p[vpre]`,
+    `[vpre]vignette=PI/10:eval=frame,format=yuv420p[v]`
   ];
 
   const semitone = -0.4;
@@ -425,15 +533,24 @@ async function buildCrushRenderPlan(o) {
     '-fps_mode',
     'cfr',
     '-r',
-    '30',
+    String(targetFps),
     '-c:v',
     'libx264',
     '-preset',
-    useRubberband ? 'ultrafast' : 'veryfast',
+    'slower',
     '-crf',
-    useRubberband ? '24' : '22',
+    '18',
     '-pix_fmt',
     'yuv420p',
+    // Bitrate’i sosyal medya standardının altına düşürme (yaklaşık 8–10 Mbps)
+    '-b:v',
+    '8M',
+    '-minrate',
+    '8M',
+    '-maxrate',
+    '10M',
+    '-bufsize',
+    '20M',
     '-movflags',
     '+faststart',
     ...buildMetadataArgs(),
@@ -446,6 +563,8 @@ async function buildCrushRenderPlan(o) {
       speedRamp,
       effectiveSpeed: Number(effectiveSpeed.toFixed(6)),
       horizontalFlip: false,
+      originalFps: origFps,
+      targetFps,
       edge,
       musicFile: musicFile && fs.existsSync(musicFile) ? path.basename(musicFile) : null,
       hookFont: fontFile ? path.basename(fontFile) : null

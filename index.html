@@ -266,6 +266,15 @@
 
   <div class="tools-grid">
 
+    <!-- Gemini API Key (Local Director) -->
+    <div class="tool-card">
+      <div class="tool-title">🧠 Gemini API Key (Local Director)</div>
+      <div class="tool-desc">Bu key sadece PC’de (Local Downloader) kullanılır. Kare + ses analiziyle hook konumunu/kaplama kutusunu iyileştirir.</div>
+      <input class="tool-input" type="password" id="geminiInput" placeholder="AIzaSy... Gemini API key"/>
+      <button class="tool-btn" type="button" id="geminiSaveBtn" onclick="saveGeminiKey()">Kaydet</button>
+      <div class="tool-result" id="geminiStatus" style="display:block;margin-top:10px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
     <!-- Telif Ezici (9:16 + watermark) -->
     <div class="tool-card">
       <div class="tool-title">🧨 Telif Ezici (9:16)</div>
@@ -619,17 +628,24 @@ async function crushVideo() {
     // Render KULLANMA: her zaman Local Downloader (PC'ye kaydet)
     msg.style.display = "block";
     msg.textContent = "Local Downloader ile hazırlanıyor (PC'ye kaydedilecek)…";
+    let geminiKey = "";
+    try { geminiKey = localStorage.getItem("gemini_api_key") || ""; } catch(e) {}
     const localRes = await fetch("http://127.0.0.1:8787/crush", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, brand })
+      body: JSON.stringify({ url, brand, geminiKey })
     });
     const localData = await localRes.json().catch(() => ({}));
     if (!localRes.ok || !localData.ok) {
       throw new Error((localData && localData.error) ? localData.error : "Local Downloader çalışmıyor (8787).");
     }
     msg.style.display = "block";
-    msg.textContent = "✅ PC'ye kaydedildi: " + (localData.savedTo || "") + "\\" + (localData.file || "");
+    const extra = localData.director?.ok
+      ? ("\\n🧠 Director: " + (localData.director.hasOldHook ? "Eski yazı var → kapatma kutusu" : "Eski yazı yok") +
+         (localData.director.caption ? ("\\nCaption: " + localData.director.caption) : "") +
+         (Array.isArray(localData.director.hashtags) ? ("\\nHashtags: " + localData.director.hashtags.join(" ")) : ""))
+      : "";
+    msg.textContent = "✅ PC'ye kaydedildi: " + (localData.savedTo || "") + "\\" + (localData.file || "") + extra;
   } catch (e) {
     msg.style.display = "block";
     msg.textContent = "Hata: " + (e.message || e);
@@ -676,7 +692,39 @@ window.onload = function() {
       document.getElementById("saveBtn").classList.add("saved");
     } else { setKeyStatus(false); }
   } catch(e) { setKeyStatus(false); }
+
+  try {
+    const g = localStorage.getItem("gemini_api_key");
+    const st = document.getElementById("geminiStatus");
+    if (g && g.length > 10) {
+      document.getElementById("geminiInput").value = g;
+      const b = document.getElementById("geminiSaveBtn");
+      b.textContent = "✓ Kaydedildi";
+      b.classList.add("saved");
+      if (st) st.textContent = "✅ Key kayıtlı (Local Director aktif).";
+    } else {
+      if (st) st.textContent = "Key yoksa Director analizi devre dışı (normal Telif Ezici).";
+    }
+  } catch(e) {}
 };
+
+function saveGeminiKey() {
+  const v = (document.getElementById("geminiInput").value || "").trim();
+  const st = document.getElementById("geminiStatus");
+  if (!v || v.length < 10) {
+    try { localStorage.removeItem("gemini_api_key"); } catch(e) {}
+    const b = document.getElementById("geminiSaveBtn");
+    b.textContent = "Kaydet";
+    b.classList.remove("saved");
+    if (st) st.textContent = "Key temizlendi. Director kapalı.";
+    return;
+  }
+  try { localStorage.setItem("gemini_api_key", v); } catch(e) {}
+  const b = document.getElementById("geminiSaveBtn");
+  b.textContent = "✓ Kaydedildi";
+  b.classList.add("saved");
+  if (st) st.textContent = "✅ Key kaydedildi (Local Director aktif).";
+}
 
 function setKeyStatus(hasKey) {
   const el = document.getElementById("keyStatus");
