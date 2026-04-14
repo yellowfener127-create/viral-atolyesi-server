@@ -429,7 +429,8 @@ async function buildCrushRenderPlan(o) {
     `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
     // Drop shadow + hafif breathing alpha
     `[wmB][mask]alphamerge,split=2[wmS][wmF]`,
-    `[wmS]colorchannelmixer=aa=0.55,blur=2:1,format=rgba[wmSh]`,
+    // Shadow blur: gblur is widely supported (avoid invalid blur params)
+    `[wmS]colorchannelmixer=aa=0.55,gblur=sigma=2:steps=1,format=rgba[wmSh]`,
     `[wmF]colorchannelmixer=aa='min(1,max(0,${wmBaseAlpha.toFixed(4)}+${wmBreathAmp.toFixed(4)}*sin(2*PI*t/${wmBreathT.toFixed(3)}+${wmBreathPh.toFixed(4)})))'[wm]`,
     // Akıcı drift: iki sinüs bileşeni ile (köşeden köşeye “zıplama” yerine yumuşak gezinme)
     `[v1][wmSh]overlay=` +
