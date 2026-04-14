@@ -300,6 +300,8 @@
       </select>
       <button class="tool-btn" type="button" id="crushBtn" onclick="crushVideo()">⚡ İndir + Telif Ez (9:16)</button>
       <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
+      <div class="tool-result" id="crushCaptionBox" style="display:none;margin-top:10px"></div>
+      <button class="tool-copy-btn" id="crushCaptionCopy" style="display:none" onclick="copyToolText('crushCaptionBox','crushCaptionCopy')">📋 Caption'ı Kopyala</button>
     </div>
 
     <!-- Global Caption (English Only) — Terapi/Kaos/Umut -->
@@ -640,12 +642,25 @@ async function crushVideo() {
       throw new Error((localData && localData.error) ? localData.error : "Local Downloader çalışmıyor (8787).");
     }
     msg.style.display = "block";
-    const extra = localData.director?.ok
-      ? ("\\n🧠 Director: " + (localData.director.hasOldHook ? "Eski yazı var → kapatma kutusu" : "Eski yazı yok") +
-         (localData.director.caption ? ("\\nCaption: " + localData.director.caption) : "") +
-         (Array.isArray(localData.director.hashtags) ? ("\\nHashtags: " + localData.director.hashtags.join(" ")) : ""))
-      : "";
-    msg.textContent = "✅ PC'ye kaydedildi: " + (localData.savedTo || "") + "\\" + (localData.file || "") + extra;
+    msg.textContent = "✅ PC'ye kaydedildi: " + (localData.savedTo || "") + "\\" + (localData.file || "");
+
+    // Caption entegrasyonu (Telif Ezici altında)
+    const capBox = document.getElementById("crushCaptionBox");
+    const capCopy = document.getElementById("crushCaptionCopy");
+    if (capBox) { capBox.style.display = "none"; capBox.textContent = ""; capBox.classList.remove("show"); }
+    if (capCopy) capCopy.style.display = "none";
+
+    if (localData.director?.ok) {
+      const cap = (localData.director.caption || "").trim();
+      const tags = Array.isArray(localData.director.hashtags) ? localData.director.hashtags : [];
+      const line = [cap, tags.join(" ")].filter(Boolean).join("\\n");
+      if (line && capBox && capCopy) {
+        capBox.textContent = line;
+        capBox.classList.add("show");
+        capBox.style.display = "block";
+        capCopy.style.display = "block";
+      }
+    }
   } catch (e) {
     msg.style.display = "block";
     msg.textContent = "Hata: " + (e.message || e);

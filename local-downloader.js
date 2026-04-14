@@ -81,8 +81,13 @@ GÖREV:
    - Yoksa: arka plan yarı saydam/gölgeli olabilir (0.30–0.50)
 5) Videonun \"Ranked\" / \"Listicle\" (liste/sıralama) içeriği olup olmadığını kontrol et.
    - Eğer ranked/listicle ise hook metninde sıralamaya atıf yap (örn: \"Wait for #1…\", \"The best is last…\", \"Top picks — #1 is wild\" gibi).
-6) Hook metin rengi için videonun genel tonuna zıt (yüksek kontrast) bir HEX renk öner (örn: \"#FFFFFF\", \"#FFD400\", \"#9BFF57\").
-6) Konsepte uygun 5–6 kelimelik etkileyici bir CAPTION ve 5 HASHTAG üret.
+6) Hook metnini ve caption’ı, videonun GÖRSEL konusuna doğrudan uygun üret:
+   - Düşme / fail / kaza / sakarlık / komik anlar → KAOS tarzı (chaos/fails) dil
+   - Tatlı / bebek / hayvan / sevimli anlar → TERAPİ tarzı (cute/wholesome) dil
+   - Motivasyon / başarı / insanlık → UMUT tarzı (hope/inspiration) dil
+   Genel geçer, alakasız “sweet end” gibi cümleler yazma. Karelerde gördüğün ana aksiyona odaklan.
+7) Hook metin rengi için videonun genel tonuna zıt (yüksek kontrast) bir HEX renk öner (örn: \"#FFFFFF\", \"#FFD400\", \"#9BFF57\").
+8) Konsepte uygun 5–6 kelimelik etkileyici bir CAPTION ve 5 HASHTAG üret.
 
 ÇIKTI FORMAT (SADECE JSON):
 {
@@ -663,31 +668,12 @@ app.post('/crush', async (req, res) => {
 
     const verify = await crush.selfCheckCrushOutput('ffmpeg', 'ffprobe', outFile);
 
-    // Thumbnail: video içinden rastgele yüksek kaliteli kare (referans için)
-    let thumbnail = null;
-    try {
-      const tPick = Math.max(0.2, Math.min( (plan.debug?.outDurSec || 999), randRange(0.35, 0.75) * Math.max(1, inDur / (plan.debug?.effectiveSpeed || 1)) ));
-      const thumbName = path.basename(outFile, path.extname(outFile)) + "_thumbnail.jpg";
-      const thumbPath = path.join(brandDir, thumbName);
-      await run('ffmpeg', [
-        '-y',
-        '-ss', String(tPick.toFixed(3)),
-        '-i', outFile,
-        '-frames:v', '1',
-        '-q:v', '2',
-        '-vf', 'scale=1080:-1',
-        thumbPath
-      ], { timeoutMs: 45_000 });
-      thumbnail = thumbName;
-    } catch {}
-
     return res.json({
       ok: true,
       savedTo: brandDir,
       file: path.basename(outFile),
       settings: plan.debug,
       verify,
-      thumbnail,
       director: director && director.error
         ? { ok: false, error: director.error }
         : director

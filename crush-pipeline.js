@@ -331,13 +331,17 @@ async function buildCrushRenderPlan(o) {
   } = o;
 
   const wmSize = outW >= 1080 ? 110 : 96;
-  // Watermark hareketi: izleyiciyi rahatsız etmeyecek yavaş/akıcı drift
+  // Watermark hareketi: yavaş/akıcı drift (başlangıçta kenar/köşe yakınında başlat)
   const driftT = randRange(14, 22); // per-video periyot (sn)
   const driftT2 = randRange(9, 15);
-  const phx = randRange(0, Math.PI * 2);
-  const phy = randRange(0, Math.PI * 2);
-  const phx2 = randRange(0, Math.PI * 2);
-  const phy2 = randRange(0, Math.PI * 2);
+  const sx0 = Math.random() < 0.5 ? -1 : 1;
+  const sy0 = Math.random() < 0.5 ? -1 : 1;
+  // sin(±pi/2)=±1 → başlangıçta kenara yakın
+  const phx = sx0 > 0 ? Math.PI / 2 : -Math.PI / 2;
+  const phy = sy0 > 0 ? Math.PI / 2 : -Math.PI / 2;
+  // ikinci bileşen fazı hafif değişsin
+  const phx2 = phx + randRange(-0.65, 0.65);
+  const phy2 = phy + randRange(-0.65, 0.65);
   const speedRamp = pickSpeedRampFactor();
   const effectiveSpeed = BASE_EDIT_SPEED * speedRamp;
   const inDur = clampDur(sourceDurSec, 1, 60);
@@ -359,8 +363,9 @@ async function buildCrushRenderPlan(o) {
   const uniqAlpha = 0.08;
   const noiseOpacity = 0.005;
   const grainOpacity = 0.018;
-  // Watermark opaklığı: sabit ama per-video değişken (FFmpeg colorchannelmixer aa expr kabul etmez)
-  const wmAlpha = randRange(0.28, 0.40);
+  // Watermark opaklığı: daha saydam (izleyiciyi rahatsız etmesin)
+  const wmAlphaEdge = randRange(0.20, 0.30); // kenarda “imza gibi”
+  const wmAlphaCenter = randRange(0.06, 0.12); // merkezde neredeyse görünmesin
 
   const hookText = pickHookText(brand);
   // Director yoksa: istenen aralık (70–95) içinde konumlandır.
@@ -391,7 +396,8 @@ async function buildCrushRenderPlan(o) {
     ? `:fontfile='${escapeDrawtextText(fontFile.replace(/\\/g, '/'))}'`
     : '';
 
-  const hookEnable = "between(t,0,3)";
+  // Eski başlık varsa maske + hook uzun sürsün (video boyunca); yoksa 3 sn
+  const hookEnable = cover ? "between(t,0,1e9)" : "between(t,0,3)";
 
   // hflip kapalı: yakılmış (burned-in) yazı pikseldir; altyazı akışı yoksa tespit edilemez, flip metni ters çevirir.
   let vChain = `[0:v]setpts=PTS-STARTPTS,fps=${targetFps}`;
@@ -424,18 +430,20 @@ async function buildCrushRenderPlan(o) {
       `rotate='0.15*sin(2*PI*t/1.2)':c=none:ow=iw:oh=ih[wm0]`,
     `[wm0]split=2[wmA][wmB]`,
     `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[mask]`,
-    // Drop shadow + hafif breathing alpha
-    `[wmB][mask]alphamerge,split=2[wmS][wmF]`,
-    // Shadow blur: gblur is widely supported (avoid invalid blur params)
-    `[wmS]colorchannelmixer=aa=0.55,gblur=sigma=2:steps=1,format=rgba[wmSh]`,
-    `[wmF]colorchannelmixer=aa=${wmAlpha.toFixed(4)}[wm]`,
-    // Akıcı drift: iki sinüs bileşeni ile (köşeden köşeye “zıplama” yerine yumuşak gezinme)
-    `[v1][wmSh]overlay=` +
+    // Gölge KALDIRILDI. Yeni mantık: merkezde daha saydam, kenara yaklaştıkça daha görünür.
+    // İki sabit-alpha watermark üret → sinüs “merkez/kenar” ölçüsüne göre arada blend et.
+    `[wmB][mask]alphamerge,split=2[wmLoSrc][wmHiSrc]`,
+    `[wmLoSrc]colorchannelmixer=aa=${wmAlphaCenter.toFixed(4)}[wmLo]`,
+    `[wmHiSrc]colorchannelmixer=aa=${wmAlphaEdge.toFixed(4)}[wmHi]`,
+    // k: 0=merkez, 1=kenar (aynı drift sinüslerinden türetilir)
+    `[wmLo][wmHi]blend=all_expr='A*(1-k)+B*k':k='min(1,max(0, sqrt(` +
+      `pow(0.55*sin(2*PI*T/${driftT.toFixed(3)}+${phx.toFixed(4)})+0.45*sin(2*PI*T/${driftT2.toFixed(3)}+${phx2.toFixed(4)}),2)` +
+      `+pow(0.55*sin(2*PI*T/${driftT.toFixed(3)}+${phy.toFixed(4)})+0.45*sin(2*PI*T/${driftT2.toFixed(3)}+${phy2.toFixed(4)}),2)` +
+      `)/1.12))'[wm]`,
+    // Akıcı drift (köşe→merkez→diğer kenar): aynı sinüs bileşenleri ile
+    `[v1][wm]overlay=` +
       `x='(W-w)/2 + (W-w)/2*(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phx.toFixed(4)}) + 0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phx2.toFixed(4)}))':` +
-      `y='(H-h)/2 + (H-h)/2*(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phy.toFixed(4)}) + 0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phy2.toFixed(4)}))':format=auto[v1s]`,
-    `[v1s][wm]overlay=` +
-      `x='(W-w)/2 + (W-w)/2*(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phx.toFixed(4)}) + 0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phx2.toFixed(4)})) + 2':` +
-      `y='(H-h)/2 + (H-h)/2*(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phy.toFixed(4)}) + 0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phy2.toFixed(4)})) + 2':format=auto[v1m]`,
+      `y='(H-h)/2 + (H-h)/2*(0.55*sin(2*PI*t/${driftT.toFixed(3)}+${phy.toFixed(4)}) + 0.45*sin(2*PI*t/${driftT2.toFixed(3)}+${phy2.toFixed(4)}))':format=auto[v1m]`,
     `[v1m]split=2[vA][vB]`,
     `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
     `[vA][vN]blend=all_mode=overlay:all_opacity=${noiseOpacity},format=yuv420p[vblend]`,
