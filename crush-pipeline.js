@@ -384,8 +384,9 @@ async function buildCrushRenderPlan(o) {
   const hookColorPool = ['#FFFFFF', '#FFD400', '#9BFF57']; // Beyaz / Sarı / Açık yeşil
   const hookColor = sanitizeHexColor(hook?.color, pickOne(hookColorPool));
   const hookAlpha = randRange(0.88, 0.94);
-  const barH = 110;
-  const barY = Math.max(0, hookY - 36);
+  // Üst siyah şerit: video yüksekliğinin %10'u (90–100 bandı). Tam opak.
+  const topBannerH = Math.max(2, Math.round(outH * 0.10));
+  const topTextY = Math.max(0, Math.round((topBannerH - 56) / 2)); // fontsize≈48 için güvenli merkezleme
   const boxOpacity =
     typeof hook?.boxOpacity === 'number' && Number.isFinite(hook.boxOpacity)
       ? Math.max(0, Math.min(1, hook.boxOpacity))
@@ -406,11 +407,10 @@ async function buildCrushRenderPlan(o) {
     ? `:fontfile='${escapeDrawtextText(fontFile.replace(/\\/g, '/'))}'`
     : '';
 
-  // Eski başlık varsa maske + hook uzun sürsün (video boyunca); yoksa 3 sn
-  const hookEnable = cover ? "between(t,0,1e9)" : "between(t,0,3)";
-  // Eski yazı kapatma: tam genişlik W, tam opak siyah (saydam yok)
+  // Yeni kural: eski yazı olsa da olmasa da üst şerit her zaman var ve opak.
+  // Hook yazısı da her zaman bu şeritte ve saydam değil.
+  const hookEnable = "between(t,0,1e9)";
   const coverFillOpacity = cover ? 1.0 : 0;
-  const hookBarOpacityFinal = cover ? 1.0 : boxOpacity;
 
   // hflip kapalı: yakılmış (burned-in) yazı pikseldir; altyazı akışı yoksa tespit edilemez, flip metni ters çevirir.
   let vChain = `[0:v]setpts=PTS-STARTPTS,fps=${targetFps}`;
@@ -428,15 +428,12 @@ async function buildCrushRenderPlan(o) {
     `color=c=#${uniqHex}@${uniqAlpha}:s=${outW}x${outH}:d=1[uniq]`,
     `[v0][uniq]overlay=0:0:enable='eq(n,0)'[v0u]`,
     ...(cover
-      ? [
-          `[v0u]drawbox=x=0:y=${cover.y}:w=${outW}:h=${cover.h}:color=black@${coverFillOpacity.toFixed(3)}:t=fill[vcover]`,
-          `[vcover]drawbox=x=0:y=${barY}:w=${outW}:h=${barH}:color=black@${hookBarOpacityFinal.toFixed(3)}:t=fill:enable='${hookEnable}'[vbox]`
-        ]
-      : [
-          `[v0u]drawbox=x=0:y=${barY}:w=iw:h=${barH}:color=black@${boxOpacity.toFixed(3)}:t=fill:enable='${hookEnable}'[vbox]`
-        ]),
-    `[vbox]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
-      `fontcolor=${hookColor}@${hookAlpha.toFixed(3)}:fontsize=48:x=(w-text_w)/2:y=${hookY}:` +
+      ? [`[v0u]drawbox=x=0:y=${cover.y}:w=${outW}:h=${cover.h}:color=black@${coverFillOpacity.toFixed(3)}:t=fill[vcover]`]
+      : []),
+    // Üst şerit (her zaman)
+    `${cover ? '[vcover]' : '[v0u]'}drawbox=x=0:y=0:w=${outW}:h=${topBannerH}:color=black@1.000:t=fill[vtop]`,
+    `[vtop]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
+      `fontcolor=${hookColor}@${hookAlpha.toFixed(3)}:fontsize=48:x=(w-text_w)/2:y=${topTextY}:` +
       `enable='${hookEnable}'[v1]`,
     `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
       `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +

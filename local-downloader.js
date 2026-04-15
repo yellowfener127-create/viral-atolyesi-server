@@ -775,6 +775,7 @@ app.post('/crush', async (req, res) => {
       file: path.basename(outFile),
       settings: plan.debug,
       verify,
+      geminiAttempted: !!(geminiKey && String(geminiKey).trim().length >= 10),
       director: director && director.error
         ? { ok: false, error: director.error }
         : director
