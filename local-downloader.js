@@ -100,36 +100,67 @@ async function geminiDirectorAnalyze({ geminiKey, brand, framePaths, audioPath }
         : 'TERAPİ: Çocuk, köpek, tatlı ve komik anlar, huzur odaklı.';
 
   const prompt =
-`Sen bir \"AI Director\"sun. Konsept:
+`Sistemin beyni olan "Viral Atölyesi AI Director v3.0" olarak görevlendirildin.
+
+ELİNDEKİ KISITLI VERİ (KURAL):
+- 10 adet JPEG kare var. İlk 3 kare ilk ~2 saniyeden alınmış (metin yakalama için).
+- Kalan 7 kare videonun geri kalanına dağılmış (aksiyon/hikaye için).
+- Ayrıca kısa bir ses önizlemesi var (tek kanallı, düşük bitrate).
+- Tam videoyu izlemiyorsun. Bu yüzden sadece bu ipuçlarıyla en iyi tahmini yap.
+
+KONSEPT (SAPMA YASAK):
 ${concept}
 
-KRİTİK — GÖRDÜKLERİN:
-- Tam videoyu izlemiyorsun. Sadece 5 adet JPEG kare (videonun yaklaşık %10, %25, %50, %75, %90 sürelerinde) ve en fazla ~12 sn’lik tek kanallı ses önizlemesi var.
-- Bu yüzden “videoyu okuyamıyor” gibi hissettiren şey normal: senin görevin bu karelerde ve sesteki ipuçlarıyla en iyi çıkarımı yapmak.
-- Karelerde net göremediğin bir şeyi kesinmiş gibi yazma. Şüpheliyse hook’u daha genel ama yine de karelerle uyumlu tut.
-- Eğer karelerde belirgin bir aksiyon göremiyorsan, ses kaydındaki tepkilere (çığlık, gülme, çarpma sesi) odaklan ve başlığı ona göre kurgula. Örnek: kaykayda net görüntü yoksa bile “pat” / çarpma sesi düşme veya sert iniş sinyali olabilir.
-- Hook (newHook.text) İngilizce olsun; 4–9 kelime; karelerde gördüğün somut aksiyona/ortama veya ses ipuçlarına değsin (nesne, yer, hareket, ses). “sweet end / wait for the end” gibi jenerik viral cümlelerden kaçın.
+ANALİZ PROTOKOLÜ:
+1) İlk 3 karede METİN ara (üst/orta). Varsa bu “İmha Bölgesi”dir.
+2) Kalan 7 karede AKSİYON/HİKAYE ara (düşme, çarpma, koşma, sarılma, kurtarma, vb.).
+3) Ses önizlemesinde PİKLERİ ara (pat/çarpma, gülme, çığlık). Görsel net değilse ses ipucuna ağırlık ver.
 
-GÖREV:
-1) Karelerde videoya yakılmış bir yazı/başlık (hook) var mı?
-2) Varsa: yaklaşık dikey konumunu (yPct, hPct, 0–100) tahmin et; yeni başlık kutusu bunu kapatsın.
-3) Yoksa: yeni hook Y konumu 70–95 (üst bölge, piksel mantığı kullanıcıda).
-4) Arka plan: eski yazı varsa kutu opak 1.0; yoksa 0.30–0.50.
-5) Ranked/listicle mi? Evetse hook’ta sıraya gönderme yap (“Wait for #1…” vb.).
-6) Kontrast için hookColor: #RRGGBB.
-7) Caption: 5–6 kelime İngilizce; 5 hashtag.
+JENERİK YASAKLAR (KESİN):
+Hook şu kalıpları içeremez: "wait for it", "wait for the end", "watch until the end", "amazing end", "sweet end" (ve benzerleri).
 
-ÇIKTI: SADECE geçerli JSON (başka metin yok):
+SOMUTLUK ŞARTI (KESİN):
+Hook İngilizce olacak ve mutlaka 1 SOMUT NESNE veya 1 SOMUT EYLEM kelimesi içerecek.
+Örnek nesne: skateboard, dog, baby, car, stairs, door, bike, ball
+Örnek eylem: slips, crashes, falls, lands, saves, hits, drops, flips
+
+RANKED/LISTICLE KURALI:
+Karelerde 1/2/3 gibi sıralama veya "ranked/top" vb. görüyorsan isListicle=true yap.
+Bu durumda hook’ta #1 referansı kullanabilirsin ama yine SOMUT NESNEYİ yazmak zorundasın.
+
+MASKELME (OLD HOOK) — SERT İMHA:
+Eğer hasOldHook=true ise görevin o eski yazıyı “süslemek” değil, tamamen YOK ETMEK:
+- newHook.boxOpacity = 1.0 (tam opak)
+- newHook.yPx eski yazıyı ortalayacak şekilde 70–130 aralığında olmalı
+
+ÇIKTI KURALI (KESİN):
+- SADECE JSON döndür. Başka hiçbir metin, açıklama, markdown, code fence, “|”, aralık, placeholder yazma.
+- Aşağıdaki şema DIŞINA çıkma. Anahtar isimleri birebir aynı olmalı.
+
+ZORUNLU JSON ŞEMASI:
 {
-  \"hasOldHook\": true,
-  \"oldHook\": {\"yPct\": 10, \"hPct\": 12},
-  \"newHook\": {\"text\": \"Example hook text\", \"yPx\": 82, \"boxOpacity\": 0.42},
-  \"isListicle\": false,
-  \"rankHookHint\": null,
-  \"hookColor\": \"#FFD400\",
-  \"caption\": \"Short caption here\",
-  \"hashtags\": [\"#a\",\"#b\",\"#c\",\"#d\",\"#e\"]
-}`;
+  "hasOldHook": boolean,
+  "oldHook": {"yPct": number, "hPct": number} | null,
+  "newHook": {"text": string, "yPx": number, "boxOpacity": number},
+  "isListicle": boolean,
+  "rankHookHint": string | null,
+  "hookColor": string,
+  "caption": string,
+  "hashtags": string[5]
+}
+
+KOŞULLU ŞARTLAR (KESİN):
+1) hasOldHook=true => oldHook NULL OLAMAZ ve newHook.boxOpacity 1.0 olmalı
+2) hasOldHook=false => oldHook NULL OLMALI ve newHook.boxOpacity 0.30–0.50 arası olmalı
+3) hasOldHook=false => newHook.yPx 70–95 arası olmalı
+4) hasOldHook=true  => newHook.yPx 70–130 arası olmalı
+5) hookColor mutlaka "#RRGGBB" formatında olmalı (örn: #FFFFFF, #FFD400, #9BFF57)
+6) hashtags dizisi TAM 5 eleman olmalı ve her biri "#tag" formatında olmalı
+
+NOT:
+Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/impact/surprise hook’u üret; ama yine de jenerik yasaklara uy.
+
+ŞİMDİ SADECE JSON DÖNDÜR.`;
 
   const parts = [{ text: prompt }];
   for (const p of framePaths || []) {
@@ -184,8 +215,10 @@ function normalizeDirectorResult(raw, outH, brand) {
   const yPxRaw = newHook ? (newHook.yPx ?? newHook.y_px ?? newHook.y ?? null) : null;
   let yPx = Number.isFinite(Number(yPxRaw)) ? Number(yPxRaw) : null;
   if (yPx != null) {
-    // sadece istenen aralıkta tut (70–95)
-    yPx = Math.max(70, Math.min(95, yPx));
+    // sadece istenen aralıkta tut
+    // oldHook varsa: 70–130, yoksa: 70–95
+    const hi = hasOriginal ? 130 : 95;
+    yPx = Math.max(70, Math.min(hi, yPx));
   }
   const boxOpacityRaw = newHook ? (newHook.boxOpacity ?? newHook.box_opacity ?? null) : null;
   let boxOpacity = Number.isFinite(Number(boxOpacityRaw)) ? Number(boxOpacityRaw) : null;
@@ -228,7 +261,7 @@ function normalizeDirectorResult(raw, outH, brand) {
   };
 
   // y yoksa fallback 70–95
-  if (!Number.isFinite(out.newHook.yPx)) out.newHook.yPx = randRange(70, 95);
+  if (!Number.isFinite(out.newHook.yPx)) out.newHook.yPx = randRange(70, hasOriginal ? 130 : 95);
   // boxOpacity yoksa: eski yazı yoksa 0.30–0.50
   if (!Number.isFinite(out.newHook.boxOpacity)) out.newHook.boxOpacity = randRange(0.30, 0.50);
   if (hasOriginal) out.newHook.boxOpacity = 1;
@@ -608,8 +641,23 @@ app.post('/crush', async (req, res) => {
     const tmpArtifacts = [];
     try {
       const t = inDur;
-      const times = [0.1, 0.25, 0.5, 0.75, 0.9].map((k) => Math.max(0, Math.min(t - 0.05, t * k)));
-      const frames = times.map((_, i) => path.join(tmpDir, `frame_${i + 1}.jpg`));
+      // 10 kare:
+      // - ilk 3 kare ilk ~2 saniyeden (eski yazıyı yakalamak için)
+      // - kalan 7 kare 2sn → sona kadar eşit dağıt
+      const early = [0.15, 0.90, 1.70].map((sec) => Math.max(0, Math.min(t - 0.05, sec)));
+      const restStart = Math.min(Math.max(2.0, 0), Math.max(0, t - 0.05));
+      const restEnd = Math.max(restStart, t - 0.05);
+      const restCount = 7;
+      const rest = [];
+      if (restCount > 0) {
+        const span = Math.max(0.001, restEnd - restStart);
+        for (let i = 0; i < restCount; i++) {
+          const k = restCount === 1 ? 0.5 : (i / (restCount - 1));
+          rest.push(restStart + span * k);
+        }
+      }
+      const times = [...early, ...rest].slice(0, 10).map((sec) => Math.max(0, Math.min(t - 0.05, sec)));
+      const frames = times.map((_, i) => path.join(tmpDir, `frame_${String(i + 1).padStart(2, '0')}.jpg`));
       for (let i = 0; i < times.length; i++) {
         await ffmpegExtractFrame(inFile, frames[i], times[i]);
       }
@@ -638,14 +686,29 @@ app.post('/crush', async (req, res) => {
         color: director.hookColor || null
       };
       if (director.hasOriginalHook && director.oldHook && Number.isFinite(director.oldHook.yPct) && Number.isFinite(director.oldHook.hPct)) {
+        // Strict masking:
+        // - opaklık her koşulda 1.0
+        // - genişlik tam video (outW)
+        // - yükseklik: Gemini hPct + %20 güvenlik payı
+        const baseY = outH * (Number(director.oldHook.yPct) / 100);
+        const baseH = outH * (Number(director.oldHook.hPct) / 100);
+        const safeH = Math.max(2, baseH * 1.2);
+        // Y merkezini koru: yükseklik büyüdüyse yukarı taşı
+        const safeY = baseY - (safeH - baseH) / 2;
+
         coverBox = {
-          y: (outH * (Number(director.oldHook.yPct) / 100)),
-          h: (outH * (Number(director.oldHook.hPct) / 100)),
+          y: safeY,
+          h: safeH,
           w: outW,
           opacity: 1
         };
-        // Eski yazı varsa hook şeridi de tam opak (render’da da aynı şekilde zorlanır)
-        if (hook) hook.boxOpacity = 1;
+
+        // Hook'u eski yazının ortasına hizala (banner içinde)
+        if (hook) {
+          hook.boxOpacity = 1;
+          const centered = safeY + safeH / 2 - 24;
+          hook.y = clamp(centered, 70, 130);
+        }
       }
       // Eski yazı yoksa: 70–95 arası random (Gemini yanlış/vermemişse)
       if (!director.hasOriginalHook && (!Number.isFinite(hook.y) || hook.y < 70 || hook.y > 95)) {
