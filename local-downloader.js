@@ -32,6 +32,136 @@ function pickOne(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+function getDirectorCachePath() {
+  return path.join(DOWNLOAD_DIR, '.va_director_cache_v1.json');
+}
+
+function loadDirectorCache() {
+  try {
+    const p = getDirectorCachePath();
+    if (!fs.existsSync(p)) return { hooks: [], captions: [] };
+    const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+    return {
+      hooks: Array.isArray(j.hooks) ? j.hooks : [],
+      captions: Array.isArray(j.captions) ? j.captions : []
+    };
+  } catch {
+    return { hooks: [], captions: [] };
+  }
+}
+
+function saveDirectorCache(cache) {
+  try {
+    fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
+    fs.writeFileSync(getDirectorCachePath(), JSON.stringify(cache || {}, null, 2), 'utf8');
+  } catch {}
+}
+
+function normTextKey(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function isRecentlyUsed(list, text, windowSize = 160) {
+  const key = normTextKey(text);
+  if (!key) return false;
+  const recent = (list || []).slice(-windowSize);
+  return recent.includes(key);
+}
+
+function rememberUsed(cache, kind, text, maxKeep = 400) {
+  const key = normTextKey(text);
+  if (!key) return;
+  if (!cache[kind]) cache[kind] = [];
+  cache[kind].push(key);
+  if (cache[kind].length > maxKeep) cache[kind] = cache[kind].slice(-maxKeep);
+}
+
+function makeVideoSpecificHashtagFromHook(hookText) {
+  const stop = new Set([
+    'the','a','an','and','or','to','of','in','on','for','with','this','that','these','those',
+    'is','are','was','were','be','been','being','so','too','very','just','really','crazy','best',
+    'wait','watch','ending','end','moment','moments','ranking','ranked','top','baby','dads','dad'
+  ]);
+  const words = String(hookText || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s#]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter(w => !stop.has(w) && !/^#/.test(w));
+  const w = words[0] || '';
+  const cleaned = w.replace(/[^a-z0-9]/g, '');
+  if (!cleaned) return '#viral';
+  return ('#' + cleaned).slice(0, 24);
+}
+
+function ensureHashtagPack(brand, hookText, hashtags) {
+  const specific = makeVideoSpecificHashtagFromHook(hookText);
+  const base4 = fallbackHashtagsForBrand(brand).slice(0, 4);
+  return [specific, ...base4];
+}
+
+function makeUniqueHook(brand, base, cache, isListicle) {
+  const b = String(brand || 'terapi').toLowerCase();
+  const core = String(base || '').trim();
+  const listicleHints = [
+    'Best one is #1',
+    'Wait for #1',
+    '#1 is unreal'
+  ];
+  const kaos = [
+    'That crash was brutal',
+    'Instant regret moment',
+    'This went so wrong',
+    'One slip, pure chaos'
+  ];
+  const terapi = [
+    'Too cute to be real',
+    'This is pure joy',
+    'The sweetest little moment',
+    'My heart can’t handle this'
+  ];
+  const umut = [
+    'This is why hope matters',
+    'Humanity still wins',
+    'A win you can feel',
+    'Faith restored today'
+  ];
+  const pool = (b === 'kaos') ? kaos : (b === 'umut' ? umut : terapi);
+
+  const candidates = [];
+  if (core) candidates.push(core);
+  // small structured variations to avoid repeats
+  for (const p of pool) candidates.push(p);
+  if (isListicle) for (const p of listicleHints) candidates.push(p);
+
+  // pick first that is not recently used; else fall back to random
+  for (const c of candidates) {
+    if (!isRecentlyUsed(cache.hooks, c)) return c;
+  }
+  return pickOne(candidates);
+}
+
+function makeUniqueCaption(brand, base, cache) {
+  const core = String(base || '').trim();
+  const pool = [
+    fallbackCaptionForBrand(brand),
+    'You can’t make this up',
+    'I’m not okay after this',
+    'This is your sign today'
+  ];
+  const candidates = [];
+  if (core) candidates.push(core);
+  candidates.push(...pool);
+  for (const c of candidates) {
+    if (!isRecentlyUsed(cache.captions, c)) return c;
+  }
+  return pickOne(candidates);
+}
+
 function fallbackHookTextForBrand(brand) {
   const b = String(brand || 'terapi').toLowerCase();
   if (b === 'kaos') {
@@ -771,15 +901,30 @@ app.post('/crush', async (req, res) => {
     // Gemini sonucu: eski yazı varsa opak kapatma kutusu + hook y/text
     let hook = null;
     let coverBox = null;
+    let finalCaption = '';
+    let finalHashtags = [];
+    const cache = loadDirectorCache();
+
     if (director && !director.error && director.newHook) {
+      const isListicle = !!director.isListicle;
+      const hookBase = String(director.newHook.text || '').trim();
+      const hookText = makeUniqueHook(brand, hookBase, cache, isListicle);
       hook = {
-        text: director.newHook.text,
+        text: hookText,
         // bannerY: 0=ALT, 100=ÜST → ffmpeg y=0 üst olduğu için ters çevir
         bannerY: outH * (1 - (Number(director.newHook.yPx) / 100)),
         y: Number(director.newHook.yPx),
         boxOpacity: Number(director.newHook.boxOpacity),
         color: director.hookColor || null
       };
+
+      finalCaption = makeUniqueCaption(brand, director.caption || '', cache);
+      finalHashtags = ensureHashtagPack(brand, hookText, director.hashtags);
+
+      rememberUsed(cache, 'hooks', hookText);
+      rememberUsed(cache, 'captions', finalCaption);
+      saveDirectorCache(cache);
+
       if (director.hasOriginalHook && director.oldHook && Number.isFinite(director.oldHook.yPct) && Number.isFinite(director.oldHook.hPct)) {
         // Strict masking:
         // - opaklık her koşulda 1.0
@@ -812,11 +957,14 @@ app.post('/crush', async (req, res) => {
       }
     } else {
       // Fallback (Gemini hata/timeout): kod çökmesin, render devam etsin
-      hook = { text: fallbackHookTextForBrand(brand), bannerY: 0, y: 95, boxOpacity: 1, color: null };
-      director = {
-        caption: fallbackCaptionForBrand(brand),
-        hashtags: fallbackHashtagsForBrand(brand)
-      };
+      const hookText = makeUniqueHook(brand, fallbackHookTextForBrand(brand), cache, false);
+      hook = { text: hookText, bannerY: 0, y: 95, boxOpacity: 1, color: null };
+      finalCaption = makeUniqueCaption(brand, fallbackCaptionForBrand(brand), cache);
+      finalHashtags = ensureHashtagPack(brand, hookText, null);
+      rememberUsed(cache, 'hooks', hookText);
+      rememberUsed(cache, 'captions', finalCaption);
+      saveDirectorCache(cache);
+      director = { caption: finalCaption, hashtags: finalHashtags };
     }
 
     const runFfmpeg = async (plan) => {
@@ -878,7 +1026,7 @@ app.post('/crush', async (req, res) => {
       director: director && director.error
         ? { ok: false, error: director.error }
         : director
-          ? { ok: true, ...director }
+          ? { ok: true, ...director, caption: (finalCaption || director.caption || ''), hashtags: (finalHashtags && finalHashtags.length ? finalHashtags : director.hashtags) }
           : { ok: false, error: 'Gemini key yok veya analiz çalışmadı' },
       musicDir: crush.getCrushMusicDir(PUBLIC_DIR, brand),
       musicHint:
