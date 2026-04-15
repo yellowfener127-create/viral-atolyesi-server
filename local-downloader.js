@@ -91,6 +91,24 @@ function fileToInlineData(filePath, mimeType) {
   return { inlineData: { mimeType, data: buf.toString('base64') } };
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms || 0)));
+}
+
+function isGeminiRateLimitError({ status, message, json }) {
+  const msg = String(message || '');
+  const jmsg = json && (json.error?.message || json.error);
+  const s = String(jmsg || '');
+  const merged = (msg + '\n' + s).toLowerCase();
+  return (
+    status === 429 ||
+    /resource_exhausted/.test(merged) ||
+    /rate limit/.test(merged) ||
+    /quota exceeded/.test(merged) ||
+    /exceeded your current quota/.test(merged)
+  );
+}
+
 async function geminiDirectorAnalyze({ geminiKey, brand, framePaths, audioPath }) {
   if (!geminiKey || String(geminiKey).trim().length < 10) return null;
 
@@ -184,22 +202,67 @@ Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/im
   };
 
   const url = `${GEMINI_ENDPOINT}?key=${encodeURIComponent(String(geminiKey).trim())}`;
-  const ac = new AbortController();
-  const t = setTimeout(() => {
-    try { ac.abort(); } catch {}
-  }, 28_000);
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: ac.signal
-  }).finally(() => clearTimeout(t));
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((j && (j.error?.message || j.error)) ? (j.error.message || j.error) : `Gemini HTTP ${r.status}`);
+  // Rate Limit Kurtarma:
+  // 429 / Quota hatasında süreci durdurma; 45 sn bekle ve aynı isteği tekrar dene.
+  // En fazla 3 deneme (toplam).
+  const maxAttempts = 3;
+  const retryWaitMs = 45_000;
+  let lastErr = null;
 
-  const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('').trim();
-  const parsed = safeJsonParse(stripJsonFences(text));
-  return parsed || null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const ac = new AbortController();
+    const t = setTimeout(() => {
+      try { ac.abort(); } catch {}
+    }, 28_000);
+
+    let r = null;
+    let j = {};
+    try {
+      r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: ac.signal
+      }).finally(() => clearTimeout(t));
+
+      j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const msg = (j && (j.error?.message || j.error)) ? (j.error.message || j.error) : `Gemini HTTP ${r.status}`;
+        const err = new Error(msg);
+        err.httpStatus = r.status;
+        err.geminiJson = j;
+        throw err;
+      }
+
+      const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('').trim();
+      const parsed = safeJsonParse(stripJsonFences(text));
+      return parsed || null;
+    } catch (e) {
+      lastErr = e;
+      const status = Number(e?.httpStatus) || Number(r?.status) || null;
+      const message = (e && e.message) ? e.message : String(e);
+      if (attempt < maxAttempts && isGeminiRateLimitError({ status, message, json: e?.geminiJson || j })) {
+        console.log('[Gemini Quota] Kota doldu, 45 saniye bekleniyor ve tekrar denenecek....');
+        await sleep(retryWaitMs);
+        continue;
+      }
+      break;
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  // 3 deneme sonunda hala kota/rate-limit ise videoyu pas geç: Gemini yokmuş gibi devam et.
+  // (Render devam eder; UI'da director.ok=false olarak görülecek.)
+  if (lastErr) {
+    const status = Number(lastErr?.httpStatus) || null;
+    const message = (lastErr && lastErr.message) ? lastErr.message : String(lastErr);
+    if (isGeminiRateLimitError({ status, message, json: lastErr?.geminiJson })) {
+      return null;
+    }
+    throw lastErr;
+  }
+  return null;
 }
 
 function normalizeDirectorResult(raw, outH, brand) {
