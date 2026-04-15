@@ -100,8 +100,29 @@ function makeVideoSpecificHashtagFromHook(hookText) {
 
 function ensureHashtagPack(brand, hookText, hashtags) {
   const specific = makeVideoSpecificHashtagFromHook(hookText);
-  const base4 = fallbackHashtagsForBrand(brand).slice(0, 4);
-  return [specific, ...base4];
+  const base = fallbackHashtagsForBrand(brand);
+  const base4 = base.filter(Boolean).map(String).slice(0, 4);
+  const all = [specific, ...base4].filter(Boolean);
+  // uniq + keep order, ensure 5
+  const uniq = [];
+  const seen = new Set();
+  for (const t of all) {
+    const k = String(t).toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    uniq.push(String(t));
+    if (uniq.length >= 5) break;
+  }
+  // if specific collapsed to #viral etc, top up with base tags
+  for (const t of base) {
+    const k = String(t).toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    uniq.push(String(t));
+    if (uniq.length >= 5) break;
+  }
+  while (uniq.length < 5) uniq.push('#viral');
+  return uniq.slice(0, 5);
 }
 
 function makeUniqueHook(brand, base, cache, isListicle) {
@@ -160,6 +181,78 @@ function makeUniqueCaption(brand, base, cache) {
     if (!isRecentlyUsed(cache.captions, c)) return c;
   }
   return pickOne(candidates);
+}
+
+function looksGenericHook(s) {
+  const t = normTextKey(s);
+  if (!t) return true;
+  const banned = [
+    'wait for it',
+    'wait for the end',
+    'watch until the end',
+    'amazing end',
+    'sweet end',
+    'end is crazy',
+    'ending is crazy'
+  ];
+  return banned.some((b) => t.includes(b));
+}
+
+function extractKeywordsFromTitle(title) {
+  const t = String(title || '').toLowerCase();
+  const raw = t.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+  const stop = new Set([
+    'the','a','an','and','or','to','of','in','on','for','with','this','that','these','those',
+    'is','are','was','were','be','been','being','so','too','very','just','really','crazy','best',
+    'wait','watch','ending','end','moment','moments','ranking','ranked','top','baby','dads','dad',
+    'shorts','reels','tiktok','viral','compilation','clips'
+  ]);
+  const keep = [];
+  for (const w of raw) {
+    if (stop.has(w)) continue;
+    if (w.length < 3) continue;
+    keep.push(w);
+    if (keep.length >= 6) break;
+  }
+  return keep;
+}
+
+function buildHookFromTitle({ title, isListicle }) {
+  const kw = extractKeywordsFromTitle(title);
+  const subject = kw[0] || '';
+  if (!subject) return '';
+  if (isListicle) {
+    return `Best ${subject} moment — #1`;
+  }
+  return `${subject} moment you can’t ignore`;
+}
+
+async function ytDlpGetTitle(url) {
+  return await new Promise((resolve) => {
+    try {
+      const child = spawn('yt-dlp', ['--no-playlist', '--print', '%(title)s', url], { stdio: ['ignore', 'pipe', 'ignore'] });
+      let out = '';
+      const t = setTimeout(() => {
+        try {
+          if (process.platform === 'win32' && child.pid) {
+            try { spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch {}
+          }
+          child.kill();
+        } catch {}
+        resolve('');
+      }, 45_000);
+      child.stdout.on('data', (d) => { out += d.toString(); });
+      child.on('close', () => { clearTimeout(t); resolve(String(out || '').trim()); });
+      child.on('error', () => { clearTimeout(t); resolve(''); });
+    } catch {
+      resolve('');
+    }
+  });
+}
+
+function guessListicleFromTitle(title) {
+  const t = String(title || '').toLowerCase();
+  return /(^|\s)(top|rank|ranking|ranked|#\s*1|#1|1\.)/.test(t);
 }
 
 function fallbackHookTextForBrand(brand) {
@@ -807,6 +900,8 @@ app.post('/crush', async (req, res) => {
 
   try {
     const metaDur = await ytDlpGetDurationSec(url);
+    const metaTitle = await ytDlpGetTitle(url).catch(() => '');
+    const titleIsListicle = guessListicleFromTitle(metaTitle);
     if (metaDur && metaDur > 60) {
       return res.status(400).json({ error: `Bu araç sadece 60 saniye altı videolarda çalışır. Video süresi: ${Math.round(metaDur)}s` });
     }
@@ -908,7 +1003,9 @@ app.post('/crush', async (req, res) => {
     if (director && !director.error && director.newHook) {
       const isListicle = !!director.isListicle;
       const hookBase = String(director.newHook.text || '').trim();
-      const hookText = makeUniqueHook(brand, hookBase, cache, isListicle);
+      const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: isListicle || titleIsListicle });
+      const hookSeed = (!looksGenericHook(hookBase) && hookBase) ? hookBase : (titleHook || hookBase);
+      const hookText = makeUniqueHook(brand, hookSeed, cache, isListicle || titleIsListicle);
       hook = {
         text: hookText,
         // bannerY: 0=ALT, 100=ÜST → ffmpeg y=0 üst olduğu için ters çevir
@@ -957,7 +1054,9 @@ app.post('/crush', async (req, res) => {
       }
     } else {
       // Fallback (Gemini hata/timeout): kod çökmesin, render devam etsin
-      const hookText = makeUniqueHook(brand, fallbackHookTextForBrand(brand), cache, false);
+      const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: titleIsListicle });
+      const seed = titleHook || fallbackHookTextForBrand(brand);
+      const hookText = makeUniqueHook(brand, seed, cache, titleIsListicle);
       hook = { text: hookText, bannerY: 0, y: 95, boxOpacity: 1, color: null };
       finalCaption = makeUniqueCaption(brand, fallbackCaptionForBrand(brand), cache);
       finalHashtags = ensureHashtagPack(brand, hookText, null);
