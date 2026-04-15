@@ -150,10 +150,11 @@ RANKED/LISTICLE KURALI:
 Karelerde 1/2/3 gibi sıralama veya "ranked/top" vb. görüyorsan isListicle=true yap.
 Bu durumda hook’ta #1 referansı kullanabilirsin ama yine SOMUT NESNEYİ yazmak zorundasın.
 
-MASKELME (OLD HOOK) — SERT İMHA:
+  MASKELME (OLD HOOK) — SERT İMHA:
 Eğer hasOldHook=true ise görevin o eski yazıyı “süslemek” değil, tamamen YOK ETMEK:
 - newHook.boxOpacity = 1.0 (tam opak)
-- newHook.yPx eski yazıyı ortalayacak şekilde 70–130 aralığında olmalı
+  - newHook.yPx banner'ın başlangıç Y konumudur (0–100 birim; 0=ALT, 100=ÜST)
+    Eski yazıyı tamamen yutacak şekilde ayarla (gerekirse 95–100 bandına yakın).
 
 ÇIKTI KURALI (KESİN):
 - SADECE JSON döndür. Başka hiçbir metin, açıklama, markdown, code fence, “|”, aralık, placeholder yazma.
@@ -174,8 +175,7 @@ ZORUNLU JSON ŞEMASI:
 KOŞULLU ŞARTLAR (KESİN):
 1) hasOldHook=true => oldHook NULL OLAMAZ ve newHook.boxOpacity 1.0 olmalı
 2) hasOldHook=false => oldHook NULL OLMALI ve newHook.boxOpacity 0.30–0.50 arası olmalı
-3) hasOldHook=false => newHook.yPx 70–95 arası olmalı
-4) hasOldHook=true  => newHook.yPx 70–130 arası olmalı
+  3) newHook.yPx 0–100 arası olmalı (0=ALT, 100=ÜST)
 5) hookColor mutlaka "#RRGGBB" formatında olmalı (örn: #FFFFFF, #FFD400, #9BFF57)
 6) hashtags dizisi TAM 5 eleman olmalı ve her biri "#tag" formatında olmalı
 
@@ -299,10 +299,8 @@ function normalizeDirectorResult(raw, outH, brand) {
   const yPxRaw = newHook ? (newHook.yPx ?? newHook.y_px ?? newHook.y ?? null) : null;
   let yPx = Number.isFinite(Number(yPxRaw)) ? Number(yPxRaw) : null;
   if (yPx != null) {
-    // sadece istenen aralıkta tut
-    // oldHook varsa: 70–130, yoksa: 70–95
-    const hi = hasOriginal ? 130 : 95;
-    yPx = Math.max(70, Math.min(hi, yPx));
+    // 0=ALT, 100=ÜST koordinat sistemi (tam serbest)
+    yPx = Math.max(0, Math.min(100, yPx));
   }
   const boxOpacityRaw = newHook ? (newHook.boxOpacity ?? newHook.box_opacity ?? null) : null;
   let boxOpacity = Number.isFinite(Number(boxOpacityRaw)) ? Number(boxOpacityRaw) : null;
@@ -345,7 +343,7 @@ function normalizeDirectorResult(raw, outH, brand) {
   };
 
   // y yoksa fallback 70–95
-  if (!Number.isFinite(out.newHook.yPx)) out.newHook.yPx = randRange(70, hasOriginal ? 130 : 95);
+  if (!Number.isFinite(out.newHook.yPx)) out.newHook.yPx = 95;
   // boxOpacity yoksa: eski yazı yoksa 0.30–0.50
   if (!Number.isFinite(out.newHook.boxOpacity)) out.newHook.boxOpacity = randRange(0.30, 0.50);
   if (hasOriginal) out.newHook.boxOpacity = 1;
@@ -776,6 +774,8 @@ app.post('/crush', async (req, res) => {
     if (director && !director.error && director.newHook) {
       hook = {
         text: director.newHook.text,
+        // bannerY: 0=ALT, 100=ÜST → ffmpeg y=0 üst olduğu için ters çevir
+        bannerY: outH * (1 - (Number(director.newHook.yPx) / 100)),
         y: Number(director.newHook.yPx),
         boxOpacity: Number(director.newHook.boxOpacity),
         color: director.hookColor || null
@@ -784,15 +784,16 @@ app.post('/crush', async (req, res) => {
         // Strict masking:
         // - opaklık her koşulda 1.0
         // - genişlik tam video (outW)
-        // - yükseklik: Gemini hPct + %20 güvenlik payı
+        // - yükseklik: Gemini hPct * 1.5 (sızıntı olmasın)
         const baseY = outH * (Number(director.oldHook.yPct) / 100);
         const baseH = outH * (Number(director.oldHook.hPct) / 100);
-        const safeH = Math.max(2, baseH * 1.2);
+        const safeH = Math.max(2, baseH * 1.5);
         // Y merkezini koru: yükseklik büyüdüyse yukarı taşı
         const safeY = baseY - (safeH - baseH) / 2;
 
         coverBox = {
-          y: safeY,
+          // biraz daha yukarı çek (padding)
+          y: safeY - (outH * 0.01),
           h: safeH,
           w: outW,
           opacity: 1
@@ -801,20 +802,17 @@ app.post('/crush', async (req, res) => {
         // Hook'u eski yazının ortasına hizala (banner içinde)
         if (hook) {
           hook.boxOpacity = 1;
-          const centered = safeY + safeH / 2 - 24;
-          hook.y = clamp(centered, 70, 130);
+          // Banner'ı doğrudan coverBox üstüne taşı
+          hook.bannerY = coverBox.y;
         }
       }
       // Eski yazı yoksa: 70–95 arası random (Gemini yanlış/vermemişse)
-      if (!director.hasOriginalHook && (!Number.isFinite(hook.y) || hook.y < 70 || hook.y > 95)) {
-        hook.y = randRange(70, 95);
-      }
       if (!director.hasOriginalHook && (!Number.isFinite(hook.boxOpacity) || hook.boxOpacity <= 0)) {
         hook.boxOpacity = randRange(0.30, 0.50);
       }
     } else {
       // Fallback (Gemini hata/timeout): kod çökmesin, render devam etsin
-      hook = { text: fallbackHookTextForBrand(brand), y: randRange(70, 95), boxOpacity: 1, color: null };
+      hook = { text: fallbackHookTextForBrand(brand), bannerY: 0, y: 95, boxOpacity: 1, color: null };
       director = {
         caption: fallbackCaptionForBrand(brand),
         hashtags: fallbackHashtagsForBrand(brand)
