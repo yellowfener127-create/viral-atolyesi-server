@@ -384,12 +384,6 @@ async function buildCrushRenderPlan(o) {
   const hookColorPool = ['#FFFFFF', '#FFD400', '#9BFF57']; // Beyaz / Sarı / Açık yeşil
   const hookColor = sanitizeHexColor(hook?.color, pickOne(hookColorPool));
   const hookAlpha = randRange(0.88, 0.94);
-  // Default üst şerit: video yüksekliğinin %10'u (90–100 bandı). Tam opak.
-  const defaultBannerH = Math.max(2, Math.round(outH * 0.10));
-  const bannerYPxOverride = Number.isFinite(hook?.bannerY) ? Math.round(hook.bannerY) : null;
-  const bannerY = Math.max(0, Math.min(outH - 2, bannerYPxOverride != null ? bannerYPxOverride : (cover ? cover.y : 0)));
-  const bannerH = cover ? cover.h : defaultBannerH;
-  const bannerTextY = Math.max(0, Math.round(bannerY + (bannerH - 56) / 2)); // fontsize≈48 için güvenli merkezleme
   const boxOpacity =
     typeof hook?.boxOpacity === 'number' && Number.isFinite(hook.boxOpacity)
       ? Math.max(0, Math.min(1, hook.boxOpacity))
@@ -404,6 +398,13 @@ async function buildCrushRenderPlan(o) {
           : 1
       }
     : null;
+
+  // Black banner yerleşimi: default üst band veya Gemini/cover ile override
+  const defaultBannerH = Math.max(2, Math.round(outH * 0.10));
+  const bannerYPxOverride = Number.isFinite(hook?.bannerY) ? Math.round(hook.bannerY) : null;
+  const bannerY = Math.max(0, Math.min(outH - 2, bannerYPxOverride != null ? bannerYPxOverride : (cover ? cover.y : 0)));
+  const bannerH = cover ? cover.h : defaultBannerH;
+  const bannerTextY = Math.max(0, Math.round(bannerY + (bannerH - 56) / 2)); // fontsize≈48 için güvenli merkezleme
 
   const fontFile = pickExistingFontForDrawtext();
   const fontPart = fontFile
