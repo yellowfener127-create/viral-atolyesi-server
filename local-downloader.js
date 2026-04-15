@@ -63,8 +63,10 @@ async function ffmpegExtractFrame(inFile, outFile, tSec) {
     '-ss', String(Math.max(0, tSec).toFixed(3)),
     '-i', inFile,
     '-frames:v', '1',
-    '-q:v', '4',
     '-vf', 'scale=768:-1',
+    // Bu FFmpeg build'inde JPEG(mjpeg) encoder strictness hatası çıkabiliyor.
+    // PNG ile garanti alıyoruz.
+    '-c:v', 'png',
     outFile
   ];
   await run('ffmpeg', args, { timeoutMs: 45_000 });
@@ -164,7 +166,10 @@ Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/im
 
   const parts = [{ text: prompt }];
   for (const p of framePaths || []) {
-    if (p && fs.existsSync(p)) parts.push(fileToInlineData(p, 'image/jpeg'));
+    if (!p || !fs.existsSync(p)) continue;
+    const ext = path.extname(p).toLowerCase();
+    const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
+    parts.push(fileToInlineData(p, mime));
   }
   if (audioPath && fs.existsSync(audioPath)) {
     parts.push(fileToInlineData(audioPath, 'audio/mpeg'));
@@ -657,7 +662,7 @@ app.post('/crush', async (req, res) => {
         }
       }
       const times = [...early, ...rest].slice(0, 10).map((sec) => Math.max(0, Math.min(t - 0.05, sec)));
-      const frames = times.map((_, i) => path.join(tmpDir, `frame_${String(i + 1).padStart(2, '0')}.jpg`));
+      const frames = times.map((_, i) => path.join(tmpDir, `frame_${String(i + 1).padStart(2, '0')}.png`));
       for (let i = 0; i < times.length; i++) {
         await ffmpegExtractFrame(inFile, frames[i], times[i]);
       }
