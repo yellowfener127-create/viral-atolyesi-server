@@ -166,6 +166,10 @@ function makeUniqueHook(brand, base, cache, isListicle) {
   return pickOne(candidates);
 }
 
+function stripEmoji(s) {
+  return String(s || '').replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '').replace(/\s+/g, ' ').trim();
+}
+
 function makeUniqueCaption(brand, base, cache) {
   const core = String(base || '').trim();
   const pool = [
@@ -408,13 +412,17 @@ Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/im
 ŞİMDİ SADECE JSON DÖNDÜR.`;
 
   const parts = [{ text: prompt }];
+  let imageBytes = 0;
+  let audioBytes = 0;
   for (const p of framePaths || []) {
     if (!p || !fs.existsSync(p)) continue;
     const ext = path.extname(p).toLowerCase();
     const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
+    try { imageBytes += fs.statSync(p).size || 0; } catch {}
     parts.push(fileToInlineData(p, mime));
   }
   if (audioPath && fs.existsSync(audioPath)) {
+    try { audioBytes += fs.statSync(audioPath).size || 0; } catch {}
     parts.push(fileToInlineData(audioPath, 'audio/mpeg'));
   }
 
@@ -461,6 +469,9 @@ Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/im
 
       const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('').trim();
       const parsed = safeJsonParse(stripJsonFences(text));
+      if (parsed && typeof parsed === 'object') {
+        parsed.__va_diag = { model: 'gemini-1.5-flash-latest', imageBytes, audioBytes };
+      }
       return parsed || null;
     } catch (e) {
       lastErr = e;
@@ -483,7 +494,7 @@ Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/im
     const status = Number(lastErr?.httpStatus) || null;
     const message = (lastErr && lastErr.message) ? lastErr.message : String(lastErr);
     if (isGeminiRateLimitError({ status, message, json: lastErr?.geminiJson })) {
-      return { __va_status: 'RATE_LIMIT_EXHAUSTED', message };
+      return { __va_status: 'RATE_LIMIT_EXHAUSTED', message, __va_diag: { model: 'gemini-1.5-flash-latest', imageBytes, audioBytes } };
     }
     throw lastErr;
   }
@@ -1005,7 +1016,7 @@ app.post('/crush', async (req, res) => {
       const hookBase = String(director.newHook.text || '').trim();
       const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: isListicle || titleIsListicle });
       const hookSeed = (!looksGenericHook(hookBase) && hookBase) ? hookBase : (titleHook || hookBase);
-      const hookText = makeUniqueHook(brand, hookSeed, cache, isListicle || titleIsListicle);
+      const hookText = stripEmoji(makeUniqueHook(brand, hookSeed, cache, isListicle || titleIsListicle));
       hook = {
         text: hookText,
         // bannerY: 0=ALT, 100=ÜST → ffmpeg y=0 üst olduğu için ters çevir
@@ -1056,7 +1067,7 @@ app.post('/crush', async (req, res) => {
       // Fallback (Gemini hata/timeout): kod çökmesin, render devam etsin
       const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: titleIsListicle });
       const seed = titleHook || fallbackHookTextForBrand(brand);
-      const hookText = makeUniqueHook(brand, seed, cache, titleIsListicle);
+      const hookText = stripEmoji(makeUniqueHook(brand, seed, cache, titleIsListicle));
       hook = { text: hookText, bannerY: 0, y: 95, boxOpacity: 1, color: null };
       finalCaption = makeUniqueCaption(brand, fallbackCaptionForBrand(brand), cache);
       finalHashtags = ensureHashtagPack(brand, hookText, null);

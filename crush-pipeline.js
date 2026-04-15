@@ -333,8 +333,9 @@ async function buildCrushRenderPlan(o) {
   const wmSize = outW >= 1080 ? 110 : 96;
   // Watermark: eski basit opaklık + tek ek: DVD gibi köşelerden seken hareket + hafif rastgele eğim
   const wmMargin = 10;
-  const wmBounceVx = randRange(0.11, 0.2);
-  const wmBounceVy = randRange(0.1, 0.19);
+  // Hızı yarıya düşür (daha sakin hareket)
+  const wmBounceVx = randRange(0.055, 0.10);
+  const wmBounceVy = randRange(0.050, 0.095);
   // t=0’da farklı köşelere yakın başlat (px,py ∈ {0,1} → abs(mod(px,2)-1) ile min/max)
   const corner = pickOne([
     { px: 1, py: 1 },
@@ -345,7 +346,7 @@ async function buildCrushRenderPlan(o) {
   const phaseX = Math.min(1.98, Math.max(0.02, corner.px + randRange(-0.08, 0.08)));
   const phaseY = Math.min(1.98, Math.max(0.02, corner.py + randRange(-0.08, 0.08)));
   const tiltAmp = randRange(0.09, 0.22);
-  const tiltPeriod = randRange(3.8, 8.5);
+  const tiltPeriod = randRange(7.6, 17.0);
   const tiltRotateExpr = `${tiltAmp.toFixed(4)}*sin(2*PI*t/${tiltPeriod.toFixed(3)})`;
   // filtergraph içinde virgül seçenek ayırıcı; mod(a\,2) içindeki virgül kaçırılmalı
   const wmComma = '\\,';
@@ -380,7 +381,8 @@ async function buildCrushRenderPlan(o) {
   const hookText = pickHookText(brand);
   // Director yoksa: istenen aralık (70–95) içinde konumlandır.
   const hookY = Number.isFinite(hook?.y) ? Math.round(hook.y) : Math.round(randRange(70, 95));
-  const hookTextFinal = (hook && typeof hook.text === 'string' && hook.text.trim()) ? hook.text.trim() : hookText;
+  const stripEmoji = (s) => String(s || '').replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '').trim();
+  const hookTextFinal = (hook && typeof hook.text === 'string' && hook.text.trim()) ? stripEmoji(hook.text.trim()) : stripEmoji(hookText);
   const hookColorPool = ['#FFFFFF', '#FFD400', '#9BFF57']; // Beyaz / Sarı / Açık yeşil
   const hookColor = sanitizeHexColor(hook?.color, pickOne(hookColorPool));
   const hookAlpha = randRange(0.88, 0.94);
@@ -443,7 +445,10 @@ async function buildCrushRenderPlan(o) {
     `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
       `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
       `rotate='${tiltRotateExpr}':c=none:ow=iw:oh=ih[wm0]`,
-    `[wm0]format=rgba,colorchannelmixer=aa=${wmAlphaFinal.toFixed(4)}[wm]`,
+    // Watermark’ı tam yuvarlak “top” gibi yap: dairesel alpha mask
+    `[wm0]split=2[wmA][wmB]`,
+    `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[wmMask]`,
+    `[wmB][wmMask]alphamerge,format=rgba,colorchannelmixer=aa=${wmAlphaFinal.toFixed(4)}[wm]`,
     `[v1][wm]overlay=x='${wmXExpr}':y='${wmYExpr}':format=auto[v1m]`,
     `[v1m]split=2[vA][vB]`,
     `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
