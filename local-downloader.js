@@ -14,7 +14,8 @@ const PORT = process.env.LOCAL_DOWNLOADER_PORT || 8787;
 const DEFAULT_DIR = path.join(process.env.USERPROFILE || process.cwd(), 'Videos', 'Viral Atölyesi İndirilenler');
 const DOWNLOAD_DIR = process.env.VA_DOWNLOAD_DIR || DEFAULT_DIR;
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+// Model: kota sorunları için 1.5 flash latest
+const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
 
 function safeJsonParse(s) {
   try { return JSON.parse(s); } catch { return null; }
@@ -63,7 +64,8 @@ async function ffmpegExtractFrame(inFile, outFile, tSec) {
     '-ss', String(Math.max(0, tSec).toFixed(3)),
     '-i', inFile,
     '-frames:v', '1',
-    '-vf', 'scale=768:-1',
+    // Token tasarrufu için daha küçük kareler
+    '-vf', 'scale=512:-1',
     // Bu FFmpeg build'inde JPEG(mjpeg) encoder strictness hatası çıkabiliyor.
     // PNG ile garanti alıyoruz.
     '-c:v', 'png',
@@ -203,10 +205,10 @@ Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/im
 
   const url = `${GEMINI_ENDPOINT}?key=${encodeURIComponent(String(geminiKey).trim())}`;
   // Rate Limit Kurtarma:
-  // 429 / Quota hatasında süreci durdurma; 45 sn bekle ve aynı isteği tekrar dene.
-  // En fazla 3 deneme (toplam).
-  const maxAttempts = 3;
-  const retryWaitMs = 45_000;
+  // 429 / Quota hatasında süreci durdurma; 60 sn bekle ve aynı isteği tekrar dene.
+  // En fazla 5 deneme (toplam).
+  const maxAttempts = 5;
+  const retryWaitMs = 60_000;
   let lastErr = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -242,7 +244,7 @@ Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/im
       const status = Number(e?.httpStatus) || Number(r?.status) || null;
       const message = (e && e.message) ? e.message : String(e);
       if (attempt < maxAttempts && isGeminiRateLimitError({ status, message, json: e?.geminiJson || j })) {
-        console.log('[Gemini Quota] Kota doldu, 45 saniye bekleniyor ve tekrar denenecek....');
+        console.log('[Gemini Quota] Kota doldu, 60 saniye bekleniyor ve tekrar denenecek....');
         await sleep(retryWaitMs);
         continue;
       }
@@ -252,7 +254,7 @@ Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/im
     }
   }
 
-  // 3 deneme sonunda hala kota/rate-limit ise videoyu pas geç: Gemini yokmuş gibi devam et.
+  // 5 deneme sonunda hala kota/rate-limit ise videoyu pas geç: Gemini yokmuş gibi devam et.
   // (Render devam eder; UI'da director.ok=false olarak görülecek.)
   if (lastErr) {
     const status = Number(lastErr?.httpStatus) || null;
@@ -263,6 +265,20 @@ Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/im
     throw lastErr;
   }
   return null;
+}
+
+function fallbackCaptionForBrand(brand) {
+  const b = String(brand || 'terapi').toLowerCase();
+  if (b === 'kaos') return 'Chaos in one perfect moment';
+  if (b === 'umut') return 'A small moment of hope';
+  return 'This made my whole day';
+}
+
+function fallbackHashtagsForBrand(brand) {
+  const b = String(brand || 'terapi').toLowerCase();
+  if (b === 'kaos') return ['#fail', '#funny', '#oops', '#viral', '#chaos'];
+  if (b === 'umut') return ['#hope', '#motivation', '#inspiration', '#humanity', '#viral'];
+  return ['#cute', '#wholesome', '#animals', '#funny', '#viral'];
 }
 
 function normalizeDirectorResult(raw, outH, brand) {
@@ -798,7 +814,11 @@ app.post('/crush', async (req, res) => {
       }
     } else {
       // Fallback (Gemini hata/timeout): kod çökmesin, render devam etsin
-      hook = { text: '', y: randRange(70, 95), boxOpacity: randRange(0.30, 0.50), color: null };
+      hook = { text: fallbackHookTextForBrand(brand), y: randRange(70, 95), boxOpacity: 1, color: null };
+      director = {
+        caption: fallbackCaptionForBrand(brand),
+        hashtags: fallbackHashtagsForBrand(brand)
+      };
     }
 
     const runFfmpeg = async (plan) => {
