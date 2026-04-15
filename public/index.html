@@ -655,9 +655,12 @@ async function crushVideo() {
       const dir = localData.director || null;
       const attempted = !!(localData.geminiAttempted || dir);
       if (dir && dir.ok) {
-        const cap = (dir.caption || "").trim();
+        const cap = String(dir.caption || "")
+          .replace(/\\n/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
         const tags = Array.isArray(dir.hashtags) ? dir.hashtags : [];
-        const line = [cap, tags.join(" ")].filter(Boolean).join("\\n");
+        const line = [cap, tags.join(" ")].filter(Boolean).join(" ");
         if (line) {
           capBox.textContent = line;
           capBox.classList.add("show");

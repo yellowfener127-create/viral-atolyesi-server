@@ -330,7 +330,8 @@ async function buildCrushRenderPlan(o) {
     useRubberband
   } = o;
 
-  const wmSize = outW >= 1080 ? 110 : 96;
+  // Watermark boyutu yarıya indir
+  const wmSize = outW >= 1080 ? 55 : 48;
   // Watermark: eski basit opaklık + tek ek: DVD gibi köşelerden seken hareket + hafif rastgele eğim
   const wmMargin = 10;
   // Hızı yarıya düşür (daha sakin hareket)
@@ -350,10 +351,20 @@ async function buildCrushRenderPlan(o) {
   const tiltRotateExpr = `${tiltAmp.toFixed(4)}*sin(2*PI*t/${tiltPeriod.toFixed(3)})`;
   // filtergraph içinde virgül seçenek ayırıcı; mod(a\,2) içindeki virgül kaçırılmalı
   const wmComma = '\\,';
-  const wmXExpr =
-    `${wmMargin}+(W-w-2*${wmMargin})*abs(mod(${wmBounceVx.toFixed(4)}*t+(${phaseX.toFixed(4)})${wmComma}2)-1)`;
-  const wmYExpr =
-    `${wmMargin}+(H-h-2*${wmMargin})*abs(mod(${wmBounceVy.toFixed(4)}*t+(${phaseY.toFixed(4)})${wmComma}2)-1)`;
+  // Merkez kaçınma (ilk 2 bounce): ekranın orta %30 çevresi (0.35..0.65) bölgesine girmesin.
+  // p = abs(mod(u,2)-1) ∈ [0..1]; hit=floor(u) bounce sayacı gibi davranır.
+  // hit<2 iken p' = [0..0.35] U [0.65..1] (ortayı atla).
+  const uXExpr = `${wmBounceVx.toFixed(4)}*t+(${phaseX.toFixed(4)})`;
+  const pXExpr = `abs(mod(${uXExpr}${wmComma}2)-1)`;
+  const hitXExpr = `floor(${uXExpr})`;
+  const pXSafeExpr = `if(lt(${hitXExpr},2),if(lt(${pXExpr},0.5),${pXExpr}*0.7,0.65+(${pXExpr}-0.5)*0.7),${pXExpr})`;
+  const wmXExpr = `${wmMargin}+(W-w-2*${wmMargin})*(${pXSafeExpr})`;
+
+  const uYExpr = `${wmBounceVy.toFixed(4)}*t+(${phaseY.toFixed(4)})`;
+  const pYExpr = `abs(mod(${uYExpr}${wmComma}2)-1)`;
+  const hitYExpr = `floor(${uYExpr})`;
+  const pYSafeExpr = `if(lt(${hitYExpr},2),if(lt(${pYExpr},0.5),${pYExpr}*0.7,0.65+(${pYExpr}-0.5)*0.7),${pYExpr})`;
+  const wmYExpr = `${wmMargin}+(H-h-2*${wmMargin})*(${pYSafeExpr})`;
   const speedRamp = pickSpeedRampFactor();
   const effectiveSpeed = BASE_EDIT_SPEED * speedRamp;
   const inDur = clampDur(sourceDurSec, 1, 60);
@@ -375,8 +386,8 @@ async function buildCrushRenderPlan(o) {
   const uniqAlpha = 0.08;
   const noiseOpacity = 0.005;
   const grainOpacity = 0.018;
-  // Eski tarz tek katmanlı opaklık (videoya göre hafif rastgele)
-  const wmAlphaFinal = randRange(0.48, 0.65);
+  // Saydamlığı bir tık arttır (daha transparan)
+  const wmAlphaFinal = randRange(0.30, 0.42);
 
   const hookText = pickHookText(brand);
   // Director yoksa: istenen aralık (70–95) içinde konumlandır.
