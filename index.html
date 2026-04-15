@@ -650,15 +650,31 @@ async function crushVideo() {
     if (capBox) { capBox.style.display = "none"; capBox.textContent = ""; capBox.classList.remove("show"); }
     if (capCopy) capCopy.style.display = "none";
 
-    if (localData.director?.ok) {
-      const cap = (localData.director.caption || "").trim();
-      const tags = Array.isArray(localData.director.hashtags) ? localData.director.hashtags : [];
-      const line = [cap, tags.join(" ")].filter(Boolean).join("\\n");
-      if (line && capBox && capCopy) {
-        capBox.textContent = line;
+    // Gemini durumu + caption/hashtags gösterimi
+    if (capBox && capCopy) {
+      const dir = localData.director || null;
+      const attempted = !!(localData.geminiAttempted || dir);
+      if (dir && dir.ok) {
+        const cap = (dir.caption || "").trim();
+        const tags = Array.isArray(dir.hashtags) ? dir.hashtags : [];
+        const line = [cap, tags.join(" ")].filter(Boolean).join("\\n");
+        if (line) {
+          capBox.textContent = line;
+          capBox.classList.add("show");
+          capBox.style.display = "block";
+          capCopy.style.display = "block";
+        } else {
+          capBox.textContent = "Gemini çalıştı ama caption/hashtag boş döndü.";
+          capBox.classList.add("show");
+          capBox.style.display = "block";
+          capCopy.style.display = "none";
+        }
+      } else if (attempted) {
+        const err = (dir && dir.error) ? String(dir.error) : "Gemini çalışmadı veya cevap alınamadı.";
+        capBox.textContent = "Gemini durumu: ÇALIŞMADI — " + err;
         capBox.classList.add("show");
         capBox.style.display = "block";
-        capCopy.style.display = "block";
+        capCopy.style.display = "none";
       }
     }
   } catch (e) {
