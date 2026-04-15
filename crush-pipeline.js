@@ -400,7 +400,8 @@ async function buildCrushRenderPlan(o) {
     : null;
 
   // Black banner yerleşimi: default üst band veya Gemini/cover ile override
-  const defaultBannerH = Math.max(2, Math.round(outH * 0.10));
+  // Not: Gemini kota/kapalıyken bile videonun kendi üst başlıklarını yutmak için varsayılan bandı daha yüksek tutuyoruz.
+  const defaultBannerH = Math.max(2, Math.round(outH * 0.22));
   const bannerYPxOverride = Number.isFinite(hook?.bannerY) ? Math.round(hook.bannerY) : null;
   const bannerY = Math.max(0, Math.min(outH - 2, bannerYPxOverride != null ? bannerYPxOverride : (cover ? cover.y : 0)));
   const bannerH = cover ? cover.h : defaultBannerH;
