@@ -258,7 +258,7 @@ Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/im
     const status = Number(lastErr?.httpStatus) || null;
     const message = (lastErr && lastErr.message) ? lastErr.message : String(lastErr);
     if (isGeminiRateLimitError({ status, message, json: lastErr?.geminiJson })) {
-      return null;
+      return { __va_status: 'RATE_LIMIT_EXHAUSTED', message };
     }
     throw lastErr;
   }
@@ -640,6 +640,7 @@ app.post('/crush', async (req, res) => {
   const url = req.body?.url || req.query?.url;
   const brand = normBrand(req.body?.brand || req.query?.brand || 'terapi');
   const geminiKey = req.body?.geminiKey || req.query?.geminiKey || '';
+  const geminiKeyPresent = !!(geminiKey && String(geminiKey).trim().length >= 10);
   if (!url) return res.status(400).json({ error: 'url gerekli' });
 
   const brandDir = getBrandDir(brand);
@@ -706,6 +707,7 @@ app.post('/crush', async (req, res) => {
 
     // Director v3: 5 kare + kısa audio preview → Gemini analizi
     let director = null;
+    let geminiUsed = false;
     const tmpArtifacts = [];
     try {
       const t = inDur;
@@ -732,8 +734,17 @@ app.post('/crush', async (req, res) => {
       const audioPrev = path.join(tmpDir, 'audio_preview.mp3');
       await ffmpegExtractAudioPreview(inFile, audioPrev, Math.min(12, inDur));
       tmpArtifacts.push(...frames, audioPrev);
-      const rawDir = await geminiDirectorAnalyze({ geminiKey, brand, framePaths: frames, audioPath: audioPrev });
-      director = rawDir ? normalizeDirectorResult(rawDir, outH, brand) : null;
+      if (geminiKeyPresent) {
+        geminiUsed = true;
+        const rawDir = await geminiDirectorAnalyze({ geminiKey, brand, framePaths: frames, audioPath: audioPrev });
+        if (rawDir && rawDir.__va_status === 'RATE_LIMIT_EXHAUSTED') {
+          director = { error: `Gemini kota/rate-limit: 3 denemede de başarısız. (${rawDir.message || 'quota'})` };
+        } else {
+          director = rawDir ? normalizeDirectorResult(rawDir, outH, brand) : null;
+        }
+      } else {
+        director = { error: 'Gemini key yok (localStorage -> gemini_api_key boş geldi).' };
+      }
     } catch (e) {
       director = { error: (e && e.message) ? e.message : String(e) };
     } finally {
@@ -843,7 +854,9 @@ app.post('/crush', async (req, res) => {
       file: path.basename(outFile),
       settings: plan.debug,
       verify,
-      geminiAttempted: !!(geminiKey && String(geminiKey).trim().length >= 10),
+      geminiAttempted: geminiKeyPresent,
+      geminiKeyPresent,
+      geminiUsed,
       director: director && director.error
         ? { ok: false, error: director.error }
         : director
