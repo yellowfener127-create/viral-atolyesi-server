@@ -674,7 +674,11 @@ async function crushVideo() {
         }
       } else if (attempted) {
         const err = (dir && dir.error) ? String(dir.error) : "Gemini çalışmadı veya cevap alınamadı.";
-        capBox.textContent = "Gemini durumu: ÇALIŞMADI — " + err;
+        const diag = dir && dir.diag ? ` | Diag: ${JSON.stringify(dir.diag)}` : "";
+        const fallbackCap = String(dir && dir.fallbackCaption || "").replace(/\\n/g, " ").replace(/\s+/g, " ").trim();
+        const fallbackTags = Array.isArray(dir && dir.fallbackHashtags) ? dir.fallbackHashtags : [];
+        const fallbackLine = [fallbackCap, fallbackTags.join(" ")].filter(Boolean).join(" ");
+        capBox.textContent = "Gemini durumu: ÇALIŞMADI — " + err + diag + (fallbackLine ? "\nFallback: " + fallbackLine : "");
         capBox.classList.add("show");
         capBox.style.display = "block";
         capCopy.style.display = "none";

@@ -517,6 +517,14 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
   const retryWaitMsQuota = 60_000;
   let lastErr = null;
 
+  console.log('[Gemini Start]', JSON.stringify({
+    model: 'gemini-1.5-flash-latest',
+    brand,
+    frameCount: Array.isArray(framePaths) ? framePaths.length : 0,
+    hasAudio: !!audioPath,
+    title: String(title || '').slice(0, 120)
+  }));
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const ac = new AbortController();
     const t = setTimeout(() => {
@@ -533,6 +541,7 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
         signal: ac.signal
       }).finally(() => clearTimeout(t));
 
+      console.log(`[Gemini HTTP] attempt=${attempt} status=${r.status}`);
       j = await r.json().catch(() => ({}));
       if (!r.ok) {
         const msg = (j && (j.error?.message || j.error)) ? (j.error.message || j.error) : `Gemini HTTP ${r.status}`;
@@ -544,6 +553,21 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
 
       const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('').trim();
       const parsed = safeJsonParse(stripJsonFences(text));
+      if (!parsed) {
+        const rawSnippet = String(text || '').slice(0, 400);
+        console.log('[Gemini Parse Fail]', rawSnippet);
+        return {
+          __va_status: 'PARSE_FAILED',
+          message: 'Gemini 200 döndü ama geçerli JSON üretmedi.',
+          rawSnippet,
+          __va_diag: {
+            model: 'gemini-1.5-flash-latest',
+            imageBytes,
+            audioBytes,
+            tier: 'paid_or_unknown'
+          }
+        };
+      }
       if (parsed && typeof parsed === 'object') {
         const usage = j.usageMetadata || j.usage_metadata || null;
         const promptTokens = Number(usage?.promptTokenCount ?? usage?.prompt_token_count ?? NaN);
@@ -597,6 +621,7 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
         __va_diag: { model: 'gemini-1.5-flash-latest', imageBytes, audioBytes, tier: 'paid_or_unknown' }
       };
     }
+    console.log('[Gemini Error]', message);
     throw lastErr;
   }
   return null;
@@ -1101,6 +1126,8 @@ app.post('/crush', async (req, res) => {
 
     // Director v3: 5 kare + kısa audio preview → Gemini analizi
     let director = null;
+    let directorError = null;
+    let directorDiag = null;
     let geminiUsed = false;
     const tmpArtifacts = [];
     try {
@@ -1132,15 +1159,24 @@ app.post('/crush', async (req, res) => {
         geminiUsed = true;
         const rawDir = await geminiDirectorAnalyze({ geminiKey, brand, framePaths: frames, audioPath: audioPrev, title: metaTitle });
         if (rawDir && rawDir.__va_status === 'RATE_LIMIT_EXHAUSTED') {
-          director = { error: `Gemini kota/rate-limit: 5 denemede de başarısız. (${rawDir.message || 'quota'})`, __va_diag: rawDir.__va_diag || null };
+          directorError = `Gemini kota/rate-limit: 5 denemede de başarısız. (${rawDir.message || 'quota'})`;
+          directorDiag = rawDir.__va_diag || null;
+          director = null;
+        } else if (rawDir && rawDir.__va_status === 'PARSE_FAILED') {
+          directorError = `${rawDir.message || 'Gemini parse hatası'} Raw: ${String(rawDir.rawSnippet || '').slice(0, 180)}`;
+          directorDiag = rawDir.__va_diag || null;
+          director = null;
         } else {
           director = rawDir ? normalizeDirectorResult(rawDir, outH, brand) : null;
+          directorDiag = rawDir && rawDir.__va_diag ? rawDir.__va_diag : null;
         }
       } else {
-        director = { error: 'Gemini key yok (localStorage -> gemini_api_key boş geldi).' };
+        directorError = 'Gemini key yok (localStorage -> gemini_api_key boş geldi).';
+        director = null;
       }
     } catch (e) {
-      director = { error: (e && e.message) ? e.message : String(e) };
+      directorError = (e && e.message) ? e.message : String(e);
+      director = null;
     } finally {
       // İstenen temizlik: render başlamadan kare/mp3 dosyalarını sil (tmpDir zaten sonunda kalkıyor)
       for (const p of tmpArtifacts) {
@@ -1155,7 +1191,7 @@ app.post('/crush', async (req, res) => {
     let finalHashtags = [];
     const cache = loadDirectorCache();
 
-    if (director && !director.error && director.newHook) {
+    if (director && director.newHook) {
       const isListicle = !!director.isListicle;
       const hookBase = String(director.newHook.text || '').trim();
       const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: isListicle || titleIsListicle });
@@ -1233,7 +1269,9 @@ app.post('/crush', async (req, res) => {
       rememberUsed(cache, 'hooks', hookText);
       rememberUsed(cache, 'captions', finalCaption);
       saveDirectorCache(cache);
-      director = { caption: finalCaption, hashtags: finalHashtags };
+      if (!director) {
+        director = { caption: finalCaption, hashtags: finalHashtags };
+      }
     }
 
     const runFfmpeg = async (plan) => {
@@ -1294,11 +1332,23 @@ app.post('/crush', async (req, res) => {
       geminiAttempted: geminiKeyPresent,
       geminiKeyPresent,
       geminiUsed,
-      director: director && director.error
-        ? { ok: false, error: director.error }
+      director: directorError
+        ? {
+            ok: false,
+            error: directorError,
+            diag: directorDiag,
+            fallbackCaption: finalCaption || '',
+            fallbackHashtags: finalHashtags && finalHashtags.length ? finalHashtags : []
+          }
         : director
-          ? { ok: true, ...director, caption: (finalCaption || director.caption || ''), hashtags: (finalHashtags && finalHashtags.length ? finalHashtags : director.hashtags) }
-          : { ok: false, error: 'Gemini key yok veya analiz çalışmadı' },
+          ? {
+              ok: true,
+              ...director,
+              diag: directorDiag,
+              caption: (finalCaption || director.caption || ''),
+              hashtags: (finalHashtags && finalHashtags.length ? finalHashtags : director.hashtags)
+            }
+          : { ok: false, error: 'Gemini key yok veya analiz çalışmadı', diag: directorDiag },
       musicDir: crush.getCrushMusicDir(PUBLIC_DIR, brand),
       musicHint:
         crush.listMusicFiles(crush.getCrushMusicDir(PUBLIC_DIR, brand)).length < 1
