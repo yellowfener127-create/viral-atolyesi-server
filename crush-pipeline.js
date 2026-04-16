@@ -413,21 +413,21 @@ async function buildCrushRenderPlan(o) {
       }
     : null;
 
-  // Black banner yerleşimi: default üst band veya Gemini/cover ile override
-  // Not: Gemini kota/kapalıyken bile videonun kendi üst başlıklarını yutmak için varsayılan bandı daha yüksek tutuyoruz.
-  const defaultBannerH = Math.max(2, Math.round(outH * 0.22));
+  // Hybrid masking:
+  // - cover varsa (original_header_height > 0): band + hook band üzerinde
+  // - cover yoksa: band yok, hook videonun üstüne outline+shadow ile basılır
+  const hasBand = !!cover;
   const bannerYPxOverride = Number.isFinite(hook?.bannerY) ? Math.round(hook.bannerY) : null;
   const bannerY = Math.max(0, Math.min(outH - 2, bannerYPxOverride != null ? bannerYPxOverride : (cover ? cover.y : 0)));
-  const bannerH = cover ? cover.h : defaultBannerH;
+  const bannerH = cover ? cover.h : 0;
   const bannerTextY = Math.max(0, Math.round(bannerY + (bannerH - 56) / 2)); // fontsize≈48 için güvenli merkezleme
+  const noBandTextY = Math.max(18, Math.round(outH * 0.06)); // üst-orta profesyonel yerleşim
 
   const fontFile = pickExistingFontForDrawtext();
   const fontPart = fontFile
     ? `:fontfile='${escapeDrawtextText(fontFile.replace(/\\/g, '/'))}'`
     : '';
 
-  // Yeni kural: eski yazı olsa da olmasa da üst şerit her zaman var ve opak.
-  // Hook yazısı da her zaman bu şeritte ve saydam değil.
   const hookEnable = "between(t,0,1e9)";
   const coverFillOpacity = cover ? 1.0 : 0;
 
@@ -442,6 +442,36 @@ async function buildCrushRenderPlan(o) {
     `,unsharp=5:5:0.70:3:3:0.35` +
     `,setsar=1,setpts=PTS/${effectiveSpeed.toFixed(6)},trim=0:${outDur.toFixed(3)},setpts=PTS-STARTPTS[v0]`;
 
+  // Build pixelate filters (always produce a valid base label)
+  let baseLabel = cover ? 'vcover' : 'v0u';
+  const pixelParts = [];
+  {
+    const regs = Array.isArray(blurRegions) ? blurRegions.slice(0, 3) : [];
+    const safe = regs
+      .map((r) => ({
+        x: Math.max(0, Math.min(outW - 2, Math.round(Number(r?.x) || 0))),
+        y: Math.max(0, Math.min(outH - 2, Math.round(Number(r?.y) || 0))),
+        w: Math.max(0, Math.min(outW, Math.round(Number(r?.w) || 0))),
+        h: Math.max(0, Math.min(outH, Math.round(Number(r?.h) || 0)))
+      }))
+      .filter((r) => r.w >= 8 && r.h >= 8 && r.x + r.w <= outW && r.y + r.h <= outH);
+
+    safe.forEach((r, i) => {
+      const bi = `b${i}`;
+      const bt = `bt${i}`;
+      const px = `px${i}`;
+      const bn = `vb${i}`;
+      pixelParts.push(`[${baseLabel}]split=2[${bi}][${bt}]`);
+      pixelParts.push(
+        `[${bt}]crop=w=${r.w}:h=${r.h}:x=${r.x}:y=${r.y},` +
+          `scale=${Math.max(8, Math.round(r.w / 12))}:${Math.max(8, Math.round(r.h / 12))}:flags=neighbor,` +
+          `scale=${r.w}:${r.h}:flags=neighbor[${px}]`
+      );
+      pixelParts.push(`[${bi}][${px}]overlay=x=${r.x}:y=${r.y}:format=auto[${bn}]`);
+      baseLabel = bn;
+    });
+  }
+
   const parts = [
     vChain,
     `color=c=#${uniqHex}@${uniqAlpha}:s=${outW}x${outH}:d=1[uniq]`,
@@ -449,43 +479,22 @@ async function buildCrushRenderPlan(o) {
     ...(cover
       ? [`[v0u]drawbox=x=0:y=${cover.y}:w=${outW}:h=${cover.h}:color=black@${coverFillOpacity.toFixed(3)}:t=fill[vcover]`]
       : []),
-    // Blur/pixelate regions (maks 3): rahatsız edici yazı/logo/username kapatma
-    ...(() => {
-      const regs = Array.isArray(blurRegions) ? blurRegions.slice(0, 3) : [];
-      const safe = regs
-        .map((r) => ({
-          x: Math.max(0, Math.min(outW - 2, Math.round(Number(r?.x) || 0))),
-          y: Math.max(0, Math.min(outH - 2, Math.round(Number(r?.y) || 0))),
-          w: Math.max(0, Math.min(outW, Math.round(Number(r?.w) || 0))),
-          h: Math.max(0, Math.min(outH, Math.round(Number(r?.h) || 0)))
-        }))
-        .filter((r) => r.w >= 8 && r.h >= 8 && r.x + r.w <= outW && r.y + r.h <= outH);
-      const outParts = [];
-      let base = cover ? 'vcover' : 'v0u';
-      safe.forEach((r, i) => {
-        const bi = `b${i}`;
-        const bt = `bt${i}`;
-        const px = `px${i}`;
-        const bn = `vb${i}`;
-        // pixelate: downscale then upscale nearest
-        outParts.push(`[${base}]split=2[${bi}][${bt}]`);
-        outParts.push(
-          `[${bt}]crop=w=${r.w}:h=${r.h}:x=${r.x}:y=${r.y},` +
-            `scale=${Math.max(8, Math.round(r.w / 12))}:${Math.max(8, Math.round(r.h / 12))}:flags=neighbor,` +
-            `scale=${r.w}:${r.h}:flags=neighbor[${px}]`
-        );
-        outParts.push(`[${bi}][${px}]overlay=x=${r.x}:y=${r.y}:format=auto[${bn}]`);
-        base = bn;
-      });
-      // expose final base as [vpreMask] if any, else keep existing label
-      if (safe.length) outParts.push(`[${base}]copy[vpreMask]`);
-      return outParts;
-    })(),
-    // Black banner (her zaman): default üst band veya Gemini/cover ile override
-    `${Array.isArray(blurRegions) && blurRegions.length ? '[vpreMask]' : (cover ? '[vcover]' : '[v0u]')}drawbox=x=0:y=${bannerY}:w=${outW}:h=${bannerH}:color=black@1.000:t=fill[vtop]`,
-    `[vtop]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
-      `fontcolor=${hookColor}@${hookAlpha.toFixed(3)}:fontsize=48:x=(w-text_w)/2:y=${bannerTextY}:` +
-      `enable='${hookEnable}'[v1]`,
+    ...pixelParts,
+    ...(hasBand
+      ? [
+          // Scenario A: band + hook band üzerinde
+          `[${baseLabel}]drawbox=x=0:y=${bannerY}:w=${outW}:h=${bannerH}:color=black@1.000:t=fill[vtop]`,
+          `[vtop]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
+            `fontcolor=${hookColor}@1.000:fontsize=48:borderw=0:x=(w-text_w)/2:y=${bannerTextY}:` +
+            `enable='${hookEnable}'[v1]`
+        ]
+      : [
+          // Scenario B: no-band, outline + shadow ile okunaklı yazı
+          `[${baseLabel}]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
+            `fontcolor=white@1.000:fontsize=48:borderw=3:bordercolor=black@1.000:` +
+            `shadowcolor=black@0.6:shadowx=2:shadowy=2:` +
+            `x=(w-text_w)/2:y=${noBandTextY}:enable='${hookEnable}'[v1]`
+        ]),
     `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
       `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
       `rotate='${tiltRotateExpr}':c=none:ow=iw:oh=ih[wm0]`,
