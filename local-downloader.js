@@ -386,6 +386,14 @@ function isGeminiRateLimitError({ status, message, json }) {
   );
 }
 
+function isGeminiQuotaExceeded({ message, json }) {
+  const msg = String(message || '');
+  const jmsg = json && (json.error?.message || json.error);
+  const s = String(jmsg || '');
+  const merged = (msg + '\n' + s).toLowerCase();
+  return /quota exceeded/.test(merged) || /exceeded your current quota/.test(merged) || /free_tier/.test(merged);
+}
+
 async function geminiDirectorAnalyze({ geminiKey, brand, framePaths, audioPath, title }) {
   if (!geminiKey || String(geminiKey).trim().length < 10) return null;
 
@@ -501,10 +509,12 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
 
   const url = `${GEMINI_ENDPOINT}?key=${encodeURIComponent(String(geminiKey).trim())}`;
   // Rate Limit Kurtarma:
-  // 429 / Quota hatasında süreci durdurma; 60 sn bekle ve aynı isteği tekrar dene.
+  // Paid Tier: 429 genelde anlık yoğunluk → 5 sn bekle ve tekrar dene.
+  // Quota exceeded ise → 60 sn bekle ve tekrar dene.
   // En fazla 5 deneme (toplam).
   const maxAttempts = 5;
-  const retryWaitMs = 60_000;
+  const retryWaitMs429 = 5_000;
+  const retryWaitMsQuota = 60_000;
   let lastErr = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -558,9 +568,15 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
       lastErr = e;
       const status = Number(e?.httpStatus) || Number(r?.status) || null;
       const message = (e && e.message) ? e.message : String(e);
-      if (attempt < maxAttempts && isGeminiRateLimitError({ status, message, json: e?.geminiJson || j })) {
+      const json = e?.geminiJson || j;
+      if (attempt < maxAttempts && isGeminiRateLimitError({ status, message, json })) {
+        if (status === 429 && !isGeminiQuotaExceeded({ message, json })) {
+          console.log('[Gemini 429] Yoğunluk var, 5 saniye bekleniyor ve tekrar denenecek....');
+          await sleep(retryWaitMs429);
+          continue;
+        }
         console.log('[Gemini Quota] Kota doldu, 60 saniye bekleniyor ve tekrar denenecek....');
-        await sleep(retryWaitMs);
+        await sleep(retryWaitMsQuota);
         continue;
       }
       break;
