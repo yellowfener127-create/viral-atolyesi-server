@@ -775,12 +775,60 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
     parts.push(fileToInlineData(audioPath, 'audio/mpeg'));
   }
 
+  // Gemini 2.5 Flash "thinking tokens" kullanıyor; bütçeyi 0 yapıp tüm çıkışı
+  // gerçek JSON'a ayırıyoruz. maxOutputTokens'ı büyüttük ki truncation olmasın.
+  // responseSchema ile alanları zorla tip/kısıt altına alıyoruz.
+  const directorSchema = {
+    type: 'OBJECT',
+    properties: {
+      coord_units: { type: 'STRING', enum: ['px', 'norm'] },
+      hook: { type: 'STRING' },
+      caption: { type: 'STRING' },
+      hashtags: { type: 'ARRAY', items: { type: 'STRING' }, minItems: 5, maxItems: 5 },
+      original_header_height: { type: 'INTEGER' },
+      old_hook_box: {
+        type: 'OBJECT',
+        properties: {
+          x: { type: 'INTEGER' }, y: { type: 'INTEGER' },
+          w: { type: 'INTEGER' }, h: { type: 'INTEGER' }
+        },
+        required: ['x', 'y', 'w', 'h']
+      },
+      detect_garbage_text: {
+        type: 'OBJECT',
+        properties: {
+          x: { type: 'INTEGER' }, y: { type: 'INTEGER' },
+          w: { type: 'INTEGER' }, h: { type: 'INTEGER' }
+        },
+        required: ['x', 'y', 'w', 'h']
+      },
+      blur_regions: {
+        type: 'ARRAY',
+        maxItems: 6,
+        items: {
+          type: 'OBJECT',
+          properties: {
+            x: { type: 'INTEGER' }, y: { type: 'INTEGER' },
+            w: { type: 'INTEGER' }, h: { type: 'INTEGER' }
+          },
+          required: ['x', 'y', 'w', 'h']
+        }
+      }
+    },
+    required: [
+      'coord_units', 'hook', 'caption', 'hashtags',
+      'original_header_height', 'old_hook_box', 'blur_regions'
+    ]
+  };
+
   const body = {
     contents: [{ role: 'user', parts }],
     generationConfig: {
       temperature: 0.55,
-      maxOutputTokens: 1024,
-      responseMimeType: 'application/json'
+      maxOutputTokens: 2048,
+      responseMimeType: 'application/json',
+      responseSchema: directorSchema,
+      thinkingConfig: { thinkingBudget: 0 }
     }
   };
 
@@ -874,6 +922,8 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
           const promptTokens = Number(usage?.promptTokenCount ?? usage?.prompt_token_count ?? NaN);
           const candTokens = Number(usage?.candidatesTokenCount ?? usage?.candidates_token_count ?? NaN);
           const totalTokens = Number(usage?.totalTokenCount ?? usage?.total_token_count ?? NaN);
+          const thinkingTokens = Number(usage?.thoughtsTokenCount ?? usage?.thinkingTokenCount ?? usage?.reasoningTokenCount ?? NaN);
+          const finishReason = j?.candidates?.[0]?.finishReason || null;
           const tierGuess = (String(j?.error?.message || '').toLowerCase().includes('free_tier') || String(text).toLowerCase().includes('free_tier'))
             ? 'free'
             : 'paid_or_unknown';
@@ -885,9 +935,15 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
             promptTokens: Number.isFinite(promptTokens) ? promptTokens : null,
             candidateTokens: Number.isFinite(candTokens) ? candTokens : null,
             totalTokens: Number.isFinite(totalTokens) ? totalTokens : null,
+            thinkingTokens: Number.isFinite(thinkingTokens) ? thinkingTokens : null,
+            finishReason,
+            truncated: finishReason === 'MAX_TOKENS',
             tier: tierGuess
           };
           console.log('[Gemini Diag]', JSON.stringify(parsed.__va_diag));
+          if (parsed.__va_diag.truncated) {
+            console.log('[Gemini WARN] Cevap MAX_TOKENS ile kesildi — maxOutputTokens değerini artırmanız gerekebilir.');
+          }
         }
         return parsed || null;
       } catch (e) {
