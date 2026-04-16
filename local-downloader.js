@@ -234,6 +234,51 @@ function buildHookFromTitle({ title, isListicle }) {
   return `${subject} moment you can’t ignore`;
 }
 
+function buildFallbackCaptionFromTitle(title) {
+  const kw = extractKeywordsFromTitle(title);
+  const topic = kw.slice(0, 2).join(' ') || 'this moment';
+  const line1 = `Did you catch what happened with ${topic}?`;
+  const line2 = pickOne(['What would you do?', 'Rate this 1–10.', 'Would you try this?']);
+  const tags = [
+    '#' + (kw[0] || 'viral'),
+    '#shorts',
+    '#fyp',
+    '#trending',
+    '#wow'
+  ].map((t) => String(t).replace(/[^#a-zA-Z0-9]/g, '').toLowerCase()).filter(Boolean);
+  // ensure at least 5 unique hashtags
+  const uniq = [];
+  const seen = new Set();
+  for (const t of tags) {
+    if (seen.has(t)) continue;
+    seen.add(t);
+    uniq.push(t);
+    if (uniq.length >= 5) break;
+  }
+  while (uniq.length < 5) uniq.push('#viral');
+  return `${line1}\n${line2}\n${uniq.slice(0, 5).join(' ')}`.trim();
+}
+
+function captionLooksGood(caption) {
+  const s = String(caption || '').trim();
+  if (s.length < 24) return false;
+  const hasCTA = /what would you do\??|rate this|rate it|1-10|1–10|would you/i.test(s);
+  const hashCount = (s.match(/#[a-z0-9_]+/gi) || []).length;
+  return hasCTA && hashCount >= 5;
+}
+
+function splitHookTwoLines(hookText) {
+  const t = stripEmoji(String(hookText || '')).replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  // Prefer splitting near the middle on a space
+  const words = t.split(' ').filter(Boolean);
+  if (words.length <= 2) return t;
+  const mid = Math.max(1, Math.floor(words.length / 2));
+  const a = words.slice(0, mid).join(' ');
+  const b = words.slice(mid).join(' ');
+  return `${a}\\n${b}`.trim();
+}
+
 async function ytDlpGetTitle(url) {
   return await new Promise((resolve) => {
     try {
@@ -372,6 +417,10 @@ ANALİZ PROTOKOLÜ:
 2) Tüm karelerde AKSİYON/HİKAYE ara (düşme, çarpma, koşma, sarılma, kurtarma, ring kırılması, vb.).
 3) Ses önizlemesinde PİKLERİ ara (pat/çarpma, gülme, çığlık). Görsel net değilse ses ipucuna ağırlık ver.
 
+SU İŞARETİ / LOGO AVI (ÇOK KRİTİK):
+- Karelerde @username, kanal logosu veya sosyal medya filigranı görürsen MUTLAKA blur_regions içine koordinatını ekle.
+- Örnek: "@pet&wildlifewonders" gibi watermark yazılarını sakın kaçırma; koordinat ver.
+
 JENERİK YASAKLAR (KESİN):
 Hook şu kalıpları içeremez: "wait for it", "wait for the end", "watch until the end", "amazing end", "sweet end" (ve benzerleri).
 EK YASAK (KESİN): Hook içinde şu kelimeler GEÇEMEZ: "crazy", "viral", "insane".
@@ -402,8 +451,8 @@ KOORDİNAT SİSTEMİ (KESİN):
 
 ZORUNLU JSON ŞEMASI (KATI):
 {
-  "hook": "emoji-free English hook (no crazy/viral/insane)",
-  "caption": "English caption (emoji-free)",
+  "hook": "2 satır olacak şekilde yaz: Line1\\nLine2 (emoji-free, no crazy/viral/insane)",
+  "caption": "3 satır: (1) merak uyandıran cümle (2) CTA: What would you do? / Rate this 1-10 (3) en az 5 hashtag",
   "detect_garbage_text": {"x": 0, "y": 0, "w": 0, "h": 0},
   "original_header_height": 0,
   "blur_regions": [{"x": 0, "y": 0, "w": 0, "h": 0}]
@@ -1090,7 +1139,7 @@ app.post('/crush', async (req, res) => {
       const hookBase = String(director.newHook.text || '').trim();
       const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: isListicle || titleIsListicle });
       const hookSeed = (!looksGenericHook(hookBase) && hookBase) ? hookBase : (titleHook || hookBase);
-      const hookText = stripEmoji(makeUniqueHook(brand, hookSeed, cache, isListicle || titleIsListicle));
+      const hookText = splitHookTwoLines(stripEmoji(makeUniqueHook(brand, hookSeed, cache, isListicle || titleIsListicle)));
       hook = {
         text: hookText,
         // bannerY: 0=ALT, 100=ÜST → ffmpeg y=0 üst olduğu için ters çevir
@@ -1100,19 +1149,23 @@ app.post('/crush', async (req, res) => {
         color: director.hookColor || null
       };
 
-      finalCaption = makeUniqueCaption(brand, director.caption || '', cache);
+      // Caption: Gemini bazen boş/yüzeysel döndürebiliyor. Zorunlu 3 satır + CTA + >=5 hashtag doğrula.
+      const capCandidate = stripEmoji(String(director.caption || '').trim());
+      finalCaption = captionLooksGood(capCandidate) ? capCandidate : buildFallbackCaptionFromTitle(metaTitle);
       finalHashtags = ensureHashtagPack(brand, hookText, director.hashtags);
 
       rememberUsed(cache, 'hooks', hookText);
       rememberUsed(cache, 'captions', finalCaption);
       saveDirectorCache(cache);
 
-      // New schema: original_header_height (px) -> dynamic header mask
-      if (!coverBox && Number.isFinite(Number(director.originalHeaderHeight)) && Number(director.originalHeaderHeight) > 0) {
-        const hpx = Math.max(2, Math.min(outH, Math.round(Number(director.originalHeaderHeight) * 1.15)));
-        coverBox = { y: 0, h: hpx, w: outW, opacity: 1 };
-        hook.bannerY = 0;
-        if (hook) hook.boxOpacity = 1;
+      // Hybrid masking güncellemesi: siyah bant yok.
+      // Header text varsa, o alanı pixelate için blurRegions listesine ekle.
+      const hdr = Number(director.originalHeaderHeight);
+      if (Number.isFinite(hdr) && hdr > 0) {
+        const hpx = Math.max(2, Math.min(outH, Math.round(hdr * 1.15)));
+        director.blurRegions = Array.isArray(director.blurRegions) ? director.blurRegions : [];
+        director.blurRegions.unshift({ x: 0, y: 0, w: outW, h: hpx });
+        director.blurRegions = director.blurRegions.slice(0, 3);
       }
 
       if (director.hasOriginalHook && director.oldHook && Number.isFinite(director.oldHook.yPct) && Number.isFinite(director.oldHook.hPct)) {
@@ -1149,9 +1202,9 @@ app.post('/crush', async (req, res) => {
       // Fallback (Gemini hata/timeout): kod çökmesin, render devam etsin
       const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: titleIsListicle });
       const seed = titleHook || fallbackHookTextForBrand(brand);
-      const hookText = stripEmoji(makeUniqueHook(brand, seed, cache, titleIsListicle));
+      const hookText = splitHookTwoLines(stripEmoji(makeUniqueHook(brand, seed, cache, titleIsListicle)));
       hook = { text: hookText, bannerY: 0, y: 95, boxOpacity: 1, color: null };
-      finalCaption = makeUniqueCaption(brand, fallbackCaptionForBrand(brand), cache);
+      finalCaption = buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand));
       finalHashtags = ensureHashtagPack(brand, hookText, null);
       rememberUsed(cache, 'hooks', hookText);
       rememberUsed(cache, 'captions', finalCaption);

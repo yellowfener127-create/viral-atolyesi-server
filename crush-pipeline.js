@@ -413,14 +413,8 @@ async function buildCrushRenderPlan(o) {
       }
     : null;
 
-  // Hybrid masking:
-  // - cover varsa (original_header_height > 0): band + hook band üzerinde
-  // - cover yoksa: band yok, hook videonun üstüne outline+shadow ile basılır
-  const hasBand = !!cover;
-  const bannerYPxOverride = Number.isFinite(hook?.bannerY) ? Math.round(hook.bannerY) : null;
-  const bannerY = Math.max(0, Math.min(outH - 2, bannerYPxOverride != null ? bannerYPxOverride : (cover ? cover.y : 0)));
-  const bannerH = cover ? cover.h : 0;
-  const bannerTextY = Math.max(0, Math.round(bannerY + (bannerH - 56) / 2)); // fontsize≈48 için güvenli merkezleme
+  // No-band style (always): hook videonun üstüne outline+shadow ile basılır.
+  // Header/watermark temizliği blurRegions ile pixelate edilir.
   const noBandTextY = Math.max(18, Math.round(outH * 0.06)); // üst-orta profesyonel yerleşim
 
   const fontFile = pickExistingFontForDrawtext();
@@ -480,21 +474,13 @@ async function buildCrushRenderPlan(o) {
       ? [`[v0u]drawbox=x=0:y=${cover.y}:w=${outW}:h=${cover.h}:color=black@${coverFillOpacity.toFixed(3)}:t=fill[vcover]`]
       : []),
     ...pixelParts,
-    ...(hasBand
-      ? [
-          // Scenario A: band + hook band üzerinde
-          `[${baseLabel}]drawbox=x=0:y=${bannerY}:w=${outW}:h=${bannerH}:color=black@1.000:t=fill[vtop]`,
-          `[vtop]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
-            `fontcolor=${hookColor}@1.000:fontsize=48:borderw=0:x=(w-text_w)/2:y=${bannerTextY}:` +
-            `enable='${hookEnable}'[v1]`
-        ]
-      : [
-          // Scenario B: no-band, outline + shadow ile okunaklı yazı
-          `[${baseLabel}]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
-            `fontcolor=white@1.000:fontsize=48:borderw=3:bordercolor=black@1.000:` +
-            `shadowcolor=black@0.6:shadowx=2:shadowy=2:` +
-            `x=(w-text_w)/2:y=${noBandTextY}:enable='${hookEnable}'[v1]`
-        ]),
+    // No-band, outline + shadow ile okunaklı yazı (2 satır destekler)
+    `[${baseLabel}]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
+      `fontcolor=white@1.000:fontsize=48:borderw=3:bordercolor=black@1.000:` +
+      `shadowcolor=black@0.6:shadowx=2:shadowy=2:` +
+      // 100px padding: soldan/sağdan en az 100px boşluk
+      `x='max(100,min((w-text_w)/2,w-text_w-100))':y=${noBandTextY}:` +
+      `enable='${hookEnable}'[v1]`,
     `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
       `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
       `rotate='${tiltRotateExpr}':c=none:ow=iw:oh=ih[wm0]`,
