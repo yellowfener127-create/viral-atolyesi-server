@@ -673,7 +673,10 @@ async function crushVideo() {
           capCopy.style.display = "none";
         }
       } else if (attempted) {
-        const err = (dir && dir.error) ? String(dir.error) : "Gemini çalışmadı veya cevap alınamadı.";
+        const rawErr = (dir && dir.error) ? String(dir.error) : "Gemini çalışmadı veya cevap alınamadı.";
+        const err = /this operation was aborted/i.test(rawErr)
+          ? "Gemini timeout oldu (yanıt süresi aşıldı)."
+          : rawErr;
         const diag = dir && dir.diag ? ` | Diag: ${JSON.stringify(dir.diag)}` : "";
         const fallbackCap = String(dir && dir.fallbackCaption || "").replace(/\\n/g, " ").replace(/\s+/g, " ").trim();
         const fallbackTags = Array.isArray(dir && dir.fallbackHashtags) ? dir.fallbackHashtags : [];

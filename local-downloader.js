@@ -394,6 +394,11 @@ function isGeminiQuotaExceeded({ message, json }) {
   return /quota exceeded/.test(merged) || /exceeded your current quota/.test(merged) || /free_tier/.test(merged);
 }
 
+function isGeminiAbortError(err) {
+  const msg = String(err && err.message ? err.message : err || '').toLowerCase();
+  return msg.includes('this operation was aborted') || msg.includes('aborted');
+}
+
 async function geminiDirectorAnalyze({ geminiKey, brand, framePaths, audioPath, title }) {
   if (!geminiKey || String(geminiKey).trim().length < 10) return null;
 
@@ -515,6 +520,8 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
   const maxAttempts = 5;
   const retryWaitMs429 = 5_000;
   const retryWaitMsQuota = 60_000;
+  const retryWaitMsAbort = 10_000;
+  const requestTimeoutMs = 90_000;
   let lastErr = null;
 
   console.log('[Gemini Start]', JSON.stringify({
@@ -529,7 +536,7 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
     const ac = new AbortController();
     const t = setTimeout(() => {
       try { ac.abort(); } catch {}
-    }, 28_000);
+    }, requestTimeoutMs);
 
     let r = null;
     let j = {};
@@ -593,6 +600,11 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
       const status = Number(e?.httpStatus) || Number(r?.status) || null;
       const message = (e && e.message) ? e.message : String(e);
       const json = e?.geminiJson || j;
+      if (attempt < maxAttempts && isGeminiAbortError(e)) {
+        console.log('[Gemini Abort] İstek zaman aşımına uğradı, 10 saniye bekleniyor ve tekrar denenecek....');
+        await sleep(retryWaitMsAbort);
+        continue;
+      }
       if (attempt < maxAttempts && isGeminiRateLimitError({ status, message, json })) {
         if (status === 429 && !isGeminiQuotaExceeded({ message, json })) {
           console.log('[Gemini 429] Yoğunluk var, 5 saniye bekleniyor ve tekrar denenecek....');
