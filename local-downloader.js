@@ -14,8 +14,12 @@ const PORT = process.env.LOCAL_DOWNLOADER_PORT || 8787;
 const DEFAULT_DIR = path.join(process.env.USERPROFILE || process.cwd(), 'Videos', 'Viral Atölyesi İndirilenler');
 const DOWNLOAD_DIR = process.env.VA_DOWNLOAD_DIR || DEFAULT_DIR;
 const PUBLIC_DIR = path.join(__dirname, 'public');
-// Model: kota sorunları için 1.5 flash latest
-const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
+// `gemini-1.5-flash*` artık kaldırıldığı için güncel alias + fallback zinciri kullan.
+const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-2.5-flash'];
+const GEMINI_MODEL = GEMINI_MODELS[0];
+function geminiEndpointFor(model) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${String(model || GEMINI_MODEL).trim()}:generateContent`;
+}
 
 function safeJsonParse(s) {
   try { return JSON.parse(s); } catch { return null; }
@@ -25,6 +29,202 @@ function stripJsonFences(s) {
   const t = String(s || '').trim();
   const m = t.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   return (m && m[1]) ? m[1].trim() : t;
+}
+
+function escapeRegExp(s) {
+  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function decodeJsonLikeString(s) {
+  return String(s || '')
+    .replace(/\r/g, '')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '')
+    .replace(/\\t/g, ' ')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+    .trim();
+}
+
+function extractBalancedJsonObject(text) {
+  const src = String(text || '');
+  const start = src.indexOf('{');
+  if (start < 0) return '';
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < src.length; i++) {
+    const ch = src[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return src.slice(start, i + 1).trim();
+    }
+  }
+  return src.slice(start).trim();
+}
+
+function extractJsonLikeStringField(src, key) {
+  const re = new RegExp(`["']${escapeRegExp(key)}["']\\s*:\\s*["']`, 'i');
+  const m = re.exec(String(src || ''));
+  if (!m) return '';
+  let i = m.index + m[0].length;
+  let out = '';
+  let escaped = false;
+  while (i < src.length) {
+    const ch = src[i];
+    if (escaped) {
+      out += ch;
+      escaped = false;
+      i += 1;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch;
+      escaped = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'") break;
+    out += ch;
+    i += 1;
+  }
+  return decodeJsonLikeString(out);
+}
+
+function extractJsonLikeNumberField(src, key) {
+  const m = String(src || '').match(new RegExp(`["']${escapeRegExp(key)}["']\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`, 'i'));
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseLooseBoxFragment(fragment) {
+  const x = extractJsonLikeNumberField(fragment, 'x');
+  const y = extractJsonLikeNumberField(fragment, 'y');
+  const w = extractJsonLikeNumberField(fragment, 'w');
+  const h = extractJsonLikeNumberField(fragment, 'h');
+  if (![x, y, w, h].every(Number.isFinite)) return null;
+  return { x, y, w, h };
+}
+
+function extractJsonLikeBoxField(src, key) {
+  const idx = String(src || '').toLowerCase().indexOf(`"${String(key || '').toLowerCase()}"`);
+  if (idx < 0) return null;
+  const tail = String(src || '').slice(idx, idx + 260);
+  const frag = tail.match(/\{[\s\S]*?\}/);
+  return frag ? parseLooseBoxFragment(frag[0]) : null;
+}
+
+function extractJsonLikeBoxArrayField(src, key, maxItems = 6) {
+  const idx = String(src || '').toLowerCase().indexOf(`"${String(key || '').toLowerCase()}"`);
+  if (idx < 0) return [];
+  const tail = String(src || '').slice(idx, idx + 1200);
+  const arrStart = tail.indexOf('[');
+  if (arrStart < 0) return [];
+  const arrChunk = tail.slice(arrStart, tail.includes(']') ? tail.indexOf(']') + 1 : undefined);
+  const fragments = arrChunk.match(/\{[^{}]{0,240}\}/g) || [];
+  const out = [];
+  for (const frag of fragments) {
+    const box = parseLooseBoxFragment(frag);
+    if (!box) continue;
+    out.push(box);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function extractJsonLikeStringArrayField(src, key, maxItems = 8) {
+  const idx = String(src || '').toLowerCase().indexOf(`"${String(key || '').toLowerCase()}"`);
+  if (idx < 0) return [];
+  const tail = String(src || '').slice(idx, idx + 800);
+  const arrStart = tail.indexOf('[');
+  if (arrStart < 0) return [];
+  const arrChunk = tail.slice(arrStart, tail.includes(']') ? tail.indexOf(']') + 1 : undefined);
+  const out = [];
+  const re = /"((?:\\.|[^"\\])*)"/g;
+  let m;
+  while ((m = re.exec(arrChunk)) && out.length < maxItems) {
+    const item = decodeJsonLikeString(m[1]);
+    if (!item) continue;
+    out.push(item);
+  }
+  return out;
+}
+
+function extractHashtagsFromText(text, maxItems = 8) {
+  const tags = String(text || '').match(/#[a-z0-9_]+/gi) || [];
+  const out = [];
+  const seen = new Set();
+  for (const t of tags) {
+    const clean = String(t || '').toLowerCase();
+    if (!clean || seen.has(clean)) continue;
+    seen.add(clean);
+    out.push(clean);
+    if (out.length >= maxItems) break;
+  }
+  return out;
+}
+
+function stripHashtagsFromText(text) {
+  return String(text || '')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.replace(/(^|\s)#[a-z0-9_]+/gi, ' ').replace(/[|]+/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function splitCaptionPayload(text) {
+  const raw = stripEmoji(String(text || '').trim());
+  return {
+    caption: stripHashtagsFromText(raw),
+    hashtags: extractHashtagsFromText(raw)
+  };
+}
+
+function salvageDirectorJson(text) {
+  const src = extractBalancedJsonObject(stripJsonFences(text)) || stripJsonFences(text);
+  const hook = extractJsonLikeStringField(src, 'hook');
+  const captionRaw = extractJsonLikeStringField(src, 'caption');
+  const captionParts = splitCaptionPayload(captionRaw);
+  const explicitTags = extractJsonLikeStringArrayField(src, 'hashtags', 8);
+  const inlineTags = extractHashtagsFromText(extractJsonLikeStringField(src, 'hashtags'), 8);
+  const originalHeaderHeight = extractJsonLikeNumberField(src, 'original_header_height');
+  const detectGarbage = extractJsonLikeBoxField(src, 'detect_garbage_text') || { x: 0, y: 0, w: 0, h: 0 };
+  const oldHookBoxLoose = extractJsonLikeBoxField(src, 'old_hook_box');
+  const coordUnitsRaw = extractJsonLikeStringField(src, 'coord_units');
+  const blurRegions = extractJsonLikeBoxArrayField(src, 'blur_regions', 6);
+  const hashtags = [...explicitTags, ...inlineTags, ...captionParts.hashtags].filter(Boolean);
+
+  if (!hook && !captionRaw && originalHeaderHeight == null && !blurRegions.length && !oldHookBoxLoose) return null;
+  return {
+    hook,
+    caption: captionParts.caption || captionRaw || '',
+    hashtags,
+    coord_units: coordUnitsRaw || 'px',
+    detect_garbage_text: detectGarbage,
+    old_hook_box: oldHookBoxLoose || { x: 0, y: 0, w: 0, h: 0 },
+    original_header_height: Number.isFinite(originalHeaderHeight) ? originalHeaderHeight : 0,
+    blur_regions: blurRegions
+  };
 }
 
 function pickOne(arr) {
@@ -98,30 +298,58 @@ function makeVideoSpecificHashtagFromHook(hookText) {
   return ('#' + cleaned).slice(0, 24);
 }
 
+function brandNicheHashtag(brand) {
+  const b = String(brand || 'terapi').toLowerCase();
+  if (b === 'kaos') return '#chaos';
+  if (b === 'umut') return '#motivation';
+  return '#therapy';
+}
+
+function ensureStartsWithHash(tag) {
+  const s = String(tag || '').trim().toLowerCase().replace(/[^a-z0-9_#]/g, '');
+  if (!s) return '';
+  return s.startsWith('#') ? s : `#${s}`;
+}
+
 function ensureHashtagPack(brand, hookText, hashtags) {
-  const specific = makeVideoSpecificHashtagFromHook(hookText);
-  const base = fallbackHashtagsForBrand(brand);
-  const base4 = base.filter(Boolean).map(String).slice(0, 4);
-  const all = [specific, ...base4].filter(Boolean);
-  // uniq + keep order, ensure 5
+  const generic3 = ['#viral', '#kesfet', '#trending'];
+  const brandTag = brandNicheHashtag(brand);
+  const incoming = Array.isArray(hashtags) ? hashtags.map(ensureStartsWithHash).filter(Boolean) : [];
+
+  const rankedSignal = /(^|\s)(ranked|ranking|top\s*\d|#\s*1|#1|1\.)/i.test(String(hookText || '')) ||
+    incoming.some((t) => /^#ranked$/i.test(t));
+
+  let specific = '';
+  if (rankedSignal) {
+    specific = '#ranked';
+  } else {
+    specific = incoming.find((t) =>
+      t &&
+      !generic3.includes(t) &&
+      t !== brandTag &&
+      t !== '#fyp'
+    ) || makeVideoSpecificHashtagFromHook(hookText);
+  }
+  specific = ensureStartsWithHash(specific) || '#video';
+  if (generic3.includes(specific) || specific === brandTag) specific = '#video';
+
+  const out = [...generic3, brandTag, specific];
   const uniq = [];
   const seen = new Set();
-  for (const t of all) {
+  for (const t of out) {
     const k = String(t).toLowerCase();
-    if (seen.has(k)) continue;
+    if (!k || seen.has(k)) continue;
     seen.add(k);
-    uniq.push(String(t));
-    if (uniq.length >= 5) break;
+    uniq.push(k);
   }
-  // if specific collapsed to #viral etc, top up with base tags
-  for (const t of base) {
-    const k = String(t).toLowerCase();
-    if (seen.has(k)) continue;
-    seen.add(k);
-    uniq.push(String(t));
+  const filler = ['#reels', '#explore', '#shorts', '#video'];
+  for (const f of filler) {
     if (uniq.length >= 5) break;
+    if (!seen.has(f)) {
+      seen.add(f);
+      uniq.push(f);
+    }
   }
-  while (uniq.length < 5) uniq.push('#viral');
   return uniq.slice(0, 5);
 }
 
@@ -260,23 +488,23 @@ function buildFallbackCaptionFromTitle(title) {
 }
 
 function captionLooksGood(caption) {
-  const s = String(caption || '').trim();
+  const s = stripHashtagsFromText(String(caption || '').trim());
   if (s.length < 24) return false;
   const hasCTA = /what would you do\??|rate this|rate it|1-10|1–10|would you/i.test(s);
-  const hashCount = (s.match(/#[a-z0-9_]+/gi) || []).length;
+  const hashCount = extractHashtagsFromText(caption).length;
   return hasCTA && hashCount >= 5;
 }
 
 function splitHookTwoLines(hookText) {
   const t = stripEmoji(String(hookText || '')).replace(/\s+/g, ' ').trim();
   if (!t) return '';
-  // Prefer splitting near the middle on a space
-  const words = t.split(' ').filter(Boolean);
-  if (words.length <= 2) return t;
-  const mid = Math.max(1, Math.floor(words.length / 2));
-  const a = words.slice(0, mid).join(' ');
-  const b = words.slice(mid).join(' ');
-  return `${a}\\n${b}`.trim();
+  // Zorunlu kural: hook en fazla 5 kelime, tek satır ve ortalanabilir olmalı.
+  const words = t
+    .replace(/\n/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 5);
+  return words.join(' ').trim();
 }
 
 async function ytDlpGetTitle(url) {
@@ -394,6 +622,34 @@ function isGeminiQuotaExceeded({ message, json }) {
   return /quota exceeded/.test(merged) || /exceeded your current quota/.test(merged) || /free_tier/.test(merged);
 }
 
+function isGeminiHighDemandError({ status, message, json }) {
+  const msg = String(message || '');
+  const jmsg = json && (json.error?.message || json.error);
+  const s = String(jmsg || '');
+  const merged = (msg + '\n' + s).toLowerCase();
+  return (
+    status === 503 ||
+    /high demand/.test(merged) ||
+    /spikes in demand/.test(merged) ||
+    /try again later/.test(merged) ||
+    /temporarily unavailable/.test(merged) ||
+    /service unavailable/.test(merged) ||
+    /overloaded/.test(merged)
+  );
+}
+
+function isGeminiModelUnavailableError({ status, message, json }) {
+  const msg = String(message || '');
+  const jmsg = json && (json.error?.message || json.error);
+  const s = String(jmsg || '');
+  const merged = (msg + '\n' + s).toLowerCase();
+  return (
+    status === 404 ||
+    /not found/.test(merged) ||
+    /not supported for generatecontent/.test(merged)
+  );
+}
+
 function isGeminiAbortError(err) {
   const msg = String(err && err.message ? err.message : err || '').toLowerCase();
   return msg.includes('this operation was aborted') || msg.includes('aborted');
@@ -413,7 +669,7 @@ async function geminiDirectorAnalyze({ geminiKey, brand, framePaths, audioPath, 
 `Sistemin beyni olan "Viral Atölyesi AI Director v3.0" olarak görevlendirildin.
 
 ELİNDEKİ KISITLI VERİ (KURAL):
-- Sana daha fazla kare gönderiyorum. Her kareyi TEK TEK analiz et ve videodaki en küçük aksiyonu yakala (kaş kalkması, el hareketi, arkadaki detay vb.).
+- Sana 10 kare gönderiyorum. Her kareyi TEK TEK analiz et ve videodaki en küçük aksiyonu yakala (kaş kalkması, el hareketi, arkadaki detay vb.).
 - Bu istek için toplam ${framePaths && framePaths.length ? framePaths.length : 'N'} adet kare + kısa bir ses önizlemesi var.
 - İlk kareler videonun başından (metin yakalama için), kalan kareler videonun tamamına yayılmış (aksiyon/hikaye için).
 - Ayrıca kısa bir ses önizlemesi var (tek kanallı, düşük bitrate).
@@ -438,6 +694,7 @@ ZORUNLU SİYAH BANT (FORCE MASK) KURALI:
 - Videonun en üst kısmında herhangi bir yazı/başlık/hook görürsen (arkasında şerit olsun olmasın),
   original_header_height değerini mutlaka ölç ve döndür (px). Bu değer 0 olamaz.
 - Sadece gerçekten hiçbir yazı yoksa original_header_height=0 döndür.
+- Eski hook/yazı varsa old_hook_box koordinatını da ver (x,y,w,h). Site bu alanı siyah bantla kapatacak.
 
 JENERİK YASAKLAR (KESİN):
 Hook şu kalıpları içeremez: "wait for it", "wait for the end", "watch until the end", "amazing end", "sweet end" (ve benzerleri).
@@ -463,14 +720,17 @@ Eğer hasOldHook=true ise görevin o eski yazıyı “süslemek” değil, tamam
 - Aşağıdaki şema DIŞINA çıkma. Anahtar isimleri birebir aynı olmalı.
 
 KOORDİNAT SİSTEMİ (KESİN):
-- Çıktı koordinatları piksel cinsinden ve render hedefi 720x1280 içindir.
-- x,y: sol-üst köşe (0,0) sol-üst.
-- w,h: genişlik/yükseklik (px).
+- "coord_units": "px" ise x,y,w,h piksel (render 720x1280).
+- "coord_units": "norm" ise 0–100 normalize (x,y sol üst; w,h genişlik/yükseklik yüzdesi).
+- Eski hook kutusu mutlaka old_hook_box ile ver (yoksa sıfır kutusu).
 
 ZORUNLU JSON ŞEMASI (KATI):
 {
-  "hook": "2 satır olacak şekilde yaz: Line1\\nLine2 (emoji-free, no crazy/viral/insane)",
-  "caption": "3 satır: (1) merak uyandıran cümle (2) CTA: What would you do? / Rate this 1-10 (3) en az 5 hashtag",
+  "coord_units": "px",
+  "hook": "TEK satır, en fazla 5 kelime, emoji-free, no crazy/viral/insane",
+  "caption": "2 satır: (1) merak uyandıran cümle (2) CTA: What would you do? / Rate this 1-10",
+  "hashtags": ["#viral", "#kesfet", "#trending", "#chaos", "#specific"],
+  "old_hook_box": {"x": 0, "y": 0, "w": 0, "h": 0},
   "detect_garbage_text": {"x": 0, "y": 0, "w": 0, "h": 0},
   "original_header_height": 0,
   "blur_regions": [{"x": 0, "y": 0, "w": 0, "h": 0}]
@@ -479,9 +739,14 @@ ZORUNLU JSON ŞEMASI (KATI):
 KURALLAR:
 - hook kesinlikle emoji içermez.
 - hook içinde "crazy", "viral", "insane" kelimeleri geçemez.
+- hook en fazla 5 kelime olmalı, kısa ve videoyla doğrudan ilgili olmalı.
+- caption içine hashtag yazma; hashtagleri SADECE hashtags array içine koy.
+- hashtags array TAM 5 benzersiz hashtag içermeli ve her biri # ile başlamalı.
+- hashtag formatı: 3 genel (#viral/#kesfet/#trending), 1 konsept (#chaos/#therapy/#motivation), 1 spesifik (ranked ise #ranked).
 - detect_garbage_text: Eğer kullanıcı adı/watermark/logo/rahatsız edici metin görürsen en kritik alanı tek kutu olarak ver; yoksa {0,0,0,0}.
-- blur_regions: rahatsız edici yazı/logo alanlarını listele (maks 3 kutu); yoksa [] döndür.
+- blur_regions: rahatsız edici yazı/logo alanlarını listele (maks 6 kutu); yoksa [] döndür.
 - original_header_height: Üstte orijinal başlık/yazı varsa kapladığı yüksekliği px olarak ver (örn 160). Yoksa 0.
+- old_hook_box: Üstte eski hook varsa kutuyu ver; yoksa {0,0,0,0}.
 
 NOT:
 Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/impact/surprise hook’u üret; ama yine de jenerik yasaklara uy.
@@ -508,117 +773,158 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
     contents: [{ role: 'user', parts }],
     generationConfig: {
       temperature: 0.55,
-      maxOutputTokens: 1024
+      maxOutputTokens: 1024,
+      responseMimeType: 'application/json'
     }
   };
 
-  const url = `${GEMINI_ENDPOINT}?key=${encodeURIComponent(String(geminiKey).trim())}`;
   // Rate Limit Kurtarma:
   // Paid Tier: 429 genelde anlık yoğunluk → 5 sn bekle ve tekrar dene.
   // Quota exceeded ise → 60 sn bekle ve tekrar dene.
-  // En fazla 5 deneme (toplam).
+  // Aynı model sürekli doluysa sıradaki desteklenen flash modele geç.
   const maxAttempts = 5;
   const retryWaitMs429 = 5_000;
   const retryWaitMsQuota = 60_000;
   const retryWaitMsAbort = 10_000;
+  const retryWaitMsDemand = 15_000;
   const requestTimeoutMs = 90_000;
+  const modelsToTry = Array.isArray(GEMINI_MODELS) && GEMINI_MODELS.length ? GEMINI_MODELS.slice() : [GEMINI_MODEL];
   let lastErr = null;
+  let lastModelTried = GEMINI_MODEL;
 
   console.log('[Gemini Start]', JSON.stringify({
-    model: 'gemini-1.5-flash-latest',
+    model: GEMINI_MODEL,
+    modelChain: modelsToTry,
     brand,
     frameCount: Array.isArray(framePaths) ? framePaths.length : 0,
     hasAudio: !!audioPath,
     title: String(title || '').slice(0, 120)
   }));
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const ac = new AbortController();
-    const t = setTimeout(() => {
-      try { ac.abort(); } catch {}
-    }, requestTimeoutMs);
+  for (let modelIndex = 0; modelIndex < modelsToTry.length; modelIndex++) {
+    const currentModel = modelsToTry[modelIndex];
+    const url = `${geminiEndpointFor(currentModel)}?key=${encodeURIComponent(String(geminiKey).trim())}`;
+    let tryNextModel = false;
+    lastModelTried = currentModel;
 
-    let r = null;
-    let j = {};
-    try {
-      r = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: ac.signal
-      }).finally(() => clearTimeout(t));
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const ac = new AbortController();
+      const t = setTimeout(() => {
+        try { ac.abort(); } catch {}
+      }, requestTimeoutMs);
 
-      console.log(`[Gemini HTTP] attempt=${attempt} status=${r.status}`);
-      j = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        const msg = (j && (j.error?.message || j.error)) ? (j.error.message || j.error) : `Gemini HTTP ${r.status}`;
-        const err = new Error(msg);
-        err.httpStatus = r.status;
-        err.geminiJson = j;
-        throw err;
-      }
+      let r = null;
+      let j = {};
+      try {
+        r = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: ac.signal
+        }).finally(() => clearTimeout(t));
 
-      const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('').trim();
-      const parsed = safeJsonParse(stripJsonFences(text));
-      if (!parsed) {
-        const rawSnippet = String(text || '').slice(0, 400);
-        console.log('[Gemini Parse Fail]', rawSnippet);
-        return {
-          __va_status: 'PARSE_FAILED',
-          message: 'Gemini 200 döndü ama geçerli JSON üretmedi.',
-          rawSnippet,
-          __va_diag: {
-            model: 'gemini-1.5-flash-latest',
+        console.log(`[Gemini HTTP] model=${currentModel} attempt=${attempt} status=${r.status}`);
+        j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          const msg = (j && (j.error?.message || j.error)) ? (j.error.message || j.error) : `Gemini HTTP ${r.status}`;
+          const err = new Error(msg);
+          err.httpStatus = r.status;
+          err.geminiJson = j;
+          throw err;
+        }
+
+        const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('').trim();
+        const cleanText = stripJsonFences(text);
+        const strictParsed = safeJsonParse(cleanText) || safeJsonParse(extractBalancedJsonObject(cleanText));
+        const parsed = strictParsed || salvageDirectorJson(cleanText);
+        if (!parsed) {
+          const rawSnippet = String(text || '').slice(0, 400);
+          console.log('[Gemini Parse Fail]', rawSnippet);
+          return {
+            __va_status: 'PARSE_FAILED',
+            message: 'Gemini 200 döndü ama geçerli JSON üretmedi.',
+            rawSnippet,
+            __va_diag: {
+              model: currentModel,
+              attemptedModels: modelsToTry,
+              imageBytes,
+              audioBytes,
+              tier: 'paid_or_unknown'
+            }
+          };
+        }
+        if (!strictParsed) {
+          console.log('[Gemini Salvaged]', JSON.stringify({
+            model: currentModel,
+            hook: !!parsed.hook,
+            caption: !!parsed.caption,
+            hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags.length : 0,
+            originalHeaderHeight: Number(parsed.original_header_height || 0),
+            blurRegions: Array.isArray(parsed.blur_regions) ? parsed.blur_regions.length : 0
+          }));
+        }
+        if (parsed && typeof parsed === 'object') {
+          const usage = j.usageMetadata || j.usage_metadata || null;
+          const promptTokens = Number(usage?.promptTokenCount ?? usage?.prompt_token_count ?? NaN);
+          const candTokens = Number(usage?.candidatesTokenCount ?? usage?.candidates_token_count ?? NaN);
+          const totalTokens = Number(usage?.totalTokenCount ?? usage?.total_token_count ?? NaN);
+          const tierGuess = (String(j?.error?.message || '').toLowerCase().includes('free_tier') || String(text).toLowerCase().includes('free_tier'))
+            ? 'free'
+            : 'paid_or_unknown';
+          parsed.__va_diag = {
+            model: currentModel,
+            attemptedModels: modelsToTry,
             imageBytes,
             audioBytes,
-            tier: 'paid_or_unknown'
-          }
-        };
-      }
-      if (parsed && typeof parsed === 'object') {
-        const usage = j.usageMetadata || j.usage_metadata || null;
-        const promptTokens = Number(usage?.promptTokenCount ?? usage?.prompt_token_count ?? NaN);
-        const candTokens = Number(usage?.candidatesTokenCount ?? usage?.candidates_token_count ?? NaN);
-        const totalTokens = Number(usage?.totalTokenCount ?? usage?.total_token_count ?? NaN);
-        const tierGuess = (String(j?.error?.message || '').toLowerCase().includes('free_tier') || String(text).toLowerCase().includes('free_tier'))
-          ? 'free'
-          : 'paid_or_unknown';
-        parsed.__va_diag = {
-          model: 'gemini-1.5-flash-latest',
-          imageBytes,
-          audioBytes,
-          promptTokens: Number.isFinite(promptTokens) ? promptTokens : null,
-          candidateTokens: Number.isFinite(candTokens) ? candTokens : null,
-          totalTokens: Number.isFinite(totalTokens) ? totalTokens : null,
-          tier: tierGuess
-        };
-        console.log('[Gemini Diag]', JSON.stringify(parsed.__va_diag));
-      }
-      return parsed || null;
-    } catch (e) {
-      lastErr = e;
-      const status = Number(e?.httpStatus) || Number(r?.status) || null;
-      const message = (e && e.message) ? e.message : String(e);
-      const json = e?.geminiJson || j;
-      if (attempt < maxAttempts && isGeminiAbortError(e)) {
-        console.log('[Gemini Abort] İstek zaman aşımına uğradı, 10 saniye bekleniyor ve tekrar denenecek....');
-        await sleep(retryWaitMsAbort);
-        continue;
-      }
-      if (attempt < maxAttempts && isGeminiRateLimitError({ status, message, json })) {
-        if (status === 429 && !isGeminiQuotaExceeded({ message, json })) {
-          console.log('[Gemini 429] Yoğunluk var, 5 saniye bekleniyor ve tekrar denenecek....');
-          await sleep(retryWaitMs429);
+            promptTokens: Number.isFinite(promptTokens) ? promptTokens : null,
+            candidateTokens: Number.isFinite(candTokens) ? candTokens : null,
+            totalTokens: Number.isFinite(totalTokens) ? totalTokens : null,
+            tier: tierGuess
+          };
+          console.log('[Gemini Diag]', JSON.stringify(parsed.__va_diag));
+        }
+        return parsed || null;
+      } catch (e) {
+        lastErr = e;
+        const status = Number(e?.httpStatus) || Number(r?.status) || null;
+        const message = (e && e.message) ? e.message : String(e);
+        const json = e?.geminiJson || j;
+        const transientBusy = isGeminiHighDemandError({ status, message, json }) || (status === 429 && !isGeminiQuotaExceeded({ message, json }));
+
+        if (attempt < maxAttempts && isGeminiAbortError(e)) {
+          console.log(`[Gemini Abort] model=${currentModel} istek zaman aşımına uğradı, 10 saniye bekleniyor ve tekrar denenecek....`);
+          await sleep(retryWaitMsAbort);
           continue;
         }
-        console.log('[Gemini Quota] Kota doldu, 60 saniye bekleniyor ve tekrar denenecek....');
-        await sleep(retryWaitMsQuota);
-        continue;
+        if (attempt < maxAttempts && isGeminiHighDemandError({ status, message, json })) {
+          console.log(`[Gemini Demand] model=${currentModel} yoğunlukta, 15 saniye bekleniyor ve tekrar denenecek....`);
+          await sleep(retryWaitMsDemand);
+          continue;
+        }
+        if (attempt < maxAttempts && isGeminiRateLimitError({ status, message, json })) {
+          if (status === 429 && !isGeminiQuotaExceeded({ message, json })) {
+            console.log(`[Gemini 429] model=${currentModel} yoğunluk var, 5 saniye bekleniyor ve tekrar denenecek....`);
+            await sleep(retryWaitMs429);
+            continue;
+          }
+          console.log(`[Gemini Quota] model=${currentModel} kota doldu, 60 saniye bekleniyor ve tekrar denenecek....`);
+          await sleep(retryWaitMsQuota);
+          continue;
+        }
+        if (modelIndex < modelsToTry.length - 1 && (transientBusy || isGeminiModelUnavailableError({ status, message, json }))) {
+          const nextModel = modelsToTry[modelIndex + 1];
+          console.log(`[Gemini Fallback] ${currentModel} başarısız oldu, sıradaki modele geçiliyor: ${nextModel}`);
+          tryNextModel = true;
+        }
+        if (tryNextModel) break;
+        break;
+      } finally {
+        clearTimeout(t);
       }
-      break;
-    } finally {
-      clearTimeout(t);
     }
+
+    if (tryNextModel) continue;
+    break;
   }
 
   // 5 deneme sonunda hala kota/rate-limit ise videoyu pas geç: Gemini yokmuş gibi devam et.
@@ -626,11 +932,11 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
   if (lastErr) {
     const status = Number(lastErr?.httpStatus) || null;
     const message = (lastErr && lastErr.message) ? lastErr.message : String(lastErr);
-    if (isGeminiRateLimitError({ status, message, json: lastErr?.geminiJson })) {
+    if (isGeminiRateLimitError({ status, message, json: lastErr?.geminiJson }) || isGeminiHighDemandError({ status, message, json: lastErr?.geminiJson })) {
       return {
         __va_status: 'RATE_LIMIT_EXHAUSTED',
         message,
-        __va_diag: { model: 'gemini-1.5-flash-latest', imageBytes, audioBytes, tier: 'paid_or_unknown' }
+        __va_diag: { model: lastModelTried, attemptedModels: modelsToTry, imageBytes, audioBytes, tier: 'paid_or_unknown' }
       };
     }
     console.log('[Gemini Error]', message);
@@ -653,42 +959,86 @@ function fallbackHashtagsForBrand(brand) {
   return ['#cute', '#wholesome', '#animals', '#funny', '#viral'];
 }
 
-function normalizeDirectorResult(raw, outH, brand) {
+/** coord_units: "px" (720x1280) veya "norm" (0–100 yüzde) */
+function regionPixelsFromRaw(r, outW, outH, coordUnits) {
+  if (!r || typeof r !== 'object') return null;
+  let x = Number(r.x);
+  let y = Number(r.y);
+  let w = Number(r.w);
+  let h = Number(r.h);
+  if (![x, y, w, h].every(Number.isFinite)) return null;
+  const u = String(coordUnits || 'px').toLowerCase();
+  if (u === 'norm' || u === 'normalized' || u === 'percent' || u === '0-100') {
+    x = Math.round((x / 100) * outW);
+    y = Math.round((y / 100) * outH);
+    w = Math.round((w / 100) * outW);
+    h = Math.round((h / 100) * outH);
+  }
+  return { x, y, w, h };
+}
+
+function clampRegionForVideo(r, outW, outH, coordUnits) {
+  const n = regionPixelsFromRaw(r, outW, outH, coordUnits);
+  if (!n) return null;
+  const x = Math.max(0, Math.min(outW - 2, Math.round(n.x)));
+  const y = Math.max(0, Math.min(outH - 2, Math.round(n.y)));
+  const w = Math.max(0, Math.min(outW - x, Math.round(n.w)));
+  const h = Math.max(0, Math.min(outH - y, Math.round(n.h)));
+  return (w >= 8 && h >= 8) ? { x, y, w, h } : null;
+}
+
+function normalizeDirectorResult(raw, outW, outH, brand) {
   if (!raw || typeof raw !== 'object') return null;
+  const coordUnits = raw.coord_units || raw.coordUnits || 'px';
   // New strict schema support:
-  if (typeof raw.hook === 'string' || typeof raw.caption === 'string' || raw.original_header_height != null || Array.isArray(raw.blur_regions)) {
-    const hook = stripEmoji(String(raw.hook || '').trim());
-    const caption = stripEmoji(String(raw.caption || '').trim());
+  if (typeof raw.hook === 'string' || typeof raw.caption === 'string' || raw.original_header_height != null || Array.isArray(raw.blur_regions) || raw.old_hook_box != null || raw.oldHookBox != null) {
+    const hook = splitHookTwoLines(stripEmoji(String(raw.hook || '').trim()));
+    const captionParts = splitCaptionPayload(raw.caption || '');
+    const rawTags = Array.isArray(raw.hashtags) ? raw.hashtags : (Array.isArray(raw.Hashtags) ? raw.Hashtags : []);
+    const hashtags = [];
+    const seenTags = new Set();
+    for (const t of [...rawTags, ...captionParts.hashtags]) {
+      const clean = String(t || '').trim().toLowerCase();
+      if (!clean || seenTags.has(clean)) continue;
+      seenTags.add(clean);
+      hashtags.push(clean.startsWith('#') ? clean : `#${clean.replace(/^#+/, '')}`);
+      if (hashtags.length >= 5) break;
+    }
+    const caption = stripEmoji(String(captionParts.caption || '').trim());
     const headerH = Number(raw.original_header_height);
     const originalHeaderHeight = Number.isFinite(headerH) && headerH > 0 ? headerH : 0;
-    const clampRegion = (r) => {
-      const x = Math.max(0, Math.min(719, Math.round(Number(r?.x) || 0)));
-      const y = Math.max(0, Math.min(1279, Math.round(Number(r?.y) || 0)));
-      const w = Math.max(0, Math.min(720 - x, Math.round(Number(r?.w) || 0)));
-      const h = Math.max(0, Math.min(1280 - y, Math.round(Number(r?.h) || 0)));
-      return (w >= 8 && h >= 8) ? { x, y, w, h } : null;
-    };
+    const clampRegion = (r) => clampRegionForVideo(r, outW, outH, coordUnits);
     const blurRegions = [];
     const list = Array.isArray(raw.blur_regions) ? raw.blur_regions : [];
-    for (const r of list.slice(0, 3)) {
+    for (const r of list.slice(0, 6)) {
       const rr = clampRegion(r);
       if (rr) blurRegions.push(rr);
     }
     const garbage = clampRegion(raw.detect_garbage_text);
     if (garbage && !blurRegions.some(b => b.x === garbage.x && b.y === garbage.y && b.w === garbage.w && b.h === garbage.h)) {
       blurRegions.unshift(garbage);
-      if (blurRegions.length > 3) blurRegions.length = 3;
+      if (blurRegions.length > 6) blurRegions.length = 6;
     }
 
+    const oldHookBoxPx = clampRegion(raw.old_hook_box || raw.oldHookBox);
+    const hasOldBox = !!(oldHookBoxPx && oldHookBoxPx.w >= 8 && oldHookBoxPx.h >= 8);
+    const hasHeader = originalHeaderHeight > 0;
+    const isListicle =
+      raw.isListicle != null ? !!raw.isListicle
+      : raw.is_listicle != null ? !!raw.is_listicle
+      : raw.listicle != null ? !!raw.listicle
+      : false;
+
     const out = {
-      hasOriginalHook: originalHeaderHeight > 0,
-      oldHook: originalHeaderHeight > 0 ? { yPct: 0, hPct: (originalHeaderHeight / outH) * 100 } : null,
+      hasOriginalHook: hasHeader || hasOldBox,
+      oldHook: hasHeader ? { yPct: 0, hPct: (originalHeaderHeight / outH) * 100 } : null,
+      oldHookBox: oldHookBoxPx,
       newHook: { text: hook, yPx: 95, boxOpacity: 1 },
-      isListicle: false,
+      isListicle,
       rankHookHint: null,
       hookColor: null,
       caption,
-      hashtags: [],
+      hashtags,
       blurRegions,
       originalHeaderHeight
     };
@@ -721,8 +1071,18 @@ function normalizeDirectorResult(raw, outH, brand) {
 
   const text = newHook ? (newHook.text ?? newHook.hook ?? newHook.title ?? '') : '';
 
-  const caption = typeof raw.caption === 'string' ? raw.caption : (typeof raw.Caption === 'string' ? raw.Caption : '');
-  const hashtags = Array.isArray(raw.hashtags) ? raw.hashtags : (Array.isArray(raw.Hashtags) ? raw.Hashtags : []);
+  const captionRaw = typeof raw.caption === 'string' ? raw.caption : (typeof raw.Caption === 'string' ? raw.Caption : '');
+  const captionParts = splitCaptionPayload(captionRaw);
+  const hashtagsRaw = Array.isArray(raw.hashtags) ? raw.hashtags : (Array.isArray(raw.Hashtags) ? raw.Hashtags : []);
+  const hashtags = [];
+  const seenHash = new Set();
+  for (const t of [...hashtagsRaw, ...captionParts.hashtags]) {
+    const clean = String(t || '').trim().toLowerCase();
+    if (!clean || seenHash.has(clean)) continue;
+    seenHash.add(clean);
+    hashtags.push(clean.startsWith('#') ? clean : `#${clean.replace(/^#+/, '')}`);
+    if (hashtags.length >= 5) break;
+  }
   const isListicle =
     raw.isListicle != null ? !!raw.isListicle
     : raw.is_listicle != null ? !!raw.is_listicle
@@ -751,7 +1111,7 @@ function normalizeDirectorResult(raw, outH, brand) {
     isListicle,
     rankHookHint: rankHookHint ? String(rankHookHint).trim() : null,
     hookColor: hookColor ? String(hookColor).trim() : null,
-    caption: String(caption || '').trim(),
+    caption: String(captionParts.caption || '').trim(),
     hashtags: (hashtags || []).map(String).filter(Boolean).slice(0, 5),
     blurRegions: [],
     originalHeaderHeight: null
@@ -1159,7 +1519,7 @@ app.post('/crush', async (req, res) => {
           rest.push(restStart + span * k);
         }
       }
-      const times = [...early, ...rest].slice(0, 20).map((sec) => Math.max(0, Math.min(t - 0.05, sec)));
+      const times = [...early, ...rest].slice(0, 10).map((sec) => Math.max(0, Math.min(t - 0.05, sec)));
       const frames = times.map((_, i) => path.join(tmpDir, `frame_${String(i + 1).padStart(2, '0')}.png`));
       for (let i = 0; i < times.length; i++) {
         await ffmpegExtractFrame(inFile, frames[i], times[i]);
@@ -1171,7 +1531,12 @@ app.post('/crush', async (req, res) => {
         geminiUsed = true;
         const rawDir = await geminiDirectorAnalyze({ geminiKey, brand, framePaths: frames, audioPath: audioPrev, title: metaTitle });
         if (rawDir && rawDir.__va_status === 'RATE_LIMIT_EXHAUSTED') {
-          directorError = `Gemini kota/rate-limit: 5 denemede de başarısız. (${rawDir.message || 'quota'})`;
+          const rawMsg = String(rawDir.message || '');
+          if (/high demand|spikes in demand|try again later|temporarily unavailable|service unavailable|overloaded/i.test(rawMsg)) {
+            directorError = `Gemini yoğunlukta: tüm denemeler başarısız oldu. (${rawMsg || 'high demand'})`;
+          } else {
+            directorError = `Gemini kota/rate-limit: 5 denemede de başarısız. (${rawMsg || 'quota'})`;
+          }
           directorDiag = rawDir.__va_diag || null;
           director = null;
         } else if (rawDir && rawDir.__va_status === 'PARSE_FAILED') {
@@ -1179,7 +1544,7 @@ app.post('/crush', async (req, res) => {
           directorDiag = rawDir.__va_diag || null;
           director = null;
         } else {
-          director = rawDir ? normalizeDirectorResult(rawDir, outH, brand) : null;
+          director = rawDir ? normalizeDirectorResult(rawDir, outW, outH, brand) : null;
           directorDiag = rawDir && rawDir.__va_diag ? rawDir.__va_diag : null;
         }
       } else {
@@ -1220,27 +1585,43 @@ app.post('/crush', async (req, res) => {
 
       // Caption: Gemini bazen boş/yüzeysel döndürebiliyor. Zorunlu 3 satır + CTA + >=5 hashtag doğrula.
       const capCandidate = stripEmoji(String(director.caption || '').trim());
-      finalCaption = captionLooksGood(capCandidate) ? capCandidate : buildFallbackCaptionFromTitle(metaTitle);
-      finalHashtags = ensureHashtagPack(brand, hookText, director.hashtags);
+      const capGood = captionLooksGood(capCandidate) || (String(capCandidate || '').length >= 24 && Array.isArray(director.hashtags) && director.hashtags.length >= 5);
+      const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle));
+      finalCaption = capGood ? capCandidate : (fallbackCaptionBits.caption || buildFallbackCaptionFromTitle(metaTitle));
+      finalHashtags = ensureHashtagPack(brand, hookText, Array.isArray(director.hashtags) && director.hashtags.length ? director.hashtags : fallbackCaptionBits.hashtags);
 
       rememberUsed(cache, 'hooks', hookText);
       rememberUsed(cache, 'captions', finalCaption);
       saveDirectorCache(cache);
 
-      // Force mask: üstte herhangi bir yazı varsa siyah bant zorunlu.
+      // Force mask: üstte yazı/hook varsa siyah bant — original_header_height +/veya old_hook_box birleşimi.
+      const minBand = Math.round(outH * 0.22);
       const hdr = Number(director.originalHeaderHeight);
+      let bandH = 0;
       if (Number.isFinite(hdr) && hdr > 0) {
-        // Gemini bazen header yüksekliğini düşük ölçebilir → minimum bant yüksekliği uygula.
-        const minBand = Math.round(outH * 0.22);
-        const hpx = Math.max(2, Math.min(outH, Math.max(minBand, Math.round(hdr * 1.50))));
-        coverBox = { y: 0, h: hpx, w: outW, opacity: 1 };
+        bandH = Math.max(2, Math.min(outH, Math.max(minBand, Math.round(hdr * 1.50))));
+      }
+      if (director.oldHookBox && director.oldHookBox.w >= 8 && director.oldHookBox.h >= 8) {
+        const ob = director.oldHookBox;
+        const bottom = Math.min(outH, ob.y + ob.h);
+        const hFromBox = Math.max(minBand, Math.min(outH, Math.round(bottom * 1.08 + 8)));
+        bandH = Math.max(bandH, hFromBox);
+      }
+      if (bandH > 0) {
+        coverBox = { y: 0, h: bandH, w: outW, opacity: 1 };
         if (hook) {
           hook.boxOpacity = 1;
           hook.bannerY = 0;
         }
       }
 
-      if (director.hasOriginalHook && director.oldHook && Number.isFinite(director.oldHook.yPct) && Number.isFinite(director.oldHook.hPct)) {
+      if (
+        director.hasOriginalHook &&
+        director.oldHook &&
+        Number.isFinite(director.oldHook.yPct) &&
+        Number.isFinite(director.oldHook.hPct) &&
+        !director.oldHookBox
+      ) {
         // Strict masking:
         // - opaklık her koşulda 1.0
         // - genişlik tam video (outW)
@@ -1276,8 +1657,9 @@ app.post('/crush', async (req, res) => {
       const seed = titleHook || fallbackHookTextForBrand(brand);
       const hookText = splitHookTwoLines(stripEmoji(makeUniqueHook(brand, seed, cache, titleIsListicle)));
       hook = { text: hookText, bannerY: 0, y: 95, boxOpacity: 1, color: null };
-      finalCaption = buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand));
-      finalHashtags = ensureHashtagPack(brand, hookText, null);
+      const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand)));
+      finalCaption = fallbackCaptionBits.caption || fallbackCaptionForBrand(brand);
+      finalHashtags = ensureHashtagPack(brand, hookText, fallbackCaptionBits.hashtags);
       rememberUsed(cache, 'hooks', hookText);
       rememberUsed(cache, 'captions', finalCaption);
       saveDirectorCache(cache);
