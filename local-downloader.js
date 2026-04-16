@@ -687,14 +687,20 @@ ANALİZ PROTOKOLÜ:
 3) Ses önizlemesinde PİKLERİ ara (pat/çarpma, gülme, çığlık). Görsel net değilse ses ipucuna ağırlık ver.
 
 SU İŞARETİ / LOGO AVI (ÇOK KRİTİK):
-- Karelerde @username, kanal logosu veya sosyal medya filigranı görürsen MUTLAKA blur_regions içine koordinatını ekle.
-- Örnek: "@pet&wildlifewonders" gibi watermark yazılarını sakın kaçırma; koordinat ver.
+- Karelerde @ ile başlayan kullanıcı adı, kanal logosu, sosyal medya filigranı veya üreticinin adı görürsen,
+  HER BİRİNİ blur_regions listesine ayrı ayrı koordinat olarak ekle (maks 6 kutu).
+- "@MaddessRnk5", "@pet&wildlifewonders", "tiktok.com/@user" gibi yazıları ASLA kaçırma.
+- Kareler arasında sadece bir tanesinde görünse bile kaçırmadan koordinatını ver.
+- Eğer net kare yakalayamıyorsan olası bölgeyi mantıklı şekilde tahminle doldur; listeyi boş bırakma.
 
 ZORUNLU SİYAH BANT (FORCE MASK) KURALI:
 - Videonun en üst kısmında herhangi bir yazı/başlık/hook görürsen (arkasında şerit olsun olmasın),
   original_header_height değerini mutlaka ölç ve döndür (px). Bu değer 0 olamaz.
 - Sadece gerçekten hiçbir yazı yoksa original_header_height=0 döndür.
 - Eski hook/yazı varsa old_hook_box koordinatını da ver (x,y,w,h). Site bu alanı siyah bantla kapatacak.
+- Video başlığı "RANKING", "TOP", "RANKED", "BEST" gibi bir listicle başlığı içeriyorsa,
+  videonun ilk karesinde üstte büyük bir başlık yazısı olma ihtimali ÇOK yüksektir.
+  Bu durumda original_header_height değerini mutlaka >= 200 olarak ver ve old_hook_box alanını doldur.
 
 JENERİK YASAKLAR (KESİN):
 Hook şu kalıpları içeremez: "wait for it", "wait for the end", "watch until the end", "amazing end", "sweet end" (ve benzerleri).
@@ -1598,14 +1604,25 @@ app.post('/crush', async (req, res) => {
       const minBand = Math.round(outH * 0.22);
       const hdr = Number(director.originalHeaderHeight);
       let bandH = 0;
+      let bandReason = 'none';
       if (Number.isFinite(hdr) && hdr > 0) {
         bandH = Math.max(2, Math.min(outH, Math.max(minBand, Math.round(hdr * 1.50))));
+        bandReason = 'gemini_header_height';
       }
       if (director.oldHookBox && director.oldHookBox.w >= 8 && director.oldHookBox.h >= 8) {
         const ob = director.oldHookBox;
         const bottom = Math.min(outH, ob.y + ob.h);
         const hFromBox = Math.max(minBand, Math.min(outH, Math.round(bottom * 1.08 + 8)));
-        bandH = Math.max(bandH, hFromBox);
+        if (hFromBox > bandH) {
+          bandH = hFromBox;
+          bandReason = 'gemini_old_hook_box';
+        }
+      }
+      // Gemini üst yazıyı görmese bile: başlık listicle/ranked ise üstte yazı OLDUĞUNU kabul et
+      // ve otomatik bant çek. Bu, eski hook'un sızmasını engeller.
+      if (bandH === 0 && (isListicle || titleIsListicle)) {
+        bandH = Math.max(minBand, Math.round(outH * 0.22));
+        bandReason = 'auto_listicle_fallback';
       }
       if (bandH > 0) {
         coverBox = { y: 0, h: bandH, w: outW, opacity: 1 };
@@ -1614,6 +1631,13 @@ app.post('/crush', async (req, res) => {
           hook.bannerY = 0;
         }
       }
+      console.log('[Crush Band]', JSON.stringify({
+        reason: bandReason,
+        bandH,
+        titleListicle: !!titleIsListicle,
+        geminiListicle: !!isListicle,
+        hdr: Number.isFinite(hdr) ? hdr : 0
+      }));
 
       if (
         director.hasOriginalHook &&
@@ -1672,6 +1696,24 @@ app.post('/crush', async (req, res) => {
       await run('ffmpeg', [...plan.ffmpegArgsTail, outFile], { timeoutMs: 8 * 60 * 1000 });
     };
 
+    // Blur bölgeleri: Gemini bulduklarını kullan; Gemini hiç blur dönmediyse
+    // tipik "orta sağ watermark" bölgesi için güvenli fallback ekle.
+    const geminiBlurs = Array.isArray(director?.blurRegions) ? director.blurRegions : [];
+    const effectiveBlurRegions = geminiBlurs.slice(0, 6);
+    if (effectiveBlurRegions.length === 0) {
+      // Sağ-orta bölgede "@username" benzeri watermark için tipik hedef
+      const fbW = Math.round(outW * 0.55);
+      const fbH = Math.round(outH * 0.06);
+      const fbX = Math.max(0, Math.min(outW - fbW, Math.round(outW * 0.38)));
+      const fbY = Math.max(0, Math.min(outH - fbH, Math.round(outH * 0.42)));
+      effectiveBlurRegions.push({ x: fbX, y: fbY, w: fbW, h: fbH });
+    }
+    console.log('[Crush Blur]', JSON.stringify({
+      fromGemini: geminiBlurs.length,
+      total: effectiveBlurRegions.length,
+      regions: effectiveBlurRegions
+    }));
+
     let plan = await crush.buildCrushRenderPlan({
       inFile,
       wmFile,
@@ -1682,7 +1724,7 @@ app.post('/crush', async (req, res) => {
       sourceDurSec: inDur,
       hook,
       coverBox,
-      blurRegions: Array.isArray(director?.blurRegions) ? director.blurRegions : [],
+      blurRegions: effectiveBlurRegions,
       hasAudio,
       ffmpegPath: 'ffmpeg',
       ffprobePath: 'ffprobe',
@@ -1703,7 +1745,7 @@ app.post('/crush', async (req, res) => {
           sourceDurSec: inDur,
           hook,
           coverBox,
-          blurRegions: Array.isArray(director?.blurRegions) ? director.blurRegions : [],
+          blurRegions: effectiveBlurRegions,
           hasAudio,
           ffmpegPath: 'ffmpeg',
           ffprobePath: 'ffprobe',
