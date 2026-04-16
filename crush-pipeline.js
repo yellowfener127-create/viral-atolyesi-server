@@ -446,7 +446,7 @@ async function buildCrushRenderPlan(o) {
   let baseLabel = cover ? 'vcover' : 'v0u';
   const pixelParts = [];
   {
-    const regs = Array.isArray(blurRegions) ? blurRegions.slice(0, 3) : [];
+    const regs = Array.isArray(blurRegions) ? blurRegions.slice(0, 6) : [];
     const safe = regs
       .map((r) => ({
         x: Math.max(0, Math.min(outW - 2, Math.round(Number(r?.x) || 0))),
@@ -484,13 +484,13 @@ async function buildCrushRenderPlan(o) {
       ? [
           `[${baseLabel}]drawbox=x=0:y=${bannerY}:w=${outW}:h=${bannerH}:color=black@1.000:t=fill[vtop]`,
           `[vtop]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
-            `fontcolor=white@1.000:fontsize=48:borderw=1:bordercolor=black@1.000:` +
-            `x=(w-text_w)/2:y=${bannerTextY}:enable='${hookEnable}'[v1]`
+            `fontcolor=white@1.000:fontsize=44:borderw=2:bordercolor=black@1.000:` +
+            `x='max(80,min((w-text_w)/2,w-text_w-80))':y=${bannerTextY}:enable='${hookEnable}'[v1]`
         ]
       : [
           // No-band, outline + shadow ile okunaklı yazı (2 satır destekler)
           `[${baseLabel}]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
-            `fontcolor=white@1.000:fontsize=48:borderw=3:bordercolor=black@1.000:` +
+            `fontcolor=white@1.000:fontsize=44:borderw=3:bordercolor=black@1.000:` +
             `shadowcolor=black@0.6:shadowx=2:shadowy=2:` +
             // 100px padding: soldan/sağdan en az 100px boşluk
             `x='max(100,min((w-text_w)/2,w-text_w-100))':y=${noBandTextY}:` +
