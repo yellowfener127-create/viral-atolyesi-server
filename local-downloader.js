@@ -421,6 +421,11 @@ SU İŞARETİ / LOGO AVI (ÇOK KRİTİK):
 - Karelerde @username, kanal logosu veya sosyal medya filigranı görürsen MUTLAKA blur_regions içine koordinatını ekle.
 - Örnek: "@pet&wildlifewonders" gibi watermark yazılarını sakın kaçırma; koordinat ver.
 
+ZORUNLU SİYAH BANT (FORCE MASK) KURALI:
+- Videonun en üst kısmında herhangi bir yazı/başlık/hook görürsen (arkasında şerit olsun olmasın),
+  original_header_height değerini mutlaka ölç ve döndür (px). Bu değer 0 olamaz.
+- Sadece gerçekten hiçbir yazı yoksa original_header_height=0 döndür.
+
 JENERİK YASAKLAR (KESİN):
 Hook şu kalıpları içeremez: "wait for it", "wait for the end", "watch until the end", "amazing end", "sweet end" (ve benzerleri).
 EK YASAK (KESİN): Hook içinde şu kelimeler GEÇEMEZ: "crazy", "viral", "insane".
@@ -1158,14 +1163,15 @@ app.post('/crush', async (req, res) => {
       rememberUsed(cache, 'captions', finalCaption);
       saveDirectorCache(cache);
 
-      // Hybrid masking güncellemesi: siyah bant yok.
-      // Header text varsa, o alanı pixelate için blurRegions listesine ekle.
+      // Force mask: üstte herhangi bir yazı varsa siyah bant zorunlu.
       const hdr = Number(director.originalHeaderHeight);
       if (Number.isFinite(hdr) && hdr > 0) {
         const hpx = Math.max(2, Math.min(outH, Math.round(hdr * 1.15)));
-        director.blurRegions = Array.isArray(director.blurRegions) ? director.blurRegions : [];
-        director.blurRegions.unshift({ x: 0, y: 0, w: outW, h: hpx });
-        director.blurRegions = director.blurRegions.slice(0, 3);
+        coverBox = { y: 0, h: hpx, w: outW, opacity: 1 };
+        if (hook) {
+          hook.boxOpacity = 1;
+          hook.bannerY = 0;
+        }
       }
 
       if (director.hasOriginalHook && director.oldHook && Number.isFinite(director.oldHook.yPct) && Number.isFinite(director.oldHook.hPct)) {
