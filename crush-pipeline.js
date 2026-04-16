@@ -324,6 +324,7 @@ async function buildCrushRenderPlan(o) {
     sourceDurSec,
     hook,
     coverBox,
+    blurRegions,
     hasAudio,
     ffmpegPath,
     ffprobePath,
@@ -448,8 +449,40 @@ async function buildCrushRenderPlan(o) {
     ...(cover
       ? [`[v0u]drawbox=x=0:y=${cover.y}:w=${outW}:h=${cover.h}:color=black@${coverFillOpacity.toFixed(3)}:t=fill[vcover]`]
       : []),
+    // Blur/pixelate regions (maks 3): rahatsız edici yazı/logo/username kapatma
+    ...(() => {
+      const regs = Array.isArray(blurRegions) ? blurRegions.slice(0, 3) : [];
+      const safe = regs
+        .map((r) => ({
+          x: Math.max(0, Math.min(outW - 2, Math.round(Number(r?.x) || 0))),
+          y: Math.max(0, Math.min(outH - 2, Math.round(Number(r?.y) || 0))),
+          w: Math.max(0, Math.min(outW, Math.round(Number(r?.w) || 0))),
+          h: Math.max(0, Math.min(outH, Math.round(Number(r?.h) || 0)))
+        }))
+        .filter((r) => r.w >= 8 && r.h >= 8 && r.x + r.w <= outW && r.y + r.h <= outH);
+      const outParts = [];
+      let base = cover ? 'vcover' : 'v0u';
+      safe.forEach((r, i) => {
+        const bi = `b${i}`;
+        const bt = `bt${i}`;
+        const px = `px${i}`;
+        const bn = `vb${i}`;
+        // pixelate: downscale then upscale nearest
+        outParts.push(`[${base}]split=2[${bi}][${bt}]`);
+        outParts.push(
+          `[${bt}]crop=w=${r.w}:h=${r.h}:x=${r.x}:y=${r.y},` +
+            `scale=${Math.max(8, Math.round(r.w / 12))}:${Math.max(8, Math.round(r.h / 12))}:flags=neighbor,` +
+            `scale=${r.w}:${r.h}:flags=neighbor[${px}]`
+        );
+        outParts.push(`[${bi}][${px}]overlay=x=${r.x}:y=${r.y}:format=auto[${bn}]`);
+        base = bn;
+      });
+      // expose final base as [vpreMask] if any, else keep existing label
+      if (safe.length) outParts.push(`[${base}]copy[vpreMask]`);
+      return outParts;
+    })(),
     // Black banner (her zaman): default üst band veya Gemini/cover ile override
-    `${cover ? '[vcover]' : '[v0u]'}drawbox=x=0:y=${bannerY}:w=${outW}:h=${bannerH}:color=black@1.000:t=fill[vtop]`,
+    `${Array.isArray(blurRegions) && blurRegions.length ? '[vpreMask]' : (cover ? '[vcover]' : '[v0u]')}drawbox=x=0:y=${bannerY}:w=${outW}:h=${bannerH}:color=black@1.000:t=fill[vtop]`,
     `[vtop]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
       `fontcolor=${hookColor}@${hookAlpha.toFixed(3)}:fontsize=48:x=(w-text_w)/2:y=${bannerTextY}:` +
       `enable='${hookEnable}'[v1]`,

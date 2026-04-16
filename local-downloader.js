@@ -392,27 +392,29 @@ Eğer hasOldHook=true ise görevin o eski yazıyı “süslemek” değil, tamam
     Eski yazıyı tamamen yutacak şekilde ayarla (gerekirse 95–100 bandına yakın).
 
 ÇIKTI KURALI (KESİN):
-- SADECE JSON döndür. Başka hiçbir metin, açıklama, markdown, code fence, “|”, aralık, placeholder yazma.
+- SADECE JSON döndür. Başka hiçbir metin, açıklama, markdown, code fence yazma.
 - Aşağıdaki şema DIŞINA çıkma. Anahtar isimleri birebir aynı olmalı.
 
-ZORUNLU JSON ŞEMASI:
+KOORDİNAT SİSTEMİ (KESİN):
+- Çıktı koordinatları piksel cinsinden ve render hedefi 720x1280 içindir.
+- x,y: sol-üst köşe (0,0) sol-üst.
+- w,h: genişlik/yükseklik (px).
+
+ZORUNLU JSON ŞEMASI (KATI):
 {
-  "hasOldHook": boolean,
-  "oldHook": {"yPct": number, "hPct": number} | null,
-  "newHook": {"text": string, "yPx": number, "boxOpacity": number},
-  "isListicle": boolean,
-  "rankHookHint": string | null,
-  "hookColor": string,
-  "caption": string,
-  "hashtags": string[5]
+  "hook": "emoji-free English hook (no crazy/viral/insane)",
+  "caption": "English caption (emoji-free)",
+  "detect_garbage_text": {"x": 0, "y": 0, "w": 0, "h": 0},
+  "original_header_height": 0,
+  "blur_regions": [{"x": 0, "y": 0, "w": 0, "h": 0}]
 }
 
-KOŞULLU ŞARTLAR (KESİN):
-1) hasOldHook=true => oldHook NULL OLAMAZ ve newHook.boxOpacity 1.0 olmalı
-2) hasOldHook=false => oldHook NULL OLMALI ve newHook.boxOpacity 0.30–0.50 arası olmalı
-  3) newHook.yPx 0–100 arası olmalı (0=ALT, 100=ÜST)
-5) hookColor mutlaka "#RRGGBB" formatında olmalı (örn: #FFFFFF, #FFD400, #9BFF57)
-6) hashtags dizisi TAM 5 eleman olmalı ve her biri "#tag" formatında olmalı
+KURALLAR:
+- hook kesinlikle emoji içermez.
+- hook içinde "crazy", "viral", "insane" kelimeleri geçemez.
+- detect_garbage_text: Eğer kullanıcı adı/watermark/logo/rahatsız edici metin görürsen en kritik alanı tek kutu olarak ver; yoksa {0,0,0,0}.
+- blur_regions: rahatsız edici yazı/logo alanlarını listele (maks 3 kutu); yoksa [] döndür.
+- original_header_height: Üstte orijinal başlık/yazı varsa kapladığı yüksekliği px olarak ver (örn 160). Yoksa 0.
 
 NOT:
 Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/impact/surprise hook’u üret; ama yine de jenerik yasaklara uy.
@@ -546,6 +548,47 @@ function fallbackHashtagsForBrand(brand) {
 
 function normalizeDirectorResult(raw, outH, brand) {
   if (!raw || typeof raw !== 'object') return null;
+  // New strict schema support:
+  if (typeof raw.hook === 'string' || typeof raw.caption === 'string' || raw.original_header_height != null || Array.isArray(raw.blur_regions)) {
+    const hook = stripEmoji(String(raw.hook || '').trim());
+    const caption = stripEmoji(String(raw.caption || '').trim());
+    const headerH = Number(raw.original_header_height);
+    const originalHeaderHeight = Number.isFinite(headerH) && headerH > 0 ? headerH : 0;
+    const clampRegion = (r) => {
+      const x = Math.max(0, Math.min(719, Math.round(Number(r?.x) || 0)));
+      const y = Math.max(0, Math.min(1279, Math.round(Number(r?.y) || 0)));
+      const w = Math.max(0, Math.min(720 - x, Math.round(Number(r?.w) || 0)));
+      const h = Math.max(0, Math.min(1280 - y, Math.round(Number(r?.h) || 0)));
+      return (w >= 8 && h >= 8) ? { x, y, w, h } : null;
+    };
+    const blurRegions = [];
+    const list = Array.isArray(raw.blur_regions) ? raw.blur_regions : [];
+    for (const r of list.slice(0, 3)) {
+      const rr = clampRegion(r);
+      if (rr) blurRegions.push(rr);
+    }
+    const garbage = clampRegion(raw.detect_garbage_text);
+    if (garbage && !blurRegions.some(b => b.x === garbage.x && b.y === garbage.y && b.w === garbage.w && b.h === garbage.h)) {
+      blurRegions.unshift(garbage);
+      if (blurRegions.length > 3) blurRegions.length = 3;
+    }
+
+    const out = {
+      hasOriginalHook: originalHeaderHeight > 0,
+      oldHook: originalHeaderHeight > 0 ? { yPct: 0, hPct: (originalHeaderHeight / outH) * 100 } : null,
+      newHook: { text: hook, yPx: 95, boxOpacity: 1 },
+      isListicle: false,
+      rankHookHint: null,
+      hookColor: null,
+      caption,
+      hashtags: [],
+      blurRegions,
+      originalHeaderHeight
+    };
+    if (!out.newHook.text) out.newHook.text = fallbackHookTextForBrand(brand);
+    if (!out.caption) out.caption = fallbackCaptionForBrand(brand);
+    return out;
+  }
   const hasOriginal =
     raw.has_original_hook != null ? !!raw.has_original_hook
     : raw.has_old_hook != null ? !!raw.has_old_hook
@@ -602,7 +645,9 @@ function normalizeDirectorResult(raw, outH, brand) {
     rankHookHint: rankHookHint ? String(rankHookHint).trim() : null,
     hookColor: hookColor ? String(hookColor).trim() : null,
     caption: String(caption || '').trim(),
-    hashtags: (hashtags || []).map(String).filter(Boolean).slice(0, 5)
+    hashtags: (hashtags || []).map(String).filter(Boolean).slice(0, 5),
+    blurRegions: [],
+    originalHeaderHeight: null
   };
 
   // y yoksa fallback 70–95
@@ -1062,6 +1107,14 @@ app.post('/crush', async (req, res) => {
       rememberUsed(cache, 'captions', finalCaption);
       saveDirectorCache(cache);
 
+      // New schema: original_header_height (px) -> dynamic header mask
+      if (!coverBox && Number.isFinite(Number(director.originalHeaderHeight)) && Number(director.originalHeaderHeight) > 0) {
+        const hpx = Math.max(2, Math.min(outH, Math.round(Number(director.originalHeaderHeight) * 1.15)));
+        coverBox = { y: 0, h: hpx, w: outW, opacity: 1 };
+        hook.bannerY = 0;
+        if (hook) hook.boxOpacity = 1;
+      }
+
       if (director.hasOriginalHook && director.oldHook && Number.isFinite(director.oldHook.yPct) && Number.isFinite(director.oldHook.hPct)) {
         // Strict masking:
         // - opaklık her koşulda 1.0
@@ -1120,6 +1173,7 @@ app.post('/crush', async (req, res) => {
       sourceDurSec: inDur,
       hook,
       coverBox,
+      blurRegions: Array.isArray(director?.blurRegions) ? director.blurRegions : [],
       hasAudio,
       ffmpegPath: 'ffmpeg',
       ffprobePath: 'ffprobe',
@@ -1140,6 +1194,7 @@ app.post('/crush', async (req, res) => {
           sourceDurSec: inDur,
           hook,
           coverBox,
+          blurRegions: Array.isArray(director?.blurRegions) ? director.blurRegions : [],
           hasAudio,
           ffmpegPath: 'ffmpeg',
           ffprobePath: 'ffprobe',
