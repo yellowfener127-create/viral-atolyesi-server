@@ -1166,7 +1166,9 @@ app.post('/crush', async (req, res) => {
       // Force mask: üstte herhangi bir yazı varsa siyah bant zorunlu.
       const hdr = Number(director.originalHeaderHeight);
       if (Number.isFinite(hdr) && hdr > 0) {
-        const hpx = Math.max(2, Math.min(outH, Math.round(hdr * 1.15)));
+        // Gemini bazen header yüksekliğini düşük ölçebilir → minimum bant yüksekliği uygula.
+        const minBand = Math.round(outH * 0.22);
+        const hpx = Math.max(2, Math.min(outH, Math.max(minBand, Math.round(hdr * 1.50))));
         coverBox = { y: 0, h: hpx, w: outW, opacity: 1 };
         if (hook) {
           hook.boxOpacity = 1;
