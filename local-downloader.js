@@ -197,7 +197,10 @@ function looksGenericHook(s) {
     'amazing end',
     'sweet end',
     'end is crazy',
-    'ending is crazy'
+    'ending is crazy',
+    'crazy',
+    'viral',
+    'insane'
   ];
   return banned.some((b) => t.includes(b));
 }
@@ -338,7 +341,7 @@ function isGeminiRateLimitError({ status, message, json }) {
   );
 }
 
-async function geminiDirectorAnalyze({ geminiKey, brand, framePaths, audioPath }) {
+async function geminiDirectorAnalyze({ geminiKey, brand, framePaths, audioPath, title }) {
   if (!geminiKey || String(geminiKey).trim().length < 10) return null;
 
   const concept =
@@ -352,21 +355,26 @@ async function geminiDirectorAnalyze({ geminiKey, brand, framePaths, audioPath }
 `Sistemin beyni olan "Viral Atölyesi AI Director v3.0" olarak görevlendirildin.
 
 ELİNDEKİ KISITLI VERİ (KURAL):
-- 10 adet JPEG kare var. İlk 3 kare ilk ~2 saniyeden alınmış (metin yakalama için).
-- Kalan 7 kare videonun geri kalanına dağılmış (aksiyon/hikaye için).
+- Sana daha fazla kare gönderiyorum. Her kareyi TEK TEK analiz et ve videodaki en küçük aksiyonu yakala (kaş kalkması, el hareketi, arkadaki detay vb.).
+- Bu istek için toplam ${framePaths && framePaths.length ? framePaths.length : 'N'} adet kare + kısa bir ses önizlemesi var.
+- İlk kareler videonun başından (metin yakalama için), kalan kareler videonun tamamına yayılmış (aksiyon/hikaye için).
 - Ayrıca kısa bir ses önizlemesi var (tek kanallı, düşük bitrate).
 - Tam videoyu izlemiyorsun. Bu yüzden sadece bu ipuçlarıyla en iyi tahmini yap.
 
 KONSEPT (SAPMA YASAK):
 ${concept}
 
+VIDEO BAŞLIĞI (yt-dlp):
+${String(title || '').trim() || '(başlık alınamadı)'}
+
 ANALİZ PROTOKOLÜ:
-1) İlk 3 karede METİN ara (üst/orta). Varsa bu “İmha Bölgesi”dir.
-2) Kalan 7 karede AKSİYON/HİKAYE ara (düşme, çarpma, koşma, sarılma, kurtarma, vb.).
+1) İlk karelerde METİN ara (üst/orta). Varsa bu “İmha Bölgesi”dir.
+2) Tüm karelerde AKSİYON/HİKAYE ara (düşme, çarpma, koşma, sarılma, kurtarma, ring kırılması, vb.).
 3) Ses önizlemesinde PİKLERİ ara (pat/çarpma, gülme, çığlık). Görsel net değilse ses ipucuna ağırlık ver.
 
 JENERİK YASAKLAR (KESİN):
 Hook şu kalıpları içeremez: "wait for it", "wait for the end", "watch until the end", "amazing end", "sweet end" (ve benzerleri).
+EK YASAK (KESİN): Hook içinde şu kelimeler GEÇEMEZ: "crazy", "viral", "insane".
 
 SOMUTLUK ŞARTI (KESİN):
 Hook İngilizce olacak ve mutlaka 1 SOMUT NESNE veya 1 SOMUT EYLEM kelimesi içerecek.
@@ -408,6 +416,7 @@ KOŞULLU ŞARTLAR (KESİN):
 
 NOT:
 Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/impact/surprise hook’u üret; ama yine de jenerik yasaklara uy.
+Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere dayanarak, her ikisiyle de uyumlu bir hook oluştur.
 
 ŞİMDİ SADECE JSON DÖNDÜR.`;
 
@@ -470,7 +479,23 @@ Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/im
       const text = (j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('').trim();
       const parsed = safeJsonParse(stripJsonFences(text));
       if (parsed && typeof parsed === 'object') {
-        parsed.__va_diag = { model: 'gemini-1.5-flash-latest', imageBytes, audioBytes };
+        const usage = j.usageMetadata || j.usage_metadata || null;
+        const promptTokens = Number(usage?.promptTokenCount ?? usage?.prompt_token_count ?? NaN);
+        const candTokens = Number(usage?.candidatesTokenCount ?? usage?.candidates_token_count ?? NaN);
+        const totalTokens = Number(usage?.totalTokenCount ?? usage?.total_token_count ?? NaN);
+        const tierGuess = (String(j?.error?.message || '').toLowerCase().includes('free_tier') || String(text).toLowerCase().includes('free_tier'))
+          ? 'free'
+          : 'paid_or_unknown';
+        parsed.__va_diag = {
+          model: 'gemini-1.5-flash-latest',
+          imageBytes,
+          audioBytes,
+          promptTokens: Number.isFinite(promptTokens) ? promptTokens : null,
+          candidateTokens: Number.isFinite(candTokens) ? candTokens : null,
+          totalTokens: Number.isFinite(totalTokens) ? totalTokens : null,
+          tier: tierGuess
+        };
+        console.log('[Gemini Diag]', JSON.stringify(parsed.__va_diag));
       }
       return parsed || null;
     } catch (e) {
@@ -494,7 +519,11 @@ Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/im
     const status = Number(lastErr?.httpStatus) || null;
     const message = (lastErr && lastErr.message) ? lastErr.message : String(lastErr);
     if (isGeminiRateLimitError({ status, message, json: lastErr?.geminiJson })) {
-      return { __va_status: 'RATE_LIMIT_EXHAUSTED', message, __va_diag: { model: 'gemini-1.5-flash-latest', imageBytes, audioBytes } };
+      return {
+        __va_status: 'RATE_LIMIT_EXHAUSTED',
+        message,
+        __va_diag: { model: 'gemini-1.5-flash-latest', imageBytes, audioBytes, tier: 'paid_or_unknown' }
+      };
     }
     throw lastErr;
   }
@@ -961,13 +990,13 @@ app.post('/crush', async (req, res) => {
     const tmpArtifacts = [];
     try {
       const t = inDur;
-      // 10 kare:
-      // - ilk 3 kare ilk ~2 saniyeden (eski yazıyı yakalamak için)
-      // - kalan 7 kare 2sn → sona kadar eşit dağıt
-      const early = [0.15, 0.90, 1.70].map((sec) => Math.max(0, Math.min(t - 0.05, sec)));
+      // 20 kare:
+      // - ilk 5 kare ilk ~2 saniyeden (eski yazıyı yakalamak için)
+      // - kalan 15 kare 2sn → sona kadar eşit dağıt
+      const early = [0.10, 0.50, 0.90, 1.30, 1.70].map((sec) => Math.max(0, Math.min(t - 0.05, sec)));
       const restStart = Math.min(Math.max(2.0, 0), Math.max(0, t - 0.05));
       const restEnd = Math.max(restStart, t - 0.05);
-      const restCount = 7;
+      const restCount = 15;
       const rest = [];
       if (restCount > 0) {
         const span = Math.max(0.001, restEnd - restStart);
@@ -976,7 +1005,7 @@ app.post('/crush', async (req, res) => {
           rest.push(restStart + span * k);
         }
       }
-      const times = [...early, ...rest].slice(0, 10).map((sec) => Math.max(0, Math.min(t - 0.05, sec)));
+      const times = [...early, ...rest].slice(0, 20).map((sec) => Math.max(0, Math.min(t - 0.05, sec)));
       const frames = times.map((_, i) => path.join(tmpDir, `frame_${String(i + 1).padStart(2, '0')}.png`));
       for (let i = 0; i < times.length; i++) {
         await ffmpegExtractFrame(inFile, frames[i], times[i]);
@@ -986,9 +1015,9 @@ app.post('/crush', async (req, res) => {
       tmpArtifacts.push(...frames, audioPrev);
       if (geminiKeyPresent) {
         geminiUsed = true;
-        const rawDir = await geminiDirectorAnalyze({ geminiKey, brand, framePaths: frames, audioPath: audioPrev });
+        const rawDir = await geminiDirectorAnalyze({ geminiKey, brand, framePaths: frames, audioPath: audioPrev, title: metaTitle });
         if (rawDir && rawDir.__va_status === 'RATE_LIMIT_EXHAUSTED') {
-          director = { error: `Gemini kota/rate-limit: 3 denemede de başarısız. (${rawDir.message || 'quota'})` };
+          director = { error: `Gemini kota/rate-limit: 5 denemede de başarısız. (${rawDir.message || 'quota'})`, __va_diag: rawDir.__va_diag || null };
         } else {
           director = rawDir ? normalizeDirectorResult(rawDir, outH, brand) : null;
         }
