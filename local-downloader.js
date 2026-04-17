@@ -23,6 +23,9 @@ const GEMINI_MODELS = (process.env.GEMINI_VERTEX_MODELS || 'gemini-2.5-pro,gemin
   .map((s) => String(s || '').trim())
   .filter(Boolean);
 const GEMINI_MODEL = GEMINI_MODELS[0];
+const GEMINI_VERTEX_PRICE_USD_PER_MTOKEN = {
+  'gemini-2.5-pro': { input: 1.25, output: 10.0 }
+};
 const YTDLP_NET_ARGS = [
   '--retries', '8',
   '--fragment-retries', '8',
@@ -58,6 +61,18 @@ async function getVertexAccessToken() {
 
 function safeJsonParse(s) {
   try { return JSON.parse(s); } catch { return null; }
+}
+
+function estimateGeminiCostUsd(model, promptTokens, candidateTokens) {
+  const m = String(model || '').trim().toLowerCase();
+  const price =
+    GEMINI_VERTEX_PRICE_USD_PER_MTOKEN[m] ||
+    (m.startsWith('gemini-2.5-pro') ? GEMINI_VERTEX_PRICE_USD_PER_MTOKEN['gemini-2.5-pro'] : null);
+  const inTok = Number(promptTokens);
+  const outTok = Number(candidateTokens);
+  if (!price || !Number.isFinite(inTok) || !Number.isFinite(outTok)) return null;
+  const usd = ((inTok / 1_000_000) * price.input) + ((outTok / 1_000_000) * price.output);
+  return Number(usd.toFixed(6));
 }
 
 function stripJsonFences(s) {
@@ -500,8 +515,12 @@ function buildHookFromTitle({ title, isListicle }) {
 function buildFallbackCaptionFromTitle(title) {
   const kw = extractKeywordsFromTitle(title);
   const topic = kw.slice(0, 2).join(' ') || 'this moment';
-  const line1 = `Did you catch what happened with ${topic}?`;
-  const line2 = pickOne(['What would you do?', 'Rate this 1–10.', 'Would you try this?']);
+  const line1 = `A standout ${topic} moment unfolds fast.`;
+  const line2 = pickOne([
+    'The clip builds into a clean payoff.',
+    'The action lands in a memorable way.',
+    'The sequence turns chaotic in seconds.'
+  ]);
   const tags = [
     '#' + (kw[0] || 'viral'),
     '#shorts',
@@ -525,9 +544,9 @@ function buildFallbackCaptionFromTitle(title) {
 function captionLooksGood(caption) {
   const s = stripHashtagsFromText(String(caption || '').trim());
   if (s.length < 24) return false;
-  const hasCTA = /what would you do\??|rate this|rate it|1-10|1–10|would you/i.test(s);
+  const hasBadQuestion = /\?|what would you do|rate this|rate it|1-10|1–10|would you|did you catch/i.test(s);
   const hashCount = extractHashtagsFromText(caption).length;
-  return hasCTA && hashCount >= 5;
+  return !hasBadQuestion && hashCount >= 5;
 }
 
 function splitHookTwoLines(hookText) {
@@ -716,7 +735,7 @@ async function geminiDirectorAnalyze({ geminiProject, geminiLocation, brand, fra
 `Sistemin beyni olan "Viral Atölyesi AI Director v3.0" olarak görevlendirildin.
 
 ELİNDEKİ KISITLI VERİ (KURAL):
-- Sana 10 kare gönderiyorum. Her kareyi TEK TEK analiz et ve videodaki en küçük aksiyonu yakala (kaş kalkması, el hareketi, arkadaki detay vb.).
+- Sana 20 kare gönderiyorum. Her kareyi TEK TEK analiz et ve videodaki en küçük aksiyonu yakala (kaş kalkması, el hareketi, arkadaki detay vb.).
 - Bu istek için toplam ${framePaths && framePaths.length ? framePaths.length : 'N'} adet kare + kısa bir ses önizlemesi var.
 - İlk kareler videonun başından (metin yakalama için), kalan kareler videonun tamamına yayılmış (aksiyon/hikaye için).
 - Ayrıca kısa bir ses önizlemesi var (tek kanallı, düşük bitrate).
@@ -740,6 +759,10 @@ SU İŞARETİ / LOGO AVI (ÇOK KRİTİK):
 - Kareler arasında sadece bir tanesinde görünse bile kaçırmadan koordinatını ver.
 - Eğer hesap adı/logo YOKSA blur_regions listesini boş bırak.
 - Tahmin yürütüp rastgele blur bölgesi verme; SADECE gerçekten gördüğün hesap adı/logo koordinatını döndür.
+- SADECE merkeze yakın küçük bir kutu verme. TUM GORUNUR yazi alanini ver:
+  soldaki ilk harften sagdaki son harfe kadar TAM GENISLIK,
+  ustteki glow/outline/shadow ve alttaki baseline dahil TAM YUKSEKLIK.
+- Ozellikle alt merkezde duran hesap adlarinda kutu dar olmasin; biraz guven payi birak.
 
 ZORUNLU SİYAH BANT (FORCE MASK) KURALI:
 - Videonun en üst kısmında herhangi bir yazı/başlık/hook görürsen (arkasında şerit olsun olmasın),
@@ -782,7 +805,7 @@ ZORUNLU JSON ŞEMASI (KATI):
 {
   "coord_units": "px",
   "hook": "TEK satır, en fazla 5 kelime, emoji-free, no crazy/viral/insane",
-  "caption": "2 satır: (1) merak uyandıran cümle (2) CTA: What would you do? / Rate this 1-10",
+  "caption": "1-2 kısa İngilizce cümle. SADECE videoda olan şeyi anlat. Soru sorma. CTA yazma. Emoji kullanma.",
   "hashtags": ["#viral", "#kesfet", "#trending", "#chaos", "#specific"],
   "old_hook_box": {"x": 0, "y": 0, "w": 0, "h": 0},
   "detect_garbage_text": {"x": 0, "y": 0, "w": 0, "h": 0},
@@ -795,6 +818,9 @@ KURALLAR:
 - hook içinde "crazy", "viral", "insane" kelimeleri geçemez.
 - hook en fazla 5 kelime olmalı, kısa ve videoyla doğrudan ilgili olmalı.
 - caption içine hashtag yazma; hashtagleri SADECE hashtags array içine koy.
+- caption soru cümlesi OLMAMALI. Soru işareti kullanma.
+- caption CTA OLMAMALI. 'what would you do', 'rate this', 'would you', 'wait for', 'watch till' gibi kalıplar kullanma.
+- caption sadece videodaki olayı doğal İngilizce ile anlatsın.
 - hashtags array TAM 5 benzersiz hashtag içermeli ve her biri # ile başlamalı.
 - hashtag formatı: 3 genel (#viral/#kesfet/#trending), 1 konsept (#chaos/#therapy/#motivation), 1 spesifik (ranked ise #ranked).
 - detect_garbage_text: Eğer kullanıcı adı/watermark/logo/rahatsız edici metin görürsen en kritik alanı tek kutu olarak ver; yoksa {0,0,0,0}.
@@ -994,6 +1020,7 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
             candidateTokens: Number.isFinite(candTokens) ? candTokens : null,
             totalTokens: Number.isFinite(totalTokens) ? totalTokens : null,
             thinkingTokens: Number.isFinite(thinkingTokens) ? thinkingTokens : null,
+            estimatedCostUsd: estimateGeminiCostUsd(currentModel, promptTokens, candTokens),
             finishReason,
             truncated: finishReason === 'MAX_TOKENS',
             tier: tierGuess
@@ -1117,10 +1144,12 @@ function expandTextRegionForBlur(r, outW, outH) {
   if (!r) return null;
   const cx = r.x + (r.w / 2);
   const cy = r.y + (r.h / 2);
-  const minW = Math.round(outW * 0.08);
-  const minH = Math.round(outH * 0.018);
-  const paddedW = Math.max(minW, Math.round(r.w * 1.35));
-  const paddedH = Math.max(minH, Math.round(r.h * 1.45));
+  const isLowerThird = cy > (outH * 0.72);
+  const isTextLike = r.h <= Math.round(outH * 0.06);
+  const minW = Math.round(outW * (isLowerThird ? 0.20 : 0.08));
+  const minH = Math.round(outH * (isLowerThird ? 0.028 : 0.018));
+  const paddedW = Math.max(minW, Math.round(r.w * (isLowerThird && isTextLike ? 1.95 : 1.35)));
+  const paddedH = Math.max(minH, Math.round(r.h * (isLowerThird && isTextLike ? 1.85 : 1.45)));
   let x = Math.round(cx - (paddedW / 2));
   let y = Math.round(cy - (paddedH / 2));
   let w = Math.round(paddedW);
@@ -1136,12 +1165,13 @@ function sanitizeBlurRegionForText(r, outW, outH) {
   if (!r) return null;
   const area = r.w * r.h;
   const frameArea = outW * outH;
-  const maxW = Math.round(outW * 0.62);
-  const maxH = Math.round(outH * 0.18);
+  const midY = r.y + (r.h / 2);
+  const isLowerThird = midY > outH * 0.72;
+  const maxW = Math.round(outW * (isLowerThird ? 0.78 : 0.62));
+  const maxH = Math.round(outH * (isLowerThird ? 0.09 : 0.18));
   const tooWide = r.w > maxW;
   const tooTall = r.h > maxH;
   const tooLargeArea = area > (frameArea * 0.14);
-  const midY = r.y + (r.h / 2);
   const isMiddleBand = midY > outH * 0.24 && midY < outH * 0.82;
   // Orta bölgede aşırı büyük kutular çoğunlukla yanlış tespittir.
   if ((tooWide && tooTall) || tooLargeArea || (isMiddleBand && area > frameArea * 0.08)) return null;
@@ -1695,7 +1725,7 @@ app.post('/crush', async (req, res) => {
     const hasAudio = await probeHasAudio(inFile);
     const musicFile = crush.pickRandomMusicFile(PUBLIC_DIR, brand);
 
-    // Director v3: 5 kare + kısa audio preview → Gemini analizi
+    // Director v3: 20 kare + kısa audio preview → Gemini analizi
     let director = null;
     let directorError = null;
     let directorDiag = null;
@@ -1718,7 +1748,7 @@ app.post('/crush', async (req, res) => {
           rest.push(restStart + span * k);
         }
       }
-      const times = [...early, ...rest].slice(0, 10).map((sec) => Math.max(0, Math.min(t - 0.05, sec)));
+      const times = [...early, ...rest].slice(0, 20).map((sec) => Math.max(0, Math.min(t - 0.05, sec)));
       const frames = times.map((_, i) => path.join(tmpDir, `frame_${String(i + 1).padStart(2, '0')}.png`));
       for (let i = 0; i < times.length; i++) {
         await ffmpegExtractFrame(inFile, frames[i], times[i]);
@@ -1782,7 +1812,7 @@ app.post('/crush', async (req, res) => {
         color: director.hookColor || null
       };
 
-      // Caption: Gemini bazen boş/yüzeysel döndürebiliyor. Zorunlu 3 satır + CTA + >=5 hashtag doğrula.
+      // Caption: soru/CTA istemiyoruz; sadece videoyu anlatan doğal İngilizce caption kabul et.
       const capCandidate = stripEmoji(String(director.caption || '').trim());
       const capGood = captionLooksGood(capCandidate) || (String(capCandidate || '').length >= 24 && Array.isArray(director.hashtags) && director.hashtags.length >= 5);
       const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle));
