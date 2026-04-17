@@ -2116,13 +2116,13 @@ app.post('/crush', async (req, res) => {
       if (director.oldHookBox && director.oldHookBox.w >= 8 && director.oldHookBox.h >= 8) {
         const ob = director.oldHookBox;
         const padY = Math.max(3, Math.round(outH * 0.004));
-        const top = Math.max(0, Math.min(outH - 2, Math.round(ob.y - padY)));
-        const bottom = Math.max(top + 2, Math.min(outH, Math.round(ob.y + ob.h + padY)));
-        // old_hook_box varsa bant yalnızca kutunun yüksekliğini kaplasın.
-        // Çok küçük üst boşluk varsa 0'a yapıştır ki siyah şerit doğal görünsün.
-        bandY = top <= 12 ? 0 : top;
-        bandH = Math.max(minBandHook, Math.min(outH - bandY, bottom - bandY));
-        bandReason = 'gemini_old_hook_box_exact';
+        const bottom = Math.max(2, Math.min(outH, Math.round(ob.y + ob.h + padY)));
+        // Kullanıcı kuralı:
+        // - Üstte hook varsa siyah bant HER ZAMAN videonun en üstünden başlamalı.
+        // - Sadece alt sınır (bitiş noktası) Gemini old_hook_box alt kenarına göre değişmeli.
+        bandY = 0;
+        bandH = Math.max(minBandHook, Math.min(outH, bottom));
+        bandReason = 'gemini_old_hook_box_top_anchored';
       } else if (Number.isFinite(hdr) && hdr > 0) {
         bandY = 0;
         bandH = Math.max(2, Math.min(outH, Math.max(minBandHdr, Math.round(hdr * 1.35))));
