@@ -249,7 +249,13 @@ function pickExistingFontForDrawtext() {
       return false;
     }
   });
-  return pickOne(existing.length ? existing : fonts);
+  // Kullanıcı istediği "edit font" hissi için önce Arial Black / Impact dene.
+  const prefer = (existing.length ? existing : fonts).map(String);
+  const ariblk = prefer.find((p) => /ariblk\.ttf$/i.test(p));
+  if (ariblk) return ariblk;
+  const impact = prefer.find((p) => /impact\.ttf$/i.test(p));
+  if (impact) return impact;
+  return pickOne(prefer);
 }
 
 function sanitizeHexColor(c, fallback) {
@@ -395,6 +401,7 @@ async function buildCrushRenderPlan(o) {
   const hookY = Number.isFinite(hook?.y) ? Math.round(hook.y) : Math.round(randRange(70, 95));
   const stripEmoji = (s) => String(s || '').replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '').trim();
   const hookTextFinal = (hook && typeof hook.text === 'string' && hook.text.trim()) ? stripEmoji(hook.text.trim()) : stripEmoji(hookText);
+  const hookTextBandStyled = String(hookTextFinal || '').toUpperCase();
   const hookColorPool = ['#FFFFFF', '#FFD400', '#9BFF57']; // Beyaz / Sarı / Açık yeşil
   const hookColor = sanitizeHexColor(hook?.color, pickOne(hookColorPool));
   const hookAlpha = randRange(0.88, 0.94);
@@ -420,7 +427,15 @@ async function buildCrushRenderPlan(o) {
   const bannerYPxOverride = Number.isFinite(hook?.bannerY) ? Math.round(hook.bannerY) : null;
   const bannerY = Math.max(0, Math.min(outH - 2, bannerYPxOverride != null ? bannerYPxOverride : (cover ? cover.y : 0)));
   const bannerH = cover ? cover.h : 0;
-  const bannerTextY = Math.max(0, Math.round(bannerY + (bannerH - 56) / 2));
+  const bandSidePad = 52;
+  const hookCharCount = Math.max(1, String(hookTextFinal || '').length);
+  // Bant içindeki yazıyı hem bant yüksekliğine hem yaklaşık satır genişliğine göre büyüt.
+  const bandFontSizeByHeight = hasBand ? (bannerH * 0.62) : 44;
+  const bandFontSizeByWidth = hasBand ? ((outW - (bandSidePad * 2)) / Math.max(6, hookCharCount * 0.56)) : 44;
+  const bandFontSize = hasBand
+    ? Math.round(Math.max(36, Math.min(82, Math.min(bandFontSizeByHeight, bandFontSizeByWidth))))
+    : 44;
+  const bannerTextY = Math.max(0, Math.round(bannerY + (bannerH - bandFontSize) / 2));
   const noBandTextY = Math.max(18, Math.round(outH * 0.06)); // üst-orta profesyonel yerleşim
 
   const fontFile = pickExistingFontForDrawtext();
@@ -483,9 +498,10 @@ async function buildCrushRenderPlan(o) {
     ...(hasBand
       ? [
           `[${baseLabel}]drawbox=x=0:y=${bannerY}:w=${outW}:h=${bannerH}:color=black@1.000:t=fill[vtop]`,
-          `[vtop]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
-            `fontcolor=white@1.000:fontsize=44:borderw=2:bordercolor=black@1.000:` +
-            `x='max(80,min((w-text_w)/2,w-text_w-80))':y=${bannerTextY}:enable='${hookEnable}'[v1]`
+          `[vtop]drawtext=text='${escapeDrawtextText(hookTextBandStyled)}'${fontPart}:` +
+            `fontcolor=white@1.000:fontsize=${bandFontSize}:borderw=3:bordercolor=black@1.000:` +
+            `shadowcolor=black@0.65:shadowx=2:shadowy=2:` +
+            `x='max(${bandSidePad}\\,min((w-text_w)/2\\,w-text_w-${bandSidePad}))':y=${bannerTextY}:enable='${hookEnable}'[v1]`
         ]
       : [
           // No-band, outline + shadow ile okunaklı yazı (2 satır destekler)
@@ -493,7 +509,7 @@ async function buildCrushRenderPlan(o) {
             `fontcolor=white@1.000:fontsize=44:borderw=3:bordercolor=black@1.000:` +
             `shadowcolor=black@0.6:shadowx=2:shadowy=2:` +
             // 100px padding: soldan/sağdan en az 100px boşluk
-            `x='max(100,min((w-text_w)/2,w-text_w-100))':y=${noBandTextY}:` +
+            `x='max(100\\,min((w-text_w)/2\\,w-text_w-100))':y=${noBandTextY}:` +
             `enable='${hookEnable}'[v1]`
         ]),
     `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +

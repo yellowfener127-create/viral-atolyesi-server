@@ -630,12 +630,14 @@ async function crushVideo() {
     // Render KULLANMA: her zaman Local Downloader (PC'ye kaydet)
     msg.style.display = "block";
     msg.textContent = "Local Downloader ile hazırlanıyor (PC'ye kaydedilecek)…";
-    let geminiKey = "";
-    try { geminiKey = localStorage.getItem("gemini_api_key") || ""; } catch(e) {}
+    let geminiProject = "gen-lang-client-0508869582";
+    try { geminiProject = localStorage.getItem("gemini_project_id") || geminiProject; } catch(e) {}
+    let geminiLocation = "us-central1";
+    try { geminiLocation = localStorage.getItem("gemini_location") || geminiLocation; } catch(e) {}
     const localRes = await fetch("http://127.0.0.1:8787/crush", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, brand, geminiKey })
+      body: JSON.stringify({ url, brand, geminiProject, geminiLocation })
     });
     const localData = await localRes.json().catch(() => ({}));
     if (!localRes.ok || !localData.ok) {

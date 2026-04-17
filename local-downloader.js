@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { GoogleAuth } = require('google-auth-library');
 const crush = require('./crush-pipeline');
 
 const app = express();
@@ -14,11 +15,44 @@ const PORT = process.env.LOCAL_DOWNLOADER_PORT || 8787;
 const DEFAULT_DIR = path.join(process.env.USERPROFILE || process.cwd(), 'Videos', 'Viral Atölyesi İndirilenler');
 const DOWNLOAD_DIR = process.env.VA_DOWNLOAD_DIR || DEFAULT_DIR;
 const PUBLIC_DIR = path.join(__dirname, 'public');
-// `gemini-1.5-flash*` artık kaldırıldığı için güncel alias + fallback zinciri kullan.
-const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-2.5-flash'];
+const GEMINI_PROJECT_DEFAULT = process.env.GEMINI_PROJECT || 'gen-lang-client-0508869582';
+const GEMINI_LOCATION_DEFAULT = process.env.GEMINI_LOCATION || 'us-central1';
+// Vertex AI'da bu projede çalışan zincir: önce 2.5 Pro, sonra 2.5 Flash.
+const GEMINI_MODELS = (process.env.GEMINI_VERTEX_MODELS || 'gemini-2.5-pro,gemini-2.5-flash')
+  .split(',')
+  .map((s) => String(s || '').trim())
+  .filter(Boolean);
 const GEMINI_MODEL = GEMINI_MODELS[0];
-function geminiEndpointFor(model) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${String(model || GEMINI_MODEL).trim()}:generateContent`;
+const YTDLP_NET_ARGS = [
+  '--retries', '8',
+  '--fragment-retries', '8',
+  '--file-access-retries', '3',
+  '--retry-sleep', 'fragment:2',
+  '--socket-timeout', '20',
+  '--force-ipv4'
+];
+function geminiEndpointFor(model, project, location) {
+  const p = encodeURIComponent(String(project || GEMINI_PROJECT_DEFAULT).trim());
+  const loc = encodeURIComponent(String(location || GEMINI_LOCATION_DEFAULT).trim());
+  const m = encodeURIComponent(String(model || GEMINI_MODEL).trim());
+  return `https://${decodeURIComponent(loc)}-aiplatform.googleapis.com/v1/projects/${p}/locations/${loc}/publishers/google/models/${m}:generateContent`;
+}
+
+let __vertexAuthClientPromise = null;
+async function getVertexAuthClient() {
+  if (!__vertexAuthClientPromise) {
+    const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+    __vertexAuthClientPromise = auth.getClient();
+  }
+  return await __vertexAuthClientPromise;
+}
+
+async function getVertexAccessToken() {
+  const client = await getVertexAuthClient();
+  const tok = await client.getAccessToken();
+  const token = typeof tok === 'string' ? tok : tok && tok.token;
+  if (!token) throw new Error('Vertex ADC access token alınamadı. gcloud auth application-default login tekrar çalıştır.');
+  return token;
 }
 
 function safeJsonParse(s) {
@@ -645,6 +679,8 @@ function isGeminiModelUnavailableError({ status, message, json }) {
   const merged = (msg + '\n' + s).toLowerCase();
   return (
     status === 404 ||
+    /publisher model/.test(merged) ||
+    /does not have access/.test(merged) ||
     /not found/.test(merged) ||
     /not supported for generatecontent/.test(merged)
   );
@@ -655,8 +691,10 @@ function isGeminiAbortError(err) {
   return msg.includes('this operation was aborted') || msg.includes('aborted');
 }
 
-async function geminiDirectorAnalyze({ geminiKey, brand, framePaths, audioPath, title }) {
-  if (!geminiKey || String(geminiKey).trim().length < 10) return null;
+async function geminiDirectorAnalyze({ geminiProject, geminiLocation, brand, framePaths, audioPath, title }) {
+  const quotaProject = String(geminiProject || GEMINI_PROJECT_DEFAULT || '').trim();
+  const vertexLocation = String(geminiLocation || GEMINI_LOCATION_DEFAULT || '').trim();
+  if (!quotaProject) throw new Error('Vertex proje ID yok. GEMINI_PROJECT ayarla veya frontend’den geminiProject gönder.');
 
   const concept =
     brand === 'kaos'
@@ -691,7 +729,8 @@ SU İŞARETİ / LOGO AVI (ÇOK KRİTİK):
   HER BİRİNİ blur_regions listesine ayrı ayrı koordinat olarak ekle (maks 6 kutu).
 - "@MaddessRnk5", "@pet&wildlifewonders", "tiktok.com/@user" gibi yazıları ASLA kaçırma.
 - Kareler arasında sadece bir tanesinde görünse bile kaçırmadan koordinatını ver.
-- Eğer net kare yakalayamıyorsan olası bölgeyi mantıklı şekilde tahminle doldur; listeyi boş bırakma.
+- Eğer hesap adı/logo YOKSA blur_regions listesini boş bırak.
+- Tahmin yürütüp rastgele blur bölgesi verme; SADECE gerçekten gördüğün hesap adı/logo koordinatını döndür.
 
 ZORUNLU SİYAH BANT (FORCE MASK) KURALI:
 - Videonun en üst kısmında herhangi bir yazı/başlık/hook görürsen (arkasında şerit olsun olmasın),
@@ -775,8 +814,8 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
     parts.push(fileToInlineData(audioPath, 'audio/mpeg'));
   }
 
-  // Gemini 2.5 Flash "thinking tokens" kullanıyor; bütçeyi 0 yapıp tüm çıkışı
-  // gerçek JSON'a ayırıyoruz. maxOutputTokens'ı büyüttük ki truncation olmasın.
+  // Gemini 2.5 Flash "thinking tokens" kullanıyor.
+  // İstenen ayar: derin düşünme + yeterli JSON çıkışı.
   // responseSchema ile alanları zorla tip/kısıt altına alıyoruz.
   const directorSchema = {
     type: 'OBJECT',
@@ -825,10 +864,10 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
     contents: [{ role: 'user', parts }],
     generationConfig: {
       temperature: 0.55,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 4096,
       responseMimeType: 'application/json',
       responseSchema: directorSchema,
-      thinkingConfig: { thinkingBudget: 0 }
+      thinkingConfig: { thinkingBudget: 1024 }
     }
   };
 
@@ -849,6 +888,8 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
   console.log('[Gemini Start]', JSON.stringify({
     model: GEMINI_MODEL,
     modelChain: modelsToTry,
+    quotaProject: quotaProject || null,
+    vertexLocation: vertexLocation || null,
     brand,
     frameCount: Array.isArray(framePaths) ? framePaths.length : 0,
     hasAudio: !!audioPath,
@@ -857,7 +898,7 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
 
   for (let modelIndex = 0; modelIndex < modelsToTry.length; modelIndex++) {
     const currentModel = modelsToTry[modelIndex];
-    const url = `${geminiEndpointFor(currentModel)}?key=${encodeURIComponent(String(geminiKey).trim())}`;
+    const url = geminiEndpointFor(currentModel, quotaProject, vertexLocation);
     let tryNextModel = false;
     lastModelTried = currentModel;
 
@@ -870,9 +911,13 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
       let r = null;
       let j = {};
       try {
+        const accessToken = await getVertexAccessToken();
         r = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
           body: JSON.stringify(body),
           signal: ac.signal
         }).finally(() => clearTimeout(t));
@@ -901,6 +946,8 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
             __va_diag: {
               model: currentModel,
               attemptedModels: modelsToTry,
+              quotaProject: quotaProject || null,
+              vertexLocation: vertexLocation || null,
               imageBytes,
               audioBytes,
               tier: 'paid_or_unknown'
@@ -930,6 +977,8 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
           parsed.__va_diag = {
             model: currentModel,
             attemptedModels: modelsToTry,
+            quotaProject: quotaProject || null,
+            vertexLocation: vertexLocation || null,
             imageBytes,
             audioBytes,
             promptTokens: Number.isFinite(promptTokens) ? promptTokens : null,
@@ -998,7 +1047,7 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
       return {
         __va_status: 'RATE_LIMIT_EXHAUSTED',
         message,
-        __va_diag: { model: lastModelTried, attemptedModels: modelsToTry, imageBytes, audioBytes, tier: 'paid_or_unknown' }
+        __va_diag: { model: lastModelTried, attemptedModels: modelsToTry, quotaProject: quotaProject || null, vertexLocation: vertexLocation || null, imageBytes, audioBytes, tier: 'paid_or_unknown' }
       };
     }
     console.log('[Gemini Error]', message);
@@ -1049,6 +1098,25 @@ function clampRegionForVideo(r, outW, outH, coordUnits) {
   return (w >= 8 && h >= 8) ? { x, y, w, h } : null;
 }
 
+function expandTextRegionForBlur(r, outW, outH) {
+  if (!r) return null;
+  const cx = r.x + (r.w / 2);
+  const cy = r.y + (r.h / 2);
+  const minW = Math.round(outW * 0.24);
+  const minH = Math.round(outH * 0.04);
+  const paddedW = Math.max(minW, Math.round(r.w * 1.8));
+  const paddedH = Math.max(minH, Math.round(r.h * 1.9));
+  let x = Math.round(cx - (paddedW / 2));
+  let y = Math.round(cy - (paddedH / 2));
+  let w = Math.round(paddedW);
+  let h = Math.round(paddedH);
+  x = Math.max(0, Math.min(outW - 2, x));
+  y = Math.max(0, Math.min(outH - 2, y));
+  w = Math.max(8, Math.min(outW - x, w));
+  h = Math.max(8, Math.min(outH - y, h));
+  return { x, y, w, h };
+}
+
 function normalizeDirectorResult(raw, outW, outH, brand) {
   if (!raw || typeof raw !== 'object') return null;
   const coordUnits = raw.coord_units || raw.coordUnits || 'px';
@@ -1069,7 +1137,10 @@ function normalizeDirectorResult(raw, outW, outH, brand) {
     const caption = stripEmoji(String(captionParts.caption || '').trim());
     const headerH = Number(raw.original_header_height);
     const originalHeaderHeight = Number.isFinite(headerH) && headerH > 0 ? headerH : 0;
-    const clampRegion = (r) => clampRegionForVideo(r, outW, outH, coordUnits);
+    const clampRegion = (r) => {
+      const base = clampRegionForVideo(r, outW, outH, coordUnits);
+      return expandTextRegionForBlur(base, outW, outH);
+    };
     const blurRegions = [];
     const list = Array.isArray(raw.blur_regions) ? raw.blur_regions : [];
     for (const r of list.slice(0, 6)) {
@@ -1082,7 +1153,7 @@ function normalizeDirectorResult(raw, outW, outH, brand) {
       if (blurRegions.length > 6) blurRegions.length = 6;
     }
 
-    const oldHookBoxPx = clampRegion(raw.old_hook_box || raw.oldHookBox);
+    const oldHookBoxPx = clampRegionForVideo(raw.old_hook_box || raw.oldHookBox, outW, outH, coordUnits);
     const hasOldBox = !!(oldHookBoxPx && oldHookBoxPx.w >= 8 && oldHookBoxPx.h >= 8);
     const hasHeader = originalHeaderHeight > 0;
     const isListicle =
@@ -1436,6 +1507,7 @@ async function runYtDlpToResponse(res, url) {
     '--newline',
     '--no-part',
     '--no-mtime',
+    ...YTDLP_NET_ARGS,
     // MP4 + AAC ses: Windows/MPC/telefonlarda "Opus desteklenmiyor" hatasını önler.
     '--merge-output-format',
     'mp4',
@@ -1468,7 +1540,13 @@ async function runYtDlpToResponse(res, url) {
 
   child.on('close', (code) => {
     try {
-      if (code !== 0) return res.status(500).json({ error: stderr || `yt-dlp exit ${code}` });
+      if (code !== 0) {
+        const s = String(stderr || '');
+        const hint = /did not get any data blocks/i.test(s)
+          ? '\nİpucu: Kaynak anlık veri akışı vermedi (CDN/fragment). Birkaç saniye sonra tekrar dene.'
+          : '';
+        return res.status(500).json({ error: (s || `yt-dlp exit ${code}`) + hint });
+      }
       const newest = pickNewestFile(DOWNLOAD_DIR);
       if (!newest) return res.status(500).json({ error: 'Dosya bulunamadı (0 byte)' });
       return res.json({ ok: true, savedTo: DOWNLOAD_DIR, file: path.basename(newest) });
@@ -1490,8 +1568,9 @@ app.get('/download', async (req, res) => {
 app.post('/crush', async (req, res) => {
   const url = req.body?.url || req.query?.url;
   const brand = normBrand(req.body?.brand || req.query?.brand || 'terapi');
-  const geminiKey = req.body?.geminiKey || req.query?.geminiKey || '';
-  const geminiKeyPresent = !!(geminiKey && String(geminiKey).trim().length >= 10);
+  const geminiProject = req.body?.geminiProject || req.query?.geminiProject || GEMINI_PROJECT_DEFAULT;
+  const geminiLocation = req.body?.geminiLocation || req.query?.geminiLocation || GEMINI_LOCATION_DEFAULT;
+  const geminiAuthPresent = !!String(geminiProject || '').trim();
   if (!url) return res.status(400).json({ error: 'url gerekli' });
 
   const brandDir = getBrandDir(brand);
@@ -1528,6 +1607,7 @@ app.post('/crush', async (req, res) => {
       '--newline',
       '--no-part',
       '--no-mtime',
+      ...YTDLP_NET_ARGS,
       '--match-filter', '!is_live',
       '--merge-output-format', 'mp4',
       '-f',
@@ -1536,7 +1616,34 @@ app.post('/crush', async (req, res) => {
       inTpl,
       url
     ];
-    await run('yt-dlp', dlArgs, { timeoutMs: dlTimeoutMs });
+    try {
+      await run('yt-dlp', dlArgs, { timeoutMs: dlTimeoutMs });
+    } catch (e0) {
+      const msg0 = String((e0 && e0.message) || e0 || '');
+      // Bazı kaynaklarda "Did not get any data blocks" geçici network/CDN kaynaklıdır.
+      // Bu durumda farklı player client ile tek bir fallback denemesi yap.
+      if (/did not get any data blocks|unable to download video data|http error 403|http error 429/i.test(msg0)) {
+        const dlArgsFallback = [
+          '--no-playlist',
+          '--newline',
+          '--no-part',
+          '--no-mtime',
+          ...YTDLP_NET_ARGS,
+          '--match-filter', '!is_live',
+          '--extractor-args', 'youtube:player_client=android',
+          '--merge-output-format', 'mp4',
+          '-f',
+          'best[ext=mp4][acodec!=none][vcodec!=none]/best',
+          '-o',
+          inTpl,
+          url
+        ];
+        console.log('[yt-dlp retry] İlk deneme başarısız, fallback player_client=android ile yeniden deneniyor...');
+        await run('yt-dlp', dlArgsFallback, { timeoutMs: dlTimeoutMs });
+      } else {
+        throw e0;
+      }
+    }
 
     const inFile = pickNewestFile(tmpDir);
     if (!inFile) return res.status(500).json({ error: 'İndirilen dosya bulunamadı' });
@@ -1589,9 +1696,9 @@ app.post('/crush', async (req, res) => {
       const audioPrev = path.join(tmpDir, 'audio_preview.mp3');
       await ffmpegExtractAudioPreview(inFile, audioPrev, Math.min(12, inDur));
       tmpArtifacts.push(...frames, audioPrev);
-      if (geminiKeyPresent) {
+      if (geminiAuthPresent) {
         geminiUsed = true;
-        const rawDir = await geminiDirectorAnalyze({ geminiKey, brand, framePaths: frames, audioPath: audioPrev, title: metaTitle });
+        const rawDir = await geminiDirectorAnalyze({ geminiProject, geminiLocation, brand, framePaths: frames, audioPath: audioPrev, title: metaTitle });
         if (rawDir && rawDir.__va_status === 'RATE_LIMIT_EXHAUSTED') {
           const rawMsg = String(rawDir.message || '');
           if (/high demand|spikes in demand|try again later|temporarily unavailable|service unavailable|overloaded/i.test(rawMsg)) {
@@ -1610,7 +1717,7 @@ app.post('/crush', async (req, res) => {
           directorDiag = rawDir && rawDir.__va_diag ? rawDir.__va_diag : null;
         }
       } else {
-        directorError = 'Gemini key yok (localStorage -> gemini_api_key boş geldi).';
+        directorError = 'Vertex proje ID yok veya ADC yapılandırılmamış.';
         director = null;
       }
     } catch (e) {
@@ -1657,27 +1764,26 @@ app.post('/crush', async (req, res) => {
       saveDirectorCache(cache);
 
       // Force mask: üstte yazı/hook varsa siyah bant — original_header_height +/veya old_hook_box birleşimi.
-      const minBand = Math.round(outH * 0.22);
+      // Not: old_hook_box varsa bant yüksekliği "sadece hook arka planı kadar" olmalı (küçük güven payıyla).
+      const minBandHdr = Math.round(outH * 0.22);
+      const minBandHook = Math.round(outH * 0.10);
       const hdr = Number(director.originalHeaderHeight);
       let bandH = 0;
       let bandReason = 'none';
-      if (Number.isFinite(hdr) && hdr > 0) {
-        bandH = Math.max(2, Math.min(outH, Math.max(minBand, Math.round(hdr * 1.50))));
-        bandReason = 'gemini_header_height';
-      }
       if (director.oldHookBox && director.oldHookBox.w >= 8 && director.oldHookBox.h >= 8) {
         const ob = director.oldHookBox;
         const bottom = Math.min(outH, ob.y + ob.h);
-        const hFromBox = Math.max(minBand, Math.min(outH, Math.round(bottom * 1.08 + 8)));
-        if (hFromBox > bandH) {
-          bandH = hFromBox;
-          bandReason = 'gemini_old_hook_box';
-        }
+        // old_hook_box varsa band tam o seviyede olsun (küçük güven payı).
+        bandH = Math.max(minBandHook, Math.min(outH, Math.round(bottom * 1.03 + 3)));
+        bandReason = 'gemini_old_hook_box_exact';
+      } else if (Number.isFinite(hdr) && hdr > 0) {
+        bandH = Math.max(2, Math.min(outH, Math.max(minBandHdr, Math.round(hdr * 1.35))));
+        bandReason = 'gemini_header_height';
       }
       // Gemini üst yazıyı görmese bile: başlık listicle/ranked ise üstte yazı OLDUĞUNU kabul et
       // ve otomatik bant çek. Bu, eski hook'un sızmasını engeller.
       if (bandH === 0 && (isListicle || titleIsListicle)) {
-        bandH = Math.max(minBand, Math.round(outH * 0.22));
+        bandH = Math.max(minBandHdr, Math.round(outH * 0.22));
         bandReason = 'auto_listicle_fallback';
       }
       if (bandH > 0) {
@@ -1752,18 +1858,10 @@ app.post('/crush', async (req, res) => {
       await run('ffmpeg', [...plan.ffmpegArgsTail, outFile], { timeoutMs: 8 * 60 * 1000 });
     };
 
-    // Blur bölgeleri: Gemini bulduklarını kullan; Gemini hiç blur dönmediyse
-    // tipik "orta sağ watermark" bölgesi için güvenli fallback ekle.
+    // Blur bölgeleri: SADECE Gemini'nin verdiği koordinatlar kullanılır.
+    // Kullanıcı isteği: otomatik orta/alt blur fallback'leri kaldır.
     const geminiBlurs = Array.isArray(director?.blurRegions) ? director.blurRegions : [];
     const effectiveBlurRegions = geminiBlurs.slice(0, 6);
-    if (effectiveBlurRegions.length === 0) {
-      // Sağ-orta bölgede "@username" benzeri watermark için tipik hedef
-      const fbW = Math.round(outW * 0.55);
-      const fbH = Math.round(outH * 0.06);
-      const fbX = Math.max(0, Math.min(outW - fbW, Math.round(outW * 0.38)));
-      const fbY = Math.max(0, Math.min(outH - fbH, Math.round(outH * 0.42)));
-      effectiveBlurRegions.push({ x: fbX, y: fbY, w: fbW, h: fbH });
-    }
     console.log('[Crush Blur]', JSON.stringify({
       fromGemini: geminiBlurs.length,
       total: effectiveBlurRegions.length,
@@ -1821,8 +1919,8 @@ app.post('/crush', async (req, res) => {
       file: path.basename(outFile),
       settings: plan.debug,
       verify,
-      geminiAttempted: geminiKeyPresent,
-      geminiKeyPresent,
+      geminiAttempted: geminiAuthPresent,
+      geminiKeyPresent: geminiAuthPresent,
       geminiUsed,
       director: directorError
         ? {
