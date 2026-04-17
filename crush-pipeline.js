@@ -249,8 +249,11 @@ function pickExistingFontForDrawtext() {
       return false;
     }
   });
-  // Kullanıcı istediği "edit font" hissi için önce Arial Black / Impact dene.
+  // Kullanıcının örnek görseline yakın "social bold" stil:
+  // önce Montserrat, sonra Arial Black / Impact.
   const prefer = (existing.length ? existing : fonts).map(String);
+  const montserrat = prefer.find((p) => /montserrat-bold\.ttf$/i.test(p));
+  if (montserrat) return montserrat;
   const ariblk = prefer.find((p) => /ariblk\.ttf$/i.test(p));
   if (ariblk) return ariblk;
   const impact = prefer.find((p) => /impact\.ttf$/i.test(p));
@@ -262,6 +265,28 @@ function sanitizeHexColor(c, fallback) {
   const s = String(c || '').trim();
   if (/^#[0-9a-fA-F]{6}$/.test(s)) return s;
   return fallback;
+}
+
+function titleCaseHookText(s) {
+  return String(s || '')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+    .trim();
+}
+
+function splitHookForDisplay(hookText) {
+  const words = String(hookText || '').split(/\s+/).filter(Boolean).slice(0, 5);
+  if (!words.length) return { line1: '', line2: '' };
+  if (words.length <= 2) return { line1: words.join(' '), line2: '' };
+  if (words.length === 3) return { line1: words.slice(0, 2).join(' '), line2: words.slice(2).join(' ') };
+  const cut = Math.ceil(words.length / 2);
+  return {
+    line1: words.slice(0, cut).join(' '),
+    line2: words.slice(cut).join(' ')
+  };
 }
 
 /** ±%2–%4 hız varyasyonu (1.0 etrafında) */
@@ -401,7 +426,8 @@ async function buildCrushRenderPlan(o) {
   const hookY = Number.isFinite(hook?.y) ? Math.round(hook.y) : Math.round(randRange(70, 95));
   const stripEmoji = (s) => String(s || '').replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '').trim();
   const hookTextFinal = (hook && typeof hook.text === 'string' && hook.text.trim()) ? stripEmoji(hook.text.trim()) : stripEmoji(hookText);
-  const hookTextBandStyled = String(hookTextFinal || '').toUpperCase();
+  const hookTextBandStyled = titleCaseHookText(hookTextFinal);
+  const hookDisplay = splitHookForDisplay(hookTextBandStyled);
   const hookColorPool = ['#FFFFFF', '#FFD400', '#9BFF57']; // Beyaz / Sarı / Açık yeşil
   const hookColor = sanitizeHexColor(hook?.color, pickOne(hookColorPool));
   const hookAlpha = randRange(0.88, 0.94);
@@ -428,14 +454,21 @@ async function buildCrushRenderPlan(o) {
   const bannerY = Math.max(0, Math.min(outH - 2, bannerYPxOverride != null ? bannerYPxOverride : (cover ? cover.y : 0)));
   const bannerH = cover ? cover.h : 0;
   const bandSidePad = 52;
-  const hookCharCount = Math.max(1, String(hookTextFinal || '').length);
+  const hookCharCount = Math.max(1, String(hookTextBandStyled || '').length);
+  const hasTwoBandLines = !!(hookDisplay.line1 && hookDisplay.line2);
   // Bant içindeki yazıyı hem bant yüksekliğine hem yaklaşık satır genişliğine göre büyüt.
-  const bandFontSizeByHeight = hasBand ? (bannerH * 0.62) : 44;
-  const bandFontSizeByWidth = hasBand ? ((outW - (bandSidePad * 2)) / Math.max(6, hookCharCount * 0.56)) : 44;
-  const bandFontSize = hasBand
-    ? Math.round(Math.max(36, Math.min(82, Math.min(bandFontSizeByHeight, bandFontSizeByWidth))))
+  const bandFontSizeByHeight = hasBand
+    ? (hasTwoBandLines ? (bannerH * 0.30) : (bannerH * 0.54))
     : 44;
+  const bandFontSizeByWidth = hasBand ? ((outW - (bandSidePad * 2)) / Math.max(6, hookCharCount * (hasTwoBandLines ? 0.50 : 0.70))) : 44;
+  const bandFontSize = hasBand
+    ? Math.round(Math.max(30, Math.min(78, Math.min(bandFontSizeByHeight, bandFontSizeByWidth))))
+    : 44;
+  const lineGap = Math.max(6, Math.round(bandFontSize * 0.08));
+  const twoLineBlockH = (bandFontSize * 2) + lineGap;
   const bannerTextY = Math.max(0, Math.round(bannerY + (bannerH - bandFontSize) / 2));
+  const bannerTextTopY = Math.max(0, Math.round(bannerY + (bannerH - twoLineBlockH) / 2));
+  const bannerTextBottomY = bannerTextTopY + bandFontSize + lineGap;
   const noBandTextY = Math.max(18, Math.round(outH * 0.06)); // üst-orta profesyonel yerleşim
 
   const fontFile = pickExistingFontForDrawtext();
@@ -445,6 +478,9 @@ async function buildCrushRenderPlan(o) {
 
   const hookEnable = "between(t,0,1e9)";
   const coverFillOpacity = cover ? 1.0 : 0;
+  const bandLine1Color = '#FFFFFF';
+  const bandLine2Color = (brand === 'kaos') ? '#FFB38A' : ((brand === 'umut') ? '#9BFF57' : '#FFD400');
+  const bandShadow = 'black@0.45';
 
   // hflip kapalı: yakılmış (burned-in) yazı pikseldir; altyazı akışı yoksa tespit edilemez, flip metni ters çevirir.
   let vChain = `[0:v]setpts=PTS-STARTPTS,fps=${targetFps}`;
@@ -498,16 +534,33 @@ async function buildCrushRenderPlan(o) {
     ...(hasBand
       ? [
           `[${baseLabel}]drawbox=x=0:y=${bannerY}:w=${outW}:h=${bannerH}:color=black@1.000:t=fill[vtop]`,
-          `[vtop]drawtext=text='${escapeDrawtextText(hookTextBandStyled)}'${fontPart}:` +
-            `fontcolor=white@1.000:fontsize=${bandFontSize}:borderw=3:bordercolor=black@1.000:` +
-            `shadowcolor=black@0.65:shadowx=2:shadowy=2:` +
-            `x='max(${bandSidePad}\\,min((w-text_w)/2\\,w-text_w-${bandSidePad}))':y=${bannerTextY}:enable='${hookEnable}'[v1]`
+          ...(hasTwoBandLines
+            ? [
+                `[vtop]drawtext=text='${escapeDrawtextText(hookDisplay.line1)}'${fontPart}:` +
+                  `fontcolor=${bandLine1Color}@1.000:fontsize=${bandFontSize}:borderw=2:bordercolor=black@0.70:` +
+                  `shadowcolor=${bandShadow}:shadowx=2:shadowy=2:` +
+                  `fix_bounds=1:text_shaping=1:` +
+                  `x='max(${bandSidePad}\\,min((w-text_w)/2\\,w-text_w-${bandSidePad}))':y=${bannerTextTopY}:enable='${hookEnable}'[vline1]`,
+                `[vline1]drawtext=text='${escapeDrawtextText(hookDisplay.line2)}'${fontPart}:` +
+                  `fontcolor=${bandLine2Color}@1.000:fontsize=${bandFontSize}:borderw=2:bordercolor=black@0.70:` +
+                  `shadowcolor=${bandShadow}:shadowx=2:shadowy=2:` +
+                  `fix_bounds=1:text_shaping=1:` +
+                  `x='max(${bandSidePad}\\,min((w-text_w)/2\\,w-text_w-${bandSidePad}))':y=${bannerTextBottomY}:enable='${hookEnable}'[v1]`
+              ]
+            : [
+                `[vtop]drawtext=text='${escapeDrawtextText(hookTextBandStyled)}'${fontPart}:` +
+                  `fontcolor=${bandLine1Color}@1.000:fontsize=${bandFontSize}:borderw=2:bordercolor=black@0.70:` +
+                  `shadowcolor=${bandShadow}:shadowx=2:shadowy=2:` +
+                  `fix_bounds=1:text_shaping=1:` +
+                  `x='max(${bandSidePad}\\,min((w-text_w)/2\\,w-text_w-${bandSidePad}))':y=${bannerTextY}:enable='${hookEnable}'[v1]`
+              ])
         ]
       : [
           // No-band, outline + shadow ile okunaklı yazı (2 satır destekler)
           `[${baseLabel}]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
             `fontcolor=white@1.000:fontsize=44:borderw=3:bordercolor=black@1.000:` +
             `shadowcolor=black@0.6:shadowx=2:shadowy=2:` +
+            `fix_bounds=1:text_shaping=1:` +
             // 100px padding: soldan/sağdan en az 100px boşluk
             `x='max(100\\,min((w-text_w)/2\\,w-text_w-100))':y=${noBandTextY}:` +
             `enable='${hookEnable}'[v1]`

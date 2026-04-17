@@ -29,7 +29,8 @@ const YTDLP_NET_ARGS = [
   '--file-access-retries', '3',
   '--retry-sleep', 'fragment:2',
   '--socket-timeout', '20',
-  '--force-ipv4'
+  '--force-ipv4',
+  '--concurrent-fragments', '1'
 ];
 function geminiEndpointFor(model, project, location) {
   const p = encodeURIComponent(String(project || GEMINI_PROJECT_DEFAULT).trim());
@@ -533,12 +534,20 @@ function splitHookTwoLines(hookText) {
   const t = stripEmoji(String(hookText || '')).replace(/\s+/g, ' ').trim();
   if (!t) return '';
   // Zorunlu kural: hook en fazla 5 kelime, tek satır ve ortalanabilir olmalı.
-  const words = t
+  let words = t
     .replace(/\n/g, ' ')
     .split(' ')
     .filter(Boolean)
     .slice(0, 5);
-  return words.join(' ').trim();
+  // Taşma koruması: drawtext'te sağdan kesilmemesi için karakter uzunluğunu sınırla.
+  // Önce uzun kelimeleri budar, sonra toplam uzunluğu küçültür.
+  words = words.map((w) => (w.length > 14 ? w.slice(0, 14) : w));
+  while (words.join(' ').length > 28 && words.length > 1) {
+    words.pop();
+  }
+  let out = words.join(' ').trim();
+  if (out.length > 28) out = out.slice(0, 28).trim();
+  return out;
 }
 
 async function ytDlpGetTitle(url) {
@@ -1079,7 +1088,13 @@ function regionPixelsFromRaw(r, outW, outH, coordUnits) {
   let h = Number(r.h);
   if (![x, y, w, h].every(Number.isFinite)) return null;
   const u = String(coordUnits || 'px').toLowerCase();
-  if (u === 'norm' || u === 'normalized' || u === 'percent' || u === '0-100') {
+  let useNorm = (u === 'norm' || u === 'normalized' || u === 'percent' || u === '0-100');
+  // Gemini bazen coord_units ile gerçek sayı ölçeğini karıştırabiliyor.
+  // - norm denip 0..100 dışı değer gelirse px kabul et
+  // - px denip tüm değerler 0..100 içindeyse norm olasılığına izin ver
+  if (useNorm && (x > 100 || y > 100 || w > 100 || h > 100)) useNorm = false;
+  if (!useNorm && x <= 100 && y <= 100 && w <= 100 && h <= 100) useNorm = true;
+  if (useNorm) {
     x = Math.round((x / 100) * outW);
     y = Math.round((y / 100) * outH);
     w = Math.round((w / 100) * outW);
@@ -1102,10 +1117,10 @@ function expandTextRegionForBlur(r, outW, outH) {
   if (!r) return null;
   const cx = r.x + (r.w / 2);
   const cy = r.y + (r.h / 2);
-  const minW = Math.round(outW * 0.24);
-  const minH = Math.round(outH * 0.04);
-  const paddedW = Math.max(minW, Math.round(r.w * 1.8));
-  const paddedH = Math.max(minH, Math.round(r.h * 1.9));
+  const minW = Math.round(outW * 0.08);
+  const minH = Math.round(outH * 0.018);
+  const paddedW = Math.max(minW, Math.round(r.w * 1.35));
+  const paddedH = Math.max(minH, Math.round(r.h * 1.45));
   let x = Math.round(cx - (paddedW / 2));
   let y = Math.round(cy - (paddedH / 2));
   let w = Math.round(paddedW);
@@ -1115,6 +1130,22 @@ function expandTextRegionForBlur(r, outW, outH) {
   w = Math.max(8, Math.min(outW - x, w));
   h = Math.max(8, Math.min(outH - y, h));
   return { x, y, w, h };
+}
+
+function sanitizeBlurRegionForText(r, outW, outH) {
+  if (!r) return null;
+  const area = r.w * r.h;
+  const frameArea = outW * outH;
+  const maxW = Math.round(outW * 0.62);
+  const maxH = Math.round(outH * 0.18);
+  const tooWide = r.w > maxW;
+  const tooTall = r.h > maxH;
+  const tooLargeArea = area > (frameArea * 0.14);
+  const midY = r.y + (r.h / 2);
+  const isMiddleBand = midY > outH * 0.24 && midY < outH * 0.82;
+  // Orta bölgede aşırı büyük kutular çoğunlukla yanlış tespittir.
+  if ((tooWide && tooTall) || tooLargeArea || (isMiddleBand && area > frameArea * 0.08)) return null;
+  return r;
 }
 
 function normalizeDirectorResult(raw, outW, outH, brand) {
@@ -1139,7 +1170,8 @@ function normalizeDirectorResult(raw, outW, outH, brand) {
     const originalHeaderHeight = Number.isFinite(headerH) && headerH > 0 ? headerH : 0;
     const clampRegion = (r) => {
       const base = clampRegionForVideo(r, outW, outH, coordUnits);
-      return expandTextRegionForBlur(base, outW, outH);
+      const expanded = expandTextRegionForBlur(base, outW, outH);
+      return sanitizeBlurRegionForText(expanded, outW, outH);
     };
     const blurRegions = [];
     const list = Array.isArray(raw.blur_regions) ? raw.blur_regions : [];
@@ -1147,11 +1179,7 @@ function normalizeDirectorResult(raw, outW, outH, brand) {
       const rr = clampRegion(r);
       if (rr) blurRegions.push(rr);
     }
-    const garbage = clampRegion(raw.detect_garbage_text);
-    if (garbage && !blurRegions.some(b => b.x === garbage.x && b.y === garbage.y && b.w === garbage.w && b.h === garbage.h)) {
-      blurRegions.unshift(garbage);
-      if (blurRegions.length > 6) blurRegions.length = 6;
-    }
+    // Sadece Gemini'nin blur_regions listesi uygulanır (otomatik ekstra kutu ekleme yok).
 
     const oldHookBoxPx = clampRegionForVideo(raw.old_hook_box || raw.oldHookBox, outW, outH, coordUnits);
     const hasOldBox = !!(oldHookBoxPx && oldHookBoxPx.w >= 8 && oldHookBoxPx.h >= 8);
@@ -1508,6 +1536,7 @@ async function runYtDlpToResponse(res, url) {
     '--no-part',
     '--no-mtime',
     ...YTDLP_NET_ARGS,
+    '--downloader', 'ffmpeg',
     // MP4 + AAC ses: Windows/MPC/telefonlarda "Opus desteklenmiyor" hatasını önler.
     '--merge-output-format',
     'mp4',
@@ -1542,8 +1571,8 @@ async function runYtDlpToResponse(res, url) {
     try {
       if (code !== 0) {
         const s = String(stderr || '');
-        const hint = /did not get any data blocks/i.test(s)
-          ? '\nİpucu: Kaynak anlık veri akışı vermedi (CDN/fragment). Birkaç saniye sonra tekrar dene.'
+        const hint = /did not get any data blocks|http error 416/i.test(s)
+          ? '\nİpucu: Kaynak veri aralığı/CDN hatası verdi. Sistem fallback denemesi için /crush yolunda daha dayanıklı akış kullanır.'
           : '';
         return res.status(500).json({ error: (s || `yt-dlp exit ${code}`) + hint });
       }
@@ -1608,6 +1637,7 @@ app.post('/crush', async (req, res) => {
       '--no-part',
       '--no-mtime',
       ...YTDLP_NET_ARGS,
+      '--downloader', 'ffmpeg',
       '--match-filter', '!is_live',
       '--merge-output-format', 'mp4',
       '-f',
@@ -1622,23 +1652,23 @@ app.post('/crush', async (req, res) => {
       const msg0 = String((e0 && e0.message) || e0 || '');
       // Bazı kaynaklarda "Did not get any data blocks" geçici network/CDN kaynaklıdır.
       // Bu durumda farklı player client ile tek bir fallback denemesi yap.
-      if (/did not get any data blocks|unable to download video data|http error 403|http error 429/i.test(msg0)) {
+      if (/did not get any data blocks|unable to download video data|http error 403|http error 416|http error 429|po token/i.test(msg0)) {
         const dlArgsFallback = [
           '--no-playlist',
           '--newline',
           '--no-part',
           '--no-mtime',
           ...YTDLP_NET_ARGS,
+          '--downloader', 'ffmpeg',
           '--match-filter', '!is_live',
-          '--extractor-args', 'youtube:player_client=android',
           '--merge-output-format', 'mp4',
           '-f',
-          'best[ext=mp4][acodec!=none][vcodec!=none]/best',
+          'b[ext=mp4][acodec!=none][vcodec!=none]/best[ext=mp4]/best',
           '-o',
           inTpl,
           url
         ];
-        console.log('[yt-dlp retry] İlk deneme başarısız, fallback player_client=android ile yeniden deneniyor...');
+        console.log('[yt-dlp retry] İlk deneme başarısız, progressive mp4 + ffmpeg downloader ile yeniden deneniyor...');
         await run('yt-dlp', dlArgsFallback, { timeoutMs: dlTimeoutMs });
       } else {
         throw e0;
@@ -1768,37 +1798,46 @@ app.post('/crush', async (req, res) => {
       const minBandHdr = Math.round(outH * 0.22);
       const minBandHook = Math.round(outH * 0.10);
       const hdr = Number(director.originalHeaderHeight);
+      let bandY = 0;
       let bandH = 0;
       let bandReason = 'none';
       if (director.oldHookBox && director.oldHookBox.w >= 8 && director.oldHookBox.h >= 8) {
         const ob = director.oldHookBox;
-        const bottom = Math.min(outH, ob.y + ob.h);
-        // old_hook_box varsa band tam o seviyede olsun (küçük güven payı).
-        bandH = Math.max(minBandHook, Math.min(outH, Math.round(bottom * 1.03 + 3)));
+        const padY = Math.max(3, Math.round(outH * 0.004));
+        const top = Math.max(0, Math.min(outH - 2, Math.round(ob.y - padY)));
+        const bottom = Math.max(top + 2, Math.min(outH, Math.round(ob.y + ob.h + padY)));
+        // old_hook_box varsa bant yalnızca kutunun yüksekliğini kaplasın.
+        // Çok küçük üst boşluk varsa 0'a yapıştır ki siyah şerit doğal görünsün.
+        bandY = top <= 12 ? 0 : top;
+        bandH = Math.max(minBandHook, Math.min(outH - bandY, bottom - bandY));
         bandReason = 'gemini_old_hook_box_exact';
       } else if (Number.isFinite(hdr) && hdr > 0) {
+        bandY = 0;
         bandH = Math.max(2, Math.min(outH, Math.max(minBandHdr, Math.round(hdr * 1.35))));
         bandReason = 'gemini_header_height';
       }
       // Gemini üst yazıyı görmese bile: başlık listicle/ranked ise üstte yazı OLDUĞUNU kabul et
       // ve otomatik bant çek. Bu, eski hook'un sızmasını engeller.
       if (bandH === 0 && (isListicle || titleIsListicle)) {
+        bandY = 0;
         bandH = Math.max(minBandHdr, Math.round(outH * 0.22));
         bandReason = 'auto_listicle_fallback';
       }
       if (bandH > 0) {
-        coverBox = { y: 0, h: bandH, w: outW, opacity: 1 };
+        coverBox = { y: bandY, h: bandH, w: outW, opacity: 1 };
         if (hook) {
           hook.boxOpacity = 1;
-          hook.bannerY = 0;
+          hook.bannerY = bandY;
         }
       }
       console.log('[Crush Band]', JSON.stringify({
         reason: bandReason,
+        bandY,
         bandH,
         titleListicle: !!titleIsListicle,
         geminiListicle: !!isListicle,
-        hdr: Number.isFinite(hdr) ? hdr : 0
+        hdr: Number.isFinite(hdr) ? hdr : 0,
+        oldHookBox: director.oldHookBox || null
       }));
 
       if (
