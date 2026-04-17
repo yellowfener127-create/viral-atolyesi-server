@@ -742,6 +742,39 @@ async function ffmpegExtractAudioPreview(inFile, outFile, durSec = 10) {
   await run('ffmpeg', args, { timeoutMs: 45_000 });
 }
 
+async function ffmpegExtractTopBandPreview(inFile, outFile, cropHeight, tSec = 0.05) {
+  const cropH = Math.max(80, Math.round(cropHeight || 220));
+  const args = [
+    '-y',
+    '-ss', String(Math.max(0, tSec).toFixed(3)),
+    '-i', inFile,
+    '-frames:v', '1',
+    '-vf', `crop=iw:${cropH}:0:0,scale=512:-1`,
+    '-c:v', 'png',
+    outFile
+  ];
+  await run('ffmpeg', args, { timeoutMs: 45_000 });
+}
+
+async function ffmpegExtractRegionPreview(inFile, outFile, region, outW, outH, tSec = 0.05, pad = 24) {
+  const x0 = clamp(Math.round(Number(region?.x) || 0) - pad, 0, Math.max(0, outW - 2));
+  const y0 = clamp(Math.round(Number(region?.y) || 0) - pad, 0, Math.max(0, outH - 2));
+  const x1 = clamp(Math.round((Number(region?.x) || 0) + (Number(region?.w) || 0)) + pad, x0 + 8, outW);
+  const y1 = clamp(Math.round((Number(region?.y) || 0) + (Number(region?.h) || 0)) + pad, y0 + 8, outH);
+  const cropW = Math.max(8, x1 - x0);
+  const cropH = Math.max(8, y1 - y0);
+  const args = [
+    '-y',
+    '-ss', String(Math.max(0, tSec).toFixed(3)),
+    '-i', inFile,
+    '-frames:v', '1',
+    '-vf', `crop=${cropW}:${cropH}:${x0}:${y0},scale=512:-1`,
+    '-c:v', 'png',
+    outFile
+  ];
+  await run('ffmpeg', args, { timeoutMs: 45_000 });
+}
+
 function fileToInlineData(filePath, mimeType) {
   const buf = fs.readFileSync(filePath);
   return { inlineData: { mimeType, data: buf.toString('base64') } };
@@ -820,7 +853,7 @@ async function geminiDirectorAnalyze({ geminiProject, geminiLocation, brand, fra
         ? 'UMUT: Motivasyon, başarı ve insanlık odaklı.'
         : 'TERAPİ: Çocuk, köpek, tatlı ve komik anlar, huzur odaklı.';
 
-  const prompt =
+  const promptIntro =
 `Sistemin beyni olan "Viral Atölyesi AI Director v3.0" olarak görevlendirildin.
 
 ELİNDEKİ KISITLI VERİ (KURAL):
@@ -905,7 +938,154 @@ ZORUNLU JSON ŞEMASI (KATI):
   "blur_regions": [{"x": 0, "y": 0, "w": 0, "h": 0, "text": "RankingEverything72", "kind": "username"}]
 }
 
-KURALLAR:
+`;
+
+async function geminiVerifyTopBandLeak({ geminiProject, geminiLocation, previewPath, hookText, coverBox }) {
+  if (!previewPath || !fs.existsSync(previewPath)) return null;
+  const quotaProject = String(geminiProject || GEMINI_PROJECT_DEFAULT || '').trim();
+  const vertexLocation = String(geminiLocation || GEMINI_LOCATION_DEFAULT || '').trim();
+  if (!quotaProject) return null;
+
+  const model = 'gemini-2.5-flash';
+  const prompt = [
+    'You are checking the TOP BAND of an already-rendered short video frame.',
+    `Intended new hook text: "${String(hookText || '').trim() || '(empty)'}"`,
+    `Band box roughly starts at y=${Math.round(Number(coverBox?.y) || 0)} and height=${Math.round(Number(coverBox?.h) || 0)}.`,
+    'Task: decide if ANY extra leftover text fragments are still visible in the top area besides the intended new hook.',
+    'Count as leak=true if old text is peeking from the very top edge, above the new hook, behind it, or as leftover fragments.',
+    'Do NOT treat the intended new hook itself as a leak.',
+    'Return only JSON.'
+  ].join('\n');
+
+  const schema = {
+    type: 'OBJECT',
+    properties: {
+      leak: { type: 'BOOLEAN' },
+      extra_band_px: { type: 'INTEGER' },
+      reason: { type: 'STRING' }
+    },
+    required: ['leak', 'extra_band_px', 'reason']
+  };
+
+  const body = {
+    contents: [{
+      role: 'user',
+      parts: [
+        { text: prompt },
+        fileToInlineData(previewPath, 'image/png')
+      ]
+    }],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 256,
+      responseMimeType: 'application/json',
+      responseSchema: schema
+    }
+  };
+
+  try {
+    const accessToken = await getVertexAccessToken();
+    const r = await fetch(geminiEndpointFor(model, quotaProject, vertexLocation), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify(body)
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return null;
+    const text = (j.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('').trim();
+    const parsed = safeJsonParse(stripJsonFences(text)) || safeJsonParse(extractBalancedJsonObject(text));
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      leak: !!parsed.leak,
+      extraBandPx: clamp(Number(parsed.extra_band_px) || 0, 0, 160),
+      reason: String(parsed.reason || '').trim()
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function geminiVerifyUsernameBlurLeak({ geminiProject, geminiLocation, previewPath, expectedUsername }) {
+  if (!previewPath || !fs.existsSync(previewPath)) return null;
+  const quotaProject = String(geminiProject || GEMINI_PROJECT_DEFAULT || '').trim();
+  const vertexLocation = String(geminiLocation || GEMINI_LOCATION_DEFAULT || '').trim();
+  if (!quotaProject) return null;
+
+  const model = 'gemini-2.5-flash';
+  const prompt = [
+    'You are checking a BLURRED username region from a rendered short video.',
+    `Expected username text: "${String(expectedUsername || '').trim() || '(unknown)'}"`,
+    'First decide whether this crop actually contains a username/handle watermark at all.',
+    'Task: decide whether any username/handle text is still readable in this crop.',
+    'If still readable, estimate how many pixels the blur box should expand on each side.',
+    'If there is NO username/handle in this crop, username_present=false, leak=false and all expand values must be 0.',
+    'If the username is fully unreadable but clearly present, username_present=true, leak=false and all expand values must be 0.',
+    'Return only JSON.'
+  ].join('\n');
+
+  const schema = {
+    type: 'OBJECT',
+    properties: {
+      username_present: { type: 'BOOLEAN' },
+      leak: { type: 'BOOLEAN' },
+      expand_left_px: { type: 'INTEGER' },
+      expand_top_px: { type: 'INTEGER' },
+      expand_right_px: { type: 'INTEGER' },
+      expand_bottom_px: { type: 'INTEGER' },
+      reason: { type: 'STRING' }
+    },
+    required: ['username_present', 'leak', 'expand_left_px', 'expand_top_px', 'expand_right_px', 'expand_bottom_px', 'reason']
+  };
+
+  const body = {
+    contents: [{
+      role: 'user',
+      parts: [
+        { text: prompt },
+        fileToInlineData(previewPath, 'image/png')
+      ]
+    }],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 256,
+      responseMimeType: 'application/json',
+      responseSchema: schema
+    }
+  };
+
+  try {
+    const accessToken = await getVertexAccessToken();
+    const r = await fetch(geminiEndpointFor(model, quotaProject, vertexLocation), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify(body)
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return null;
+    const text = (j.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('').trim();
+    const parsed = safeJsonParse(stripJsonFences(text)) || safeJsonParse(extractBalancedJsonObject(text));
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      usernamePresent: !!parsed.username_present,
+      leak: !!parsed.leak,
+      left: clamp(Number(parsed.expand_left_px) || 0, 0, 80),
+      top: clamp(Number(parsed.expand_top_px) || 0, 0, 80),
+      right: clamp(Number(parsed.expand_right_px) || 0, 0, 80),
+      bottom: clamp(Number(parsed.expand_bottom_px) || 0, 0, 80),
+      reason: String(parsed.reason || '').trim()
+    };
+  } catch {
+    return null;
+  }
+}
+
+  const prompt = promptIntro + `KURALLAR:
 - hook kesinlikle emoji içermez.
 - hook içinde "crazy", "viral", "insane" kelimeleri geçemez.
 - hook en fazla 5 kelime olmalı, kısa ve videoyla doğrudan ilgili olmalı.
@@ -2029,6 +2209,36 @@ app.post('/crush', async (req, res) => {
       await run('ffmpeg', [...plan.ffmpegArgsTail, outFile], { timeoutMs: 8 * 60 * 1000 });
     };
 
+    const renderPlanWithFallback = async (currentPlan) => {
+      try {
+        await runFfmpeg(currentPlan);
+        return currentPlan;
+      } catch (e1) {
+        const msg = String((e1 && e1.message) || e1);
+        if (/rubberband|No such filter|not found|Invalid argument/i.test(msg)) {
+          const retryPlan = await crush.buildCrushRenderPlan({
+            inFile,
+            wmFile,
+            musicFile,
+            brand,
+            outW,
+            outH,
+            sourceDurSec: inDur,
+            hook,
+            coverBox,
+            blurRegions: effectiveBlurRegions,
+            hasAudio,
+            ffmpegPath: 'ffmpeg',
+            ffprobePath: 'ffprobe',
+            useRubberband: false
+          });
+          await runFfmpeg(retryPlan);
+          return retryPlan;
+        }
+        throw e1;
+      }
+    };
+
     // Blur bölgeleri: SADECE Gemini'nin verdiği koordinatlar kullanılır.
     // Kullanıcı isteği: otomatik orta/alt blur fallback'leri kaldır.
     const geminiBlurs = Array.isArray(director?.blurRegions) ? director.blurRegions : [];
@@ -2055,11 +2265,129 @@ app.post('/crush', async (req, res) => {
       ffprobePath: 'ffprobe',
       useRubberband: true
     });
-    try {
-      await runFfmpeg(plan);
-    } catch (e1) {
-      const msg = String((e1 && e1.message) || e1);
-      if (/rubberband|No such filter|not found|Invalid argument/i.test(msg)) {
+    plan = await renderPlanWithFallback(plan);
+
+    const topBandSafety = { checked: false, leakDetected: false, rerendered: false, reason: '', extraBandPx: 0 };
+    if (coverBox && geminiAuthPresent) {
+      const topPreview = path.join(tmpDir, 'top_band_preview.png');
+      try {
+        const previewH = Math.min(outH, Math.max(220, Math.round((coverBox.y || 0) + (coverBox.h || 0) + 60)));
+        await ffmpegExtractTopBandPreview(outFile, topPreview, previewH, 0.05);
+        const topLeak = await geminiVerifyTopBandLeak({
+          geminiProject,
+          geminiLocation,
+          previewPath: topPreview,
+          hookText: hook && hook.text ? hook.text : '',
+          coverBox
+        });
+        topBandSafety.checked = true;
+        if (topLeak) {
+          topBandSafety.reason = topLeak.reason || '';
+          topBandSafety.extraBandPx = Number(topLeak.extraBandPx) || 0;
+        }
+        if (topLeak && topLeak.leak) {
+          topBandSafety.leakDetected = true;
+          const growPx = clamp(topLeak.extraBandPx || 34, 18, 96);
+          const oldBottom = Math.max(0, Math.round((coverBox.y || 0) + (coverBox.h || 0)));
+          const newBottom = Math.min(outH, oldBottom + growPx);
+          coverBox = { y: 0, h: Math.max(oldBottom, newBottom), w: outW, opacity: 1 };
+          if (hook) {
+            hook.boxOpacity = 1;
+            hook.bannerY = 0;
+          }
+          console.log('[Crush Safety]', JSON.stringify({
+            leakDetected: true,
+            growPx,
+            newCoverBox: coverBox,
+            reason: topLeak.reason || ''
+          }));
+          plan = await crush.buildCrushRenderPlan({
+            inFile,
+            wmFile,
+            musicFile,
+            brand,
+            outW,
+            outH,
+            sourceDurSec: inDur,
+            hook,
+            coverBox,
+            blurRegions: effectiveBlurRegions,
+            hasAudio,
+            ffmpegPath: 'ffmpeg',
+            ffprobePath: 'ffprobe',
+            useRubberband: true
+          });
+          plan = await renderPlanWithFallback(plan);
+          topBandSafety.rerendered = true;
+        }
+      } catch (eSafety) {
+        topBandSafety.checked = true;
+        topBandSafety.reason = `safety_check_failed: ${String((eSafety && eSafety.message) || eSafety)}`;
+      } finally {
+        try { fs.unlinkSync(topPreview); } catch {}
+      }
+    }
+
+    const usernameBlurSafety = { checked: false, leakDetected: false, rerendered: false, fixes: [] };
+    if (effectiveBlurRegions.length > 0 && geminiAuthPresent) {
+      usernameBlurSafety.checked = true;
+      let blurAdjusted = false;
+      for (let i = 0; i < effectiveBlurRegions.length; i++) {
+        const reg = effectiveBlurRegions[i];
+        const previewPath = path.join(tmpDir, `blur_region_${i + 1}.png`);
+        try {
+          await ffmpegExtractRegionPreview(outFile, previewPath, reg, outW, outH, 0.05, 20);
+          const check = await geminiVerifyUsernameBlurLeak({
+            geminiProject,
+            geminiLocation,
+            previewPath,
+            expectedUsername: reg && reg.text ? reg.text : ''
+          });
+          if (check && check.usernamePresent === false) {
+            effectiveBlurRegions[i] = null;
+            usernameBlurSafety.fixes.push({
+              index: i,
+              action: 'removed',
+              reason: check.reason || 'username_not_present',
+              region: reg
+            });
+            blurAdjusted = true;
+            continue;
+          }
+          if (check && check.leak) {
+            usernameBlurSafety.leakDetected = true;
+            const next = {
+              ...reg,
+              x: clamp(reg.x - check.left, 0, outW - 8),
+              y: clamp(reg.y - check.top, 0, outH - 8)
+            };
+            next.w = clamp((reg.w + check.left + check.right), 8, outW - next.x);
+            next.h = clamp((reg.h + check.top + check.bottom), 8, outH - next.y);
+            effectiveBlurRegions[i] = next;
+            usernameBlurSafety.fixes.push({
+              index: i,
+              action: 'expanded',
+              reason: check.reason || '',
+              expand: { left: check.left, top: check.top, right: check.right, bottom: check.bottom },
+              region: next
+            });
+            blurAdjusted = true;
+          }
+        } catch (eBlurSafe) {
+          usernameBlurSafety.fixes.push({
+            index: i,
+            reason: `blur_safety_failed: ${String((eBlurSafe && eBlurSafe.message) || eBlurSafe)}`,
+            region: reg
+          });
+        } finally {
+          try { fs.unlinkSync(previewPath); } catch {}
+        }
+      }
+      for (let i = effectiveBlurRegions.length - 1; i >= 0; i--) {
+        if (!effectiveBlurRegions[i]) effectiveBlurRegions.splice(i, 1);
+      }
+      if (blurAdjusted) {
+        console.log('[Crush Blur Safety]', JSON.stringify(usernameBlurSafety));
         plan = await crush.buildCrushRenderPlan({
           inFile,
           wmFile,
@@ -2074,11 +2402,10 @@ app.post('/crush', async (req, res) => {
           hasAudio,
           ffmpegPath: 'ffmpeg',
           ffprobePath: 'ffprobe',
-          useRubberband: false
+          useRubberband: true
         });
-        await runFfmpeg(plan);
-      } else {
-        throw e1;
+        plan = await renderPlanWithFallback(plan);
+        usernameBlurSafety.rerendered = true;
       }
     }
 
@@ -2088,7 +2415,7 @@ app.post('/crush', async (req, res) => {
       ok: true,
       savedTo: brandDir,
       file: path.basename(outFile),
-      settings: plan.debug,
+      settings: { ...plan.debug, topBandSafety, usernameBlurSafety },
       verify,
       geminiAttempted: geminiAuthPresent,
       geminiKeyPresent: geminiAuthPresent,
