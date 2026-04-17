@@ -428,7 +428,17 @@ async function buildCrushRenderPlan(o) {
   // Director yoksa: istenen aralık (70–95) içinde konumlandır.
   const hookY = Number.isFinite(hook?.y) ? Math.round(hook.y) : Math.round(randRange(70, 95));
   const stripEmoji = (s) => String(s || '').replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '').trim();
-  const hookTextFinal = (hook && typeof hook.text === 'string' && hook.text.trim()) ? stripEmoji(hook.text.trim()) : stripEmoji(hookText);
+  // Apostrof / ters tek-tırnak ffmpeg drawtext parser'ını (bu build'de) bozuyor.
+  // Her ihtimale karşı hook metninden tüm tek tırnakları temizle.
+  const sanitizeHookForDrawtext = (s) => String(s || '')
+    .replace(/['\u2018\u2019\u02BC\u0060\u00B4]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const hookTextFinal = sanitizeHookForDrawtext(
+    (hook && typeof hook.text === 'string' && hook.text.trim())
+      ? stripEmoji(hook.text.trim())
+      : stripEmoji(hookText)
+  );
   const hookTextBandStyled = titleCaseHookText(hookTextFinal);
   const hookDisplay = splitHookForDisplay(hookTextBandStyled);
   const hookColorPool = ['#FFFFFF', '#FFD400', '#9BFF57']; // Beyaz / Sarı / Açık yeşil
