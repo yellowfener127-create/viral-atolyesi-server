@@ -250,10 +250,24 @@ function splitCaptionPayload(text) {
   };
 }
 
+function toSingleSentenceCaption(text) {
+  let s = stripHashtagsFromText(String(text || '').trim())
+    .replace(/\r/g, '')
+    .replace(/\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!s) return '';
+  s = s.replace(/[!?]+/g, '.');
+  const first = s.split(/[.]+/).map((p) => p.trim()).filter(Boolean)[0] || s;
+  const out = first.replace(/[!?]+/g, '').trim();
+  return out ? `${out}.` : '';
+}
+
 function salvageDirectorJson(text) {
   const src = extractBalancedJsonObject(stripJsonFences(text)) || stripJsonFences(text);
   const hook = extractJsonLikeStringField(src, 'hook');
   const captionRaw = extractJsonLikeStringField(src, 'caption');
+  const oldHookText = extractJsonLikeStringField(src, 'old_hook_text');
   const captionParts = splitCaptionPayload(captionRaw);
   const explicitTags = extractJsonLikeStringArrayField(src, 'hashtags', 8);
   const inlineTags = extractHashtagsFromText(extractJsonLikeStringField(src, 'hashtags'), 8);
@@ -268,6 +282,7 @@ function salvageDirectorJson(text) {
   return {
     hook,
     caption: captionParts.caption || captionRaw || '',
+    old_hook_text: oldHookText || '',
     hashtags,
     coord_units: coordUnitsRaw || 'px',
     detect_garbage_text: detectGarbage,
@@ -512,15 +527,16 @@ function buildHookFromTitle({ title, isListicle }) {
   return `${subject} moment you can’t ignore`;
 }
 
-function buildFallbackCaptionFromTitle(title) {
+function buildFallbackCaptionFromTitle(title, isListicle = false) {
   const kw = extractKeywordsFromTitle(title);
   const topic = kw.slice(0, 2).join(' ') || 'this moment';
-  const line1 = `A standout ${topic} moment unfolds fast.`;
-  const line2 = pickOne([
-    'The clip builds into a clean payoff.',
-    'The action lands in a memorable way.',
-    'The sequence turns chaotic in seconds.'
-  ]);
+  const line1 = isListicle
+    ? `This ranked ${topic} moment falls apart fast, follow for more ranked clips like this.`
+    : pickOne([
+        `This ${topic} moment goes off the rails fast and lands hard.`,
+        `This ${topic} clip escalates quickly and hits with perfect timing.`,
+        `This ${topic} moment unravels in seconds and stays entertaining throughout.`
+      ]);
   const tags = [
     '#' + (kw[0] || 'viral'),
     '#shorts',
@@ -538,15 +554,62 @@ function buildFallbackCaptionFromTitle(title) {
     if (uniq.length >= 5) break;
   }
   while (uniq.length < 5) uniq.push('#viral');
-  return `${line1}\n${line2}\n${uniq.slice(0, 5).join(' ')}`.trim();
+  return `${line1}\n${uniq.slice(0, 5).join(' ')}`.trim();
 }
 
 function captionLooksGood(caption) {
-  const s = stripHashtagsFromText(String(caption || '').trim());
+  const s = toSingleSentenceCaption(caption);
   if (s.length < 24) return false;
-  const hasBadQuestion = /\?|what would you do|rate this|rate it|1-10|1–10|would you|did you catch/i.test(s);
-  const hashCount = extractHashtagsFromText(caption).length;
-  return !hasBadQuestion && hashCount >= 5;
+  const hasBadQuestion = /\?|what would you do|rate this|rate it|1-10|1–10|would you|did you catch|wait for|watch till/i.test(s);
+  return !hasBadQuestion && /^[^.!?]+[.]$/.test(s);
+}
+
+function remixHookFromOldHook(oldHookText, title, isListicle) {
+  const words = stripEmoji(String(oldHookText || ''))
+    .replace(/[^\p{L}\p{N}\s#]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 5);
+  if (!words.length) return '';
+  const replacements = {
+    ranking: 'ranked',
+    ranked: 'ranking',
+    funniest: 'wildest',
+    funny: 'messy',
+    best: 'boldest',
+    worst: 'roughest',
+    challenge: 'round',
+    moment: 'scene',
+    moments: 'fails',
+    copied: 'stole',
+    make: 'build',
+    word: 'phrase',
+    lost: 'dropped',
+    lightsaber: 'blade',
+    wrong: 'sideways',
+    took: 'went',
+    seriously: 'too far'
+  };
+  const titleWords = extractKeywordsFromTitle(title).slice(0, 2);
+  let changed = 0;
+  const out = words.map((w, idx) => {
+    const key = String(w || '').toLowerCase();
+    if (replacements[key] && changed < 2) {
+      changed += 1;
+      return replacements[key];
+    }
+    if (changed < 2 && idx === words.length - 1 && titleWords[0] && key !== titleWords[0]) {
+      changed += 1;
+      return titleWords[0];
+    }
+    return w;
+  });
+  if (changed === 0 && isListicle && out.length) {
+    out[0] = out[0].toLowerCase() === 'ranking' ? 'Ranked' : 'Ranking';
+  }
+  return splitHookTwoLines(out.join(' '));
 }
 
 function splitHookTwoLines(hookText) {
@@ -753,16 +816,16 @@ ANALİZ PROTOKOLÜ:
 3) Ses önizlemesinde PİKLERİ ara (pat/çarpma, gülme, çığlık). Görsel net değilse ses ipucuna ağırlık ver.
 
 SU İŞARETİ / LOGO AVI (ÇOK KRİTİK):
-- Karelerde @ ile başlayan kullanıcı adı, kanal logosu, sosyal medya filigranı veya üreticinin adı görürsen,
-  HER BİRİNİ blur_regions listesine ayrı ayrı koordinat olarak ekle (maks 6 kutu).
-- "@MaddessRnk5", "@pet&wildlifewonders", "tiktok.com/@user" gibi yazıları ASLA kaçırma.
+- Karelerde SADECE kullanıcı adı / hesap adı / creator handle görürsen bunu blur_regions listesine ayrı ayrı koordinat olarak ekle (maks 6 kutu).
+- "@MaddessRnk5", "@pet&wildlifewonders", "tiktok.com/@user", "RankingEverything72" gibi handle/watermark isimlerini ASLA kaçırma.
 - Kareler arasında sadece bir tanesinde görünse bile kaçırmadan koordinatını ver.
-- Eğer hesap adı/logo YOKSA blur_regions listesini boş bırak.
-- Tahmin yürütüp rastgele blur bölgesi verme; SADECE gerçekten gördüğün hesap adı/logo koordinatını döndür.
+- Eğer username/handle YOKSA blur_regions listesini boş bırak.
+- Tahmin yürütüp rastgele blur bölgesi verme; SADECE gerçekten gördüğün username/handle koordinatını döndür.
 - SADECE merkeze yakın küçük bir kutu verme. TUM GORUNUR yazi alanini ver:
   soldaki ilk harften sagdaki son harfe kadar TAM GENISLIK,
   ustteki glow/outline/shadow ve alttaki baseline dahil TAM YUKSEKLIK.
 - Ozellikle alt merkezde duran hesap adlarinda kutu dar olmasin; biraz guven payi birak.
+- Normal altyazıları, sıralama numaralarını, skorları, videonun iç açıklama yazılarını, eski hook'u veya başka dekoratif metinleri blur_regions içine ASLA koyma.
 
 ZORUNLU SİYAH BANT (FORCE MASK) KURALI:
 - Videonun en üst kısmında herhangi bir yazı/başlık/hook görürsen (arkasında şerit olsun olmasın),
@@ -805,7 +868,8 @@ ZORUNLU JSON ŞEMASI (KATI):
 {
   "coord_units": "px",
   "hook": "TEK satır, en fazla 5 kelime, emoji-free, no crazy/viral/insane",
-  "caption": "1-2 kısa İngilizce cümle. SADECE videoda olan şeyi anlat. Soru sorma. CTA yazma. Emoji kullanma.",
+  "caption": "TEK cümle İngilizce. Videodaki olayı anlatsın ve izleyiciye hitap etsin. Soru sorma. Emoji kullanma.",
+  "old_hook_text": "",
   "hashtags": ["#viral", "#kesfet", "#trending", "#chaos", "#specific"],
   "old_hook_box": {"x": 0, "y": 0, "w": 0, "h": 0},
   "detect_garbage_text": {"x": 0, "y": 0, "w": 0, "h": 0},
@@ -818,13 +882,16 @@ KURALLAR:
 - hook içinde "crazy", "viral", "insane" kelimeleri geçemez.
 - hook en fazla 5 kelime olmalı, kısa ve videoyla doğrudan ilgili olmalı.
 - caption içine hashtag yazma; hashtagleri SADECE hashtags array içine koy.
+- caption TEK cümle olsun.
 - caption soru cümlesi OLMAMALI. Soru işareti kullanma.
-- caption CTA OLMAMALI. 'what would you do', 'rate this', 'would you', 'wait for', 'watch till' gibi kalıplar kullanma.
-- caption sadece videodaki olayı doğal İngilizce ile anlatsın.
+- caption sadece videodaki olayı doğal İngilizce ile anlatsın ama izleyiciye hitap eden sıcak bir ton kullansın.
+- ranked/listicle içerikte caption bir cümle içinde "follow for more ranked..." benzeri yumuşak bir takip çağrısı içerebilir.
+- Eğer eski hook varsa old_hook_text alanına ekrandaki eski hook metnini mümkün olduğunca aynen yaz.
+- Yeni hook üretirken eski hook varsa onu baz al: aynı iskeleti koru, sadece 1 veya 2 kelimeyi değiştir.
 - hashtags array TAM 5 benzersiz hashtag içermeli ve her biri # ile başlamalı.
 - hashtag formatı: 3 genel (#viral/#kesfet/#trending), 1 konsept (#chaos/#therapy/#motivation), 1 spesifik (ranked ise #ranked).
 - detect_garbage_text: Eğer kullanıcı adı/watermark/logo/rahatsız edici metin görürsen en kritik alanı tek kutu olarak ver; yoksa {0,0,0,0}.
-- blur_regions: rahatsız edici yazı/logo alanlarını listele (maks 6 kutu); yoksa [] döndür.
+- blur_regions: SADECE username/handle alanlarını listele (maks 6 kutu); yoksa [] döndür.
 - original_header_height: Üstte orijinal başlık/yazı varsa kapladığı yüksekliği px olarak ver (örn 160). Yoksa 0.
 - old_hook_box: Üstte eski hook varsa kutuyu ver; yoksa {0,0,0,0}.
 
@@ -858,6 +925,7 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
       coord_units: { type: 'STRING', enum: ['px', 'norm'] },
       hook: { type: 'STRING' },
       caption: { type: 'STRING' },
+      old_hook_text: { type: 'STRING' },
       hashtags: { type: 'ARRAY', items: { type: 'STRING' }, minItems: 5, maxItems: 5 },
       original_header_height: { type: 'INTEGER' },
       old_hook_box: {
@@ -891,7 +959,7 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
     },
     required: [
       'coord_units', 'hook', 'caption', 'hashtags',
-      'original_header_height', 'old_hook_box', 'blur_regions'
+      'original_header_height', 'old_hook_box', 'blur_regions', 'old_hook_text'
     ]
   };
 
@@ -1195,7 +1263,7 @@ function normalizeDirectorResult(raw, outW, outH, brand) {
       hashtags.push(clean.startsWith('#') ? clean : `#${clean.replace(/^#+/, '')}`);
       if (hashtags.length >= 5) break;
     }
-    const caption = stripEmoji(String(captionParts.caption || '').trim());
+    const caption = toSingleSentenceCaption(captionParts.caption || '');
     const headerH = Number(raw.original_header_height);
     const originalHeaderHeight = Number.isFinite(headerH) && headerH > 0 ? headerH : 0;
     const clampRegion = (r) => {
@@ -1229,6 +1297,7 @@ function normalizeDirectorResult(raw, outW, outH, brand) {
       rankHookHint: null,
       hookColor: null,
       caption,
+      oldHookText: stripEmoji(String(raw.old_hook_text || raw.oldHookText || '').trim()),
       hashtags,
       blurRegions,
       originalHeaderHeight
@@ -1302,7 +1371,8 @@ function normalizeDirectorResult(raw, outW, outH, brand) {
     isListicle,
     rankHookHint: rankHookHint ? String(rankHookHint).trim() : null,
     hookColor: hookColor ? String(hookColor).trim() : null,
-    caption: String(captionParts.caption || '').trim(),
+    caption: toSingleSentenceCaption(captionParts.caption || ''),
+    oldHookText: stripEmoji(String(raw.old_hook_text || raw.oldHookText || '').trim()),
     hashtags: (hashtags || []).map(String).filter(Boolean).slice(0, 5),
     blurRegions: [],
     originalHeaderHeight: null
@@ -1800,8 +1870,9 @@ app.post('/crush', async (req, res) => {
     if (director && director.newHook) {
       const isListicle = !!director.isListicle;
       const hookBase = String(director.newHook.text || '').trim();
+      const oldHookRemix = remixHookFromOldHook(director.oldHookText, metaTitle, isListicle || titleIsListicle);
       const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: isListicle || titleIsListicle });
-      const hookSeed = (!looksGenericHook(hookBase) && hookBase) ? hookBase : (titleHook || hookBase);
+      const hookSeed = oldHookRemix || ((!looksGenericHook(hookBase) && hookBase) ? hookBase : (titleHook || hookBase));
       const hookText = splitHookTwoLines(stripEmoji(makeUniqueHook(brand, hookSeed, cache, isListicle || titleIsListicle)));
       hook = {
         text: hookText,
@@ -1813,10 +1884,10 @@ app.post('/crush', async (req, res) => {
       };
 
       // Caption: soru/CTA istemiyoruz; sadece videoyu anlatan doğal İngilizce caption kabul et.
-      const capCandidate = stripEmoji(String(director.caption || '').trim());
-      const capGood = captionLooksGood(capCandidate) || (String(capCandidate || '').length >= 24 && Array.isArray(director.hashtags) && director.hashtags.length >= 5);
-      const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle));
-      finalCaption = capGood ? capCandidate : (fallbackCaptionBits.caption || buildFallbackCaptionFromTitle(metaTitle));
+      const capCandidate = toSingleSentenceCaption(director.caption || '');
+      const capGood = captionLooksGood(capCandidate);
+      const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle, isListicle || titleIsListicle));
+      finalCaption = capGood ? capCandidate : toSingleSentenceCaption(fallbackCaptionBits.caption || buildFallbackCaptionFromTitle(metaTitle, isListicle || titleIsListicle));
       finalHashtags = ensureHashtagPack(brand, hookText, Array.isArray(director.hashtags) && director.hashtags.length ? director.hashtags : fallbackCaptionBits.hashtags);
 
       rememberUsed(cache, 'hooks', hookText);
@@ -1912,8 +1983,8 @@ app.post('/crush', async (req, res) => {
       const seed = titleHook || fallbackHookTextForBrand(brand);
       const hookText = splitHookTwoLines(stripEmoji(makeUniqueHook(brand, seed, cache, titleIsListicle)));
       hook = { text: hookText, bannerY: 0, y: 95, boxOpacity: 1, color: null };
-      const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand)));
-      finalCaption = fallbackCaptionBits.caption || fallbackCaptionForBrand(brand);
+      const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand), titleIsListicle));
+      finalCaption = toSingleSentenceCaption(fallbackCaptionBits.caption || fallbackCaptionForBrand(brand));
       finalHashtags = ensureHashtagPack(brand, hookText, fallbackCaptionBits.hashtags);
       rememberUsed(cache, 'hooks', hookText);
       rememberUsed(cache, 'captions', finalCaption);
