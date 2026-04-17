@@ -281,8 +281,11 @@ function splitHookForDisplay(hookText) {
   const words = String(hookText || '').split(/\s+/).filter(Boolean).slice(0, 5);
   if (!words.length) return { line1: '', line2: '' };
   if (words.length <= 2) return { line1: words.join(' '), line2: '' };
+  // Kullanıcı isteği: ilk satır daha dolu, ikinci satır daha kısa/temiz olsun.
+  // Örn: "This package explodes with" => "This package explodes" / "with"
   if (words.length === 3) return { line1: words.slice(0, 2).join(' '), line2: words.slice(2).join(' ') };
-  const cut = Math.ceil(words.length / 2);
+  if (words.length === 4) return { line1: words.slice(0, 3).join(' '), line2: words.slice(3).join(' ') };
+  const cut = 3;
   return {
     line1: words.slice(0, cut).join(' '),
     line2: words.slice(cut).join(' ')
@@ -470,6 +473,12 @@ async function buildCrushRenderPlan(o) {
   const bannerTextTopY = Math.max(0, Math.round(bannerY + (bannerH - twoLineBlockH) / 2));
   const bannerTextBottomY = bannerTextTopY + bandFontSize + lineGap;
   const noBandTextY = Math.max(18, Math.round(outH * 0.06)); // üst-orta profesyonel yerleşim
+  const noBandSidePad = 100;
+  const noBandFontSize = 44;
+  const noBandLineGap = Math.max(6, Math.round(noBandFontSize * 0.10));
+  const noBandTwoLineBlockH = (noBandFontSize * 2) + noBandLineGap;
+  const noBandTextTopY = Math.max(18, Math.round(outH * 0.055));
+  const noBandTextBottomY = noBandTextTopY + noBandFontSize + noBandLineGap;
 
   const fontFile = pickExistingFontForDrawtext();
   const fontPart = fontFile
@@ -556,14 +565,30 @@ async function buildCrushRenderPlan(o) {
               ])
         ]
       : [
-          // No-band, outline + shadow ile okunaklı yazı (2 satır destekler)
-          `[${baseLabel}]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
-            `fontcolor=white@1.000:fontsize=44:borderw=3:bordercolor=black@1.000:` +
-            `shadowcolor=black@0.6:shadowx=2:shadowy=2:` +
-            `fix_bounds=1:text_shaping=1:` +
-            // 100px padding: soldan/sağdan en az 100px boşluk
-            `x='max(100\\,min((w-text_w)/2\\,w-text_w-100))':y=${noBandTextY}:` +
-            `enable='${hookEnable}'[v1]`
+          ...(hookDisplay.line2
+            ? [
+                `[${baseLabel}]drawtext=text='${escapeDrawtextText(hookDisplay.line1)}'${fontPart}:` +
+                  `fontcolor=white@1.000:fontsize=${noBandFontSize}:borderw=3:bordercolor=black@1.000:` +
+                  `shadowcolor=black@0.6:shadowx=2:shadowy=2:` +
+                  `fix_bounds=1:text_shaping=1:` +
+                  `x='max(${noBandSidePad}\\,min((w-text_w)/2\\,w-text_w-${noBandSidePad}))':y=${noBandTextTopY}:` +
+                  `enable='${hookEnable}'[vline1]`,
+                `[vline1]drawtext=text='${escapeDrawtextText(hookDisplay.line2)}'${fontPart}:` +
+                  `fontcolor=white@1.000:fontsize=${noBandFontSize}:borderw=3:bordercolor=black@1.000:` +
+                  `shadowcolor=black@0.6:shadowx=2:shadowy=2:` +
+                  `fix_bounds=1:text_shaping=1:` +
+                  `x='max(${noBandSidePad}\\,min((w-text_w)/2\\,w-text_w-${noBandSidePad}))':y=${noBandTextBottomY}:` +
+                  `enable='${hookEnable}'[v1]`
+              ]
+            : [
+                // No-band, outline + shadow ile okunaklı yazı
+                `[${baseLabel}]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
+                  `fontcolor=white@1.000:fontsize=${noBandFontSize}:borderw=3:bordercolor=black@1.000:` +
+                  `shadowcolor=black@0.6:shadowx=2:shadowy=2:` +
+                  `fix_bounds=1:text_shaping=1:` +
+                  `x='max(${noBandSidePad}\\,min((w-text_w)/2\\,w-text_w-${noBandSidePad}))':y=${noBandTextY}:` +
+                  `enable='${hookEnable}'[v1]`
+              ])
         ]),
     `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
       `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
