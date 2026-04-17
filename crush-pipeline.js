@@ -458,11 +458,11 @@ async function buildCrushRenderPlan(o) {
   const hasTwoBandLines = !!(hookDisplay.line1 && hookDisplay.line2);
   // Bant içindeki yazıyı hem bant yüksekliğine hem yaklaşık satır genişliğine göre büyüt.
   const bandFontSizeByHeight = hasBand
-    ? (hasTwoBandLines ? (bannerH * 0.30) : (bannerH * 0.54))
+    ? (hasTwoBandLines ? (bannerH * 0.315) : (bannerH * 0.565))
     : 44;
   const bandFontSizeByWidth = hasBand ? ((outW - (bandSidePad * 2)) / Math.max(6, hookCharCount * (hasTwoBandLines ? 0.50 : 0.70))) : 44;
   const bandFontSize = hasBand
-    ? Math.round(Math.max(30, Math.min(78, Math.min(bandFontSizeByHeight, bandFontSizeByWidth))))
+    ? Math.round(Math.max(32, Math.min(80, Math.min(bandFontSizeByHeight, bandFontSizeByWidth))))
     : 44;
   const lineGap = Math.max(6, Math.round(bandFontSize * 0.08));
   const twoLineBlockH = (bandFontSize * 2) + lineGap;
