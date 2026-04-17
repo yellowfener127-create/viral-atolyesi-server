@@ -2239,14 +2239,15 @@ app.post('/crush', async (req, res) => {
       }
     };
 
-    // Blur bölgeleri: SADECE Gemini'nin verdiği koordinatlar kullanılır.
-    // Kullanıcı isteği: otomatik orta/alt blur fallback'leri kaldır.
+    // Blur tamamen kapalı:
+    // Gemini koordinat döndürse bile hiçbir bölgeye blur uygulanmaz.
     const geminiBlurs = Array.isArray(director?.blurRegions) ? director.blurRegions : [];
-    const effectiveBlurRegions = geminiBlurs.slice(0, 6);
+    const effectiveBlurRegions = [];
     console.log('[Crush Blur]', JSON.stringify({
       fromGemini: geminiBlurs.length,
       total: effectiveBlurRegions.length,
-      regions: effectiveBlurRegions
+      regions: effectiveBlurRegions,
+      disabled: true
     }));
 
     let plan = await crush.buildCrushRenderPlan({
