@@ -524,6 +524,23 @@ function looksGenericHook(s) {
   return banned.some((b) => t.includes(b));
 }
 
+function hookMakesSense(s) {
+  const t = normTextKey(s);
+  if (!t) return false;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length < 3) return false;
+  // Sadece "no x" veya "not x" gibi iki kelimelik negatif parça kabul etme
+  if (/^(no|not|never|nope)\s+\w+$/.test(t)) return false;
+  if (/^(no|not|never|nope)\s+\w+\s+\w+$/.test(t) && words.length === 3) {
+    // "No one expected" vb. 3 kelime negatifler genelde anlamlı, bunları kabul et
+  }
+  // Tamamen tek konu + negasyon olanları çıkar
+  if (/^(no|not)\s+(mother|father|dad|mom|one|body|way|cap|idea)$/.test(t)) return false;
+  // Kelimelerin hiçbiri somut değilse (en az 1 isim veya eylem gerekli)
+  const anyConcrete = /\b(dog|cat|baby|kid|elephant|bear|car|bike|skate|ball|stairs|door|water|pool|road|park|phone|woman|man|boy|girl|mom|mother|father|dad|team|player|ring|boxer|slip|slipped|fall|fell|crash|hit|hits|drop|drops|save|saves|rescue|rescues|jumps|jump|lands|flip|flips|escape|escapes|push|pushes|throw|throws|protect|protects|catch|catches|climb|climbs|climb|runs|runs|scream|screams|cry|cries|laugh|laughs|kicks|kick|punch|punches|grabs|grab|swings|swing|spill|spills)\b/.test(t);
+  return anyConcrete;
+}
+
 function extractKeywordsFromTitle(title) {
   const t = String(title || '').toLowerCase();
   const raw = t.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
@@ -901,10 +918,17 @@ JENERİK YASAKLAR (KESİN):
 Hook şu kalıpları içeremez: "wait for it", "wait for the end", "watch until the end", "amazing end", "sweet end" (ve benzerleri).
 EK YASAK (KESİN): Hook içinde şu kelimeler GEÇEMEZ: "crazy", "viral", "insane".
 
+HOOK CÜMLE ZORUNLULUĞU (ÇOK KRİTİK):
+- Hook 3-5 kelimelik anlamlı bir İngilizce cümle/ifade olmalı.
+- Hook ASLA sadece "No Mother", "No Way", "No Cap", "Not Again" gibi 2 kelimelik negatif kopuk parça olamaz.
+- Hook videoda ASLA gerçekleşmemiş bir olay iddia edemez (örn: fil yavrusunu korumak için geliyorsa "no mother" gibi yanlış çıkarım yasak).
+- Hook mutlaka özne + eylem içermeli. Örn: "Mom rescues her baby", "Dog stops the fight", "Kid saves the day".
+- Hook pozitif/olumlu bir gözlem anlatmalı; olmayan bir şey üzerinden iddia kurma.
+
 SOMUTLUK ŞARTI (KESİN):
-Hook İngilizce olacak ve mutlaka 1 SOMUT NESNE veya 1 SOMUT EYLEM kelimesi içerecek.
-Örnek nesne: skateboard, dog, baby, car, stairs, door, bike, ball
-Örnek eylem: slips, crashes, falls, lands, saves, hits, drops, flips
+Hook İngilizce olacak ve mutlaka 1 SOMUT NESNE ve 1 SOMUT EYLEM kelimesi içerecek.
+Örnek nesne: skateboard, dog, baby, elephant, car, stairs, door, bike, ball, pool
+Örnek eylem: slips, crashes, falls, lands, saves, hits, drops, flips, rescues, protects, pushes
 
 RANKED/LISTICLE KURALI:
 Karelerde 1/2/3 gibi sıralama veya "ranked/top" vb. görüyorsan isListicle=true yap.
@@ -1905,6 +1929,7 @@ app.get('/download', async (req, res) => {
 });
 
 // Telif Ezici (PC): indir -> 9:16 + zoom + renk + 1.10x + seken watermark
+const __crushInProgress = new Map(); // key: `${brand}::${url}` -> startedAt ms
 app.post('/crush', async (req, res) => {
   const url = req.body?.url || req.query?.url;
   const brand = normBrand(req.body?.brand || req.query?.brand || 'terapi');
@@ -1912,6 +1937,24 @@ app.post('/crush', async (req, res) => {
   const geminiLocation = req.body?.geminiLocation || req.query?.geminiLocation || GEMINI_LOCATION_DEFAULT;
   const geminiAuthPresent = !!String(geminiProject || '').trim();
   if (!url) return res.status(400).json({ error: 'url gerekli' });
+
+  // Aynı video için paralel/çift tıklama koruması:
+  // Aynı url+brand için bir render akışı devam ederken ikinci istek gelirse hemen reddet.
+  const crushKey = `${brand}::${String(url).trim()}`;
+  const now = Date.now();
+  const prev = __crushInProgress.get(crushKey);
+  if (prev && (now - prev) < 10 * 60 * 1000) {
+    return res.status(409).json({ error: 'Bu video zaten işleniyor, lütfen mevcut işlem bitene kadar bekle.' });
+  }
+  __crushInProgress.set(crushKey, now);
+  let __crushLockReleased = false;
+  const releaseCrushLock = () => {
+    if (__crushLockReleased) return;
+    __crushLockReleased = true;
+    try { __crushInProgress.delete(crushKey); } catch {}
+  };
+  res.on('close', releaseCrushLock);
+  res.on('finish', releaseCrushLock);
 
   const brandDir = getBrandDir(brand);
   fs.mkdirSync(brandDir, { recursive: true });
@@ -2083,7 +2126,8 @@ app.post('/crush', async (req, res) => {
       const hookBase = String(director.newHook.text || '').trim();
       const oldHookRemix = remixHookFromOldHook(director.oldHookText, metaTitle, isListicle || titleIsListicle);
       const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: isListicle || titleIsListicle });
-      const hookSeed = oldHookRemix || ((!looksGenericHook(hookBase) && hookBase) ? hookBase : (titleHook || hookBase));
+      const hookBaseGood = hookBase && !looksGenericHook(hookBase) && hookMakesSense(hookBase);
+      const hookSeed = oldHookRemix || (hookBaseGood ? hookBase : (titleHook || hookBase));
       const hookText = splitHookTwoLines(stripEmoji(makeUniqueHook(brand, hookSeed, cache, isListicle || titleIsListicle)));
       hook = {
         text: hookText,
@@ -2448,6 +2492,7 @@ app.post('/crush', async (req, res) => {
     return res.status(500).json({ error: (e && e.message) ? e.message : String(e) });
   } finally {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    releaseCrushLock();
   }
 });
 
