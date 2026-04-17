@@ -171,7 +171,13 @@ function parseLooseBoxFragment(fragment) {
   const w = extractJsonLikeNumberField(fragment, 'w');
   const h = extractJsonLikeNumberField(fragment, 'h');
   if (![x, y, w, h].every(Number.isFinite)) return null;
-  return { x, y, w, h };
+  const text = extractJsonLikeStringField(fragment, 'text');
+  const kind = extractJsonLikeStringField(fragment, 'kind');
+  return {
+    x, y, w, h,
+    ...(text ? { text } : {}),
+    ...(kind ? { kind } : {})
+  };
 }
 
 function extractJsonLikeBoxField(src, key) {
@@ -248,6 +254,26 @@ function splitCaptionPayload(text) {
     caption: stripHashtagsFromText(raw),
     hashtags: extractHashtagsFromText(raw)
   };
+}
+
+function looksLikeUsernameText(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return false;
+  const s = raw.replace(/\s+/g, '');
+  if (/@/.test(s)) return true;
+  if (/tiktok\.com\/@/i.test(s)) return true;
+  if (/^[a-z0-9._]{4,32}$/i.test(s) && /\d/.test(s)) return true;
+  if (/^[A-Za-z][A-Za-z0-9._]{5,32}$/.test(s) && (/[A-Z]/.test(s.slice(1)) || /\d/.test(s))) return true;
+  if (/^[A-Za-z]{6,32}\d{1,6}$/.test(s)) return true;
+  return false;
+}
+
+function isConfirmedUsernameRegion(region) {
+  if (!region || typeof region !== 'object') return false;
+  const kind = String(region.kind || '').trim().toLowerCase();
+  const text = String(region.text || '').trim();
+  if (kind && !['username', 'handle', 'watermark_username', 'creator_handle'].includes(kind)) return false;
+  return looksLikeUsernameText(text);
 }
 
 function toSingleSentenceCaption(text) {
@@ -826,6 +852,8 @@ SU İŞARETİ / LOGO AVI (ÇOK KRİTİK):
   ustteki glow/outline/shadow ve alttaki baseline dahil TAM YUKSEKLIK.
 - Ozellikle alt merkezde duran hesap adlarinda kutu dar olmasin; biraz guven payi birak.
 - Normal altyazıları, sıralama numaralarını, skorları, videonun iç açıklama yazılarını, eski hook'u veya başka dekoratif metinleri blur_regions içine ASLA koyma.
+- blur_regions icindeki her oge icin "text" alanina GORDUGUN username'i, "kind" alanina da "username" yaz.
+- Eger blur_regions ogesindeki text bir username degilse o ogeyi hic ekleme.
 
 ZORUNLU SİYAH BANT (FORCE MASK) KURALI:
 - Videonun en üst kısmında herhangi bir yazı/başlık/hook görürsen (arkasında şerit olsun olmasın),
@@ -874,7 +902,7 @@ ZORUNLU JSON ŞEMASI (KATI):
   "old_hook_box": {"x": 0, "y": 0, "w": 0, "h": 0},
   "detect_garbage_text": {"x": 0, "y": 0, "w": 0, "h": 0},
   "original_header_height": 0,
-  "blur_regions": [{"x": 0, "y": 0, "w": 0, "h": 0}]
+  "blur_regions": [{"x": 0, "y": 0, "w": 0, "h": 0, "text": "RankingEverything72", "kind": "username"}]
 }
 
 KURALLAR:
@@ -892,6 +920,7 @@ KURALLAR:
 - hashtag formatı: 3 genel (#viral/#kesfet/#trending), 1 konsept (#chaos/#therapy/#motivation), 1 spesifik (ranked ise #ranked).
 - detect_garbage_text: Eğer kullanıcı adı/watermark/logo/rahatsız edici metin görürsen en kritik alanı tek kutu olarak ver; yoksa {0,0,0,0}.
 - blur_regions: SADECE username/handle alanlarını listele (maks 6 kutu); yoksa [] döndür.
+- blur_regions içindeki her objede text=username metni ve kind="username" zorunlu olsun.
 - original_header_height: Üstte orijinal başlık/yazı varsa kapladığı yüksekliği px olarak ver (örn 160). Yoksa 0.
 - old_hook_box: Üstte eski hook varsa kutuyu ver; yoksa {0,0,0,0}.
 
@@ -951,9 +980,10 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
           type: 'OBJECT',
           properties: {
             x: { type: 'INTEGER' }, y: { type: 'INTEGER' },
-            w: { type: 'INTEGER' }, h: { type: 'INTEGER' }
+            w: { type: 'INTEGER' }, h: { type: 'INTEGER' },
+            text: { type: 'STRING' }, kind: { type: 'STRING' }
           },
-          required: ['x', 'y', 'w', 'h']
+          required: ['x', 'y', 'w', 'h', 'text', 'kind']
         }
       }
     },
@@ -1274,6 +1304,7 @@ function normalizeDirectorResult(raw, outW, outH, brand) {
     const blurRegions = [];
     const list = Array.isArray(raw.blur_regions) ? raw.blur_regions : [];
     for (const r of list.slice(0, 6)) {
+      if (!isConfirmedUsernameRegion(r)) continue;
       const rr = clampRegion(r);
       if (rr) blurRegions.push(rr);
     }
