@@ -492,6 +492,64 @@ function stripEmoji(s) {
   return String(s || '').replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '').replace(/\s+/g, ' ').trim();
 }
 
+/** Caption vb. için tüm emoji kaldır */
+function stripAllEmoji(s) {
+  return String(s || '')
+    .replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '')
+    .replace(/\u200D/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Hook: ortadaki emojileri sil; sonda TEK emoji varsa koru (videoyla ilgili).
+ */
+function normalizeHookEmoji(s) {
+  const raw = String(s || '').trim();
+  const tailRun = raw.match(/(?:\s*\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*)+$/u);
+  if (!tailRun) return { text: stripAllEmoji(raw), emoji: '' };
+  const before = raw.slice(0, tailRun.index).trim();
+  const firstEm = tailRun[0].match(/\p{Extended_Pictographic}\uFE0F?/u);
+  const emoji = firstEm ? firstEm[0] : '';
+  return { text: stripAllEmoji(before), emoji };
+}
+
+/** Yarım kalmış başlık: son kelime yardımcı fiil/bağlaç ile bitmesin */
+function hookFeelsComplete(textNoEmoji) {
+  const w = normTextKey(textNoEmoji).split(/\s+/).filter(Boolean);
+  if (w.length < 3) return false;
+  const last = w[w.length - 1];
+  const badLast = new Set([
+    'is', 'are', 'was', 'were', 'be', 'been', 'being', 'am', 'has', 'have', 'had', 'does', 'do', 'did',
+    'will', 'would', 'could', 'should', 'shall', 'may', 'might', 'must', 'can',
+    'and', 'or', 'but', 'nor', 'the', 'a', 'an', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'with', 'from', 'as',
+    'if', 'when', 'so', 'than', 'that', 'this', 'these', 'those', 'my', 'your', 'our', 'their', 'its',
+    'no', 'not', 'very', 'too', 'up', 'out', 'off', 'only', 'just', 'even', 'more', 'most', 'least',
+    'here', 'there', 'where', 'how', 'why', 'what', 'which', 'who', 'whom', 'whose', 'into', 'onto'
+  ]);
+  if (badLast.has(last)) return false;
+  return true;
+}
+
+function suggestEmojiForTopic(title, hookFragment) {
+  const t = `${String(title || '')} ${String(hookFragment || '')}`.toLowerCase();
+  if (/\b(croc|gator|alligator|reptile)\b/.test(t)) return '🐊';
+  if (/\b(shark|whale|fish|ocean|sea|splash)\b/.test(t)) return '🌊';
+  if (/\b(dog|puppy|canine)\b/.test(t)) return '🐕';
+  if (/\b(cat|kitten|feline)\b/.test(t)) return '🐱';
+  if (/\b(bird|chicken|eagle|owl)\b/.test(t)) return '🐦';
+  if (/\b(elephant)\b/.test(t)) return '🐘';
+  if (/\b(bear)\b/.test(t)) return '🐻';
+  if (/\b(monkey|ape|gorilla)\b/.test(t)) return '🐵';
+  if (/\b(lion|tiger|leopard)\b/.test(t)) return '🦁';
+  if (/\b(car|truck|crash|drive|road)\b/.test(t)) return '🚗';
+  if (/\b(ball|goal|sport|score|nba|fifa)\b/.test(t)) return '⚽';
+  if (/\b(rank|ranked|top\s*\d|list|#1)\b/.test(t)) return '🏆';
+  if (/\b(fire|burn|hot)\b/.test(t)) return '🔥';
+  if (/\b(baby|kid|child|mom|dad|family)\b/.test(t)) return '💛';
+  return '✨';
+}
+
 function makeUniqueCaption(brand, base, cache) {
   const core = String(base || '').trim();
   const pool = [
@@ -528,7 +586,7 @@ function looksGenericHook(s) {
 }
 
 function hookMakesSense(s) {
-  const t = normTextKey(s);
+  const t = normTextKey(normalizeHookEmoji(String(s || '')).text);
   if (!t) return false;
   const words = t.split(/\s+/).filter(Boolean);
   if (words.length < 3) return false;
@@ -570,7 +628,7 @@ function buildHookFromTitle({ title, isListicle }) {
   if (isListicle) {
     return `Best ${subject} moment — #1`;
   }
-  return `${subject} moment you can’t ignore`;
+  return `${subject} moment you can't ignore`;
 }
 
 function buildFallbackCaptionFromTitle(title, isListicle = false) {
@@ -655,25 +713,34 @@ function remixHookFromOldHook(oldHookText, title, isListicle) {
   if (changed === 0 && isListicle && out.length) {
     out[0] = out[0].toLowerCase() === 'ranking' ? 'Ranked' : 'Ranking';
   }
-  return splitHookTwoLines(out.join(' '));
+  return splitHookTwoLines(out.join(' '), { titleHint: title || '' });
 }
 
-function splitHookTwoLines(hookText) {
-  const t = stripEmoji(String(hookText || '')).replace(/\s+/g, ' ').trim();
-  if (!t) return '';
-  // Hook: en fazla 7 kelime (5 yerine 6–7 denemesi için); drawtext taşmasını sınırla.
+function splitHookTwoLines(hookText, opts) {
+  const titleHint = (opts && opts.titleHint) ? String(opts.titleHint) : '';
+  const { text: rawText, emoji: tailEmoji } = normalizeHookEmoji(String(hookText || ''));
+  const t = rawText.replace(/\s+/g, ' ').trim();
+  if (!t && !tailEmoji) return '';
   let words = t
     .replace(/\n/g, ' ')
     .split(' ')
     .filter(Boolean)
     .slice(0, 7);
   words = words.map((w) => (w.length > 14 ? w.slice(0, 14) : w));
-  while (words.join(' ').length > 48 && words.length > 1) {
+  while (words.join(' ').length > 52 && words.length > 1) {
     words.pop();
   }
   let out = words.join(' ').trim();
-  if (out.length > 48) out = out.slice(0, 48).trim();
-  return out;
+  if (out.length > 52) {
+    out = out.slice(0, 52);
+    const sp = out.lastIndexOf(' ');
+    if (sp > 24) out = out.slice(0, sp).trim();
+  }
+  let emoji = tailEmoji;
+  if (!emoji && out.length >= 12 && titleHint) {
+    emoji = suggestEmojiForTopic(titleHint, out);
+  }
+  return emoji ? `${out} ${emoji}`.trim() : out;
 }
 
 async function ytDlpGetTitle(url) {
@@ -924,10 +991,17 @@ EK YASAK (KESİN): Hook içinde şu kelimeler GEÇEMEZ: "crazy", "viral", "insan
 
 HOOK CÜMLE ZORUNLULUĞU (ÇOK KRİTİK):
 - Hook 3-7 kelimelik anlamlı bir İngilizce cümle/ifade olmalı (içerik uzunsa 6-7 kelimeye izin var).
+- TAM CÜMLE / TAM BAŞLIK: Son kelime yarım bırakılmış fiil veya bağlaç OLAMAZ (is, are, was, were, and, or, the, a, to, for… ile BİTİRME).
+- KÖTÜ örnekler: "Last Moments Is", "Ranked Wildest Animal", "Top Moments And" (eksik, kopuk).
+- İYİ örnekler: "Wildest animal moments go off the rails", "Ranked chaos hits different every time", "This water strike comes out of nowhere".
 - Hook ASLA sadece "No Mother", "No Way", "No Cap", "Not Again" gibi 2 kelimelik negatif kopuk parça olamaz.
 - Hook videoda ASLA gerçekleşmemiş bir olay iddia edemez (örn: fil yavrusunu korumak için geliyorsa "no mother" gibi yanlış çıkarım yasak).
-- Hook mutlaka özne + eylem içermeli. Örn: "Mom rescues her baby", "Dog stops the fight", "Kid saves the day".
+- Hook mutlaka özne + eylem veya tamamlanmış bir başlık ifadesi içermeli.
 - Hook pozitif/olumlu bir gözlem anlatmalı; olmayan bir şey üzerinden iddia kurma.
+
+HOOK EMOJİ (KESİN):
+- Hook metninin EN SONUNA (kelimelerden hemen sonra, tek boşlukla) videoyla alakalı TEK emoji ekle (ör. hayvan/wild: 🦁🐊, su: 🌊, risk: 🔥, liste: 🏆).
+- Emoji caption veya hashtag içine YAZILMAZ; sadece hook stringinin sonunda olur.
 
 SOMUTLUK ŞARTI (KESİN):
 Hook İngilizce olacak ve mutlaka 1 SOMUT NESNE ve 1 SOMUT EYLEM kelimesi içerecek.
@@ -956,8 +1030,8 @@ KOORDİNAT SİSTEMİ (KESİN):
 ZORUNLU JSON ŞEMASI (KATI):
 {
   "coord_units": "px",
-  "hook": "TEK satır (sonra 2 satıra bölünür), 3-7 kelime, emoji-free, no crazy/viral/insane",
-  "caption": "TEK cümle İngilizce. Videodaki olayı anlatsın ve izleyiciye hitap etsin. Soru sorma. Emoji kullanma.",
+  "hook": "3-7 kelime tam İngilizce başlık + sonda TEK konu emojisi; crazy/viral/insane yok",
+  "caption": "TEK cümle İngilizce. Videodaki olayı anlatsın ve izleyiciye hitap etsin. Soru sorma. Emoji yok.",
   "old_hook_text": "",
   "hashtags": ["#viral", "#kesfet", "#trending", "#chaos", "#specific"],
   "old_hook_box": {"x": 0, "y": 0, "w": 0, "h": 0},
@@ -1115,7 +1189,8 @@ async function geminiVerifyUsernameBlurLeak({ geminiProject, geminiLocation, pre
 }
 
   const prompt = promptIntro + `KURALLAR:
-- hook kesinlikle emoji içermez.
+- hook: tam cümle/başlık; sonda TEK emoji (videoyla alakalı); ortada emoji yok.
+- caption kesinlikle emoji içermez.
 - hook içinde "crazy", "viral", "insane" kelimeleri geçemez.
 - hook 3-7 kelime olabilir; videoyla doğrudan ilgili, somut olmalı (gereksiz uzatma yok).
 - caption içine hashtag yazma; hashtagleri SADECE hashtags array içine koy.
@@ -1487,12 +1562,15 @@ function sanitizeBlurRegionForText(r, outW, outH) {
   return r;
 }
 
-function normalizeDirectorResult(raw, outW, outH, brand) {
+function normalizeDirectorResult(raw, outW, outH, brand, titleHint) {
   if (!raw || typeof raw !== 'object') return null;
   const coordUnits = raw.coord_units || raw.coordUnits || 'px';
+  const titleForHook = String(titleHint || '').trim();
   // New strict schema support:
   if (typeof raw.hook === 'string' || typeof raw.caption === 'string' || raw.original_header_height != null || Array.isArray(raw.blur_regions) || raw.old_hook_box != null || raw.oldHookBox != null) {
-    const hook = splitHookTwoLines(stripEmoji(String(raw.hook || '').trim()));
+    let hookRaw = String(raw.hook || '').trim();
+    if (!hookRaw) hookRaw = fallbackHookTextForBrand(brand);
+    const hook = splitHookTwoLines(hookRaw, { titleHint: titleForHook });
     const captionParts = splitCaptionPayload(raw.caption || '');
     const rawTags = Array.isArray(raw.hashtags) ? raw.hashtags : (Array.isArray(raw.Hashtags) ? raw.Hashtags : []);
     const hashtags = [];
@@ -1544,7 +1622,6 @@ function normalizeDirectorResult(raw, outW, outH, brand) {
       blurRegions,
       originalHeaderHeight
     };
-    if (!out.newHook.text) out.newHook.text = fallbackHookTextForBrand(brand);
     if (!out.caption) out.caption = fallbackCaptionForBrand(brand);
     return out;
   }
@@ -1632,6 +1709,7 @@ function normalizeDirectorResult(raw, outW, outH, brand) {
       pickOne(['Wait for #1…', 'The best is last…', 'Top picks — #1 is wild…', 'Wait for the final one…']);
   }
   if (!out.newHook.text) out.newHook.text = fallbackHookTextForBrand(brand);
+  out.newHook.text = splitHookTwoLines(String(out.newHook.text || '').trim(), { titleHint: titleForHook });
 
   return out;
 }
@@ -2104,7 +2182,7 @@ app.post('/crush', async (req, res) => {
           directorDiag = rawDir.__va_diag || null;
           director = null;
         } else {
-          director = rawDir ? normalizeDirectorResult(rawDir, outW, outH, brand) : null;
+          director = rawDir ? normalizeDirectorResult(rawDir, outW, outH, brand, metaTitle) : null;
           directorDiag = rawDir && rawDir.__va_diag ? rawDir.__va_diag : null;
         }
       } else {
@@ -2133,9 +2211,16 @@ app.post('/crush', async (req, res) => {
       const hookBase = String(director.newHook.text || '').trim();
       const oldHookRemix = remixHookFromOldHook(director.oldHookText, metaTitle, isListicle || titleIsListicle);
       const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: isListicle || titleIsListicle });
-      const hookBaseGood = hookBase && !looksGenericHook(hookBase) && hookMakesSense(hookBase);
+      const hookPlain = normalizeHookEmoji(hookBase).text;
+      const hookBaseGood =
+        hookBase &&
+        !looksGenericHook(hookBase) &&
+        hookMakesSense(hookBase) &&
+        hookFeelsComplete(hookPlain);
       const hookSeed = oldHookRemix || (hookBaseGood ? hookBase : (titleHook || hookBase));
-      const hookText = splitHookTwoLines(stripEmoji(makeUniqueHook(brand, hookSeed, cache, isListicle || titleIsListicle)));
+      const hookText = splitHookTwoLines(makeUniqueHook(brand, hookSeed, cache, isListicle || titleIsListicle), {
+        titleHint: metaTitle || ''
+      });
       hook = {
         text: hookText,
         // bannerY: 0=ALT, 100=ÜST → ffmpeg y=0 üst olduğu için ters çevir
@@ -2247,7 +2332,9 @@ app.post('/crush', async (req, res) => {
       // Fallback (Gemini hata/timeout): kod çökmesin, render devam etsin
       const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: titleIsListicle });
       const seed = titleHook || fallbackHookTextForBrand(brand);
-      const hookText = splitHookTwoLines(stripEmoji(makeUniqueHook(brand, seed, cache, titleIsListicle)));
+      const hookText = splitHookTwoLines(makeUniqueHook(brand, seed, cache, titleIsListicle), {
+        titleHint: metaTitle || ''
+      });
       hook = { text: hookText, bannerY: 0, y: 95, boxOpacity: 1, color: null };
       const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand), titleIsListicle));
       finalCaption = toSingleSentenceCaption(fallbackCaptionBits.caption || fallbackCaptionForBrand(brand));

@@ -277,16 +277,21 @@ function titleCaseHookText(s) {
     .trim();
 }
 
-function splitHookForDisplay(hookText) {
-  const words = String(hookText || '').split(/\s+/).filter(Boolean).slice(0, 7);
-  if (!words.length) return { line1: '', line2: '' };
-  if (words.length <= 2) return { line1: words.join(' '), line2: '' };
-  // İlk satır daha dolu, ikinci satır daha kısa (3–7 kelime).
-  if (words.length === 3) return { line1: words.slice(0, 2).join(' '), line2: words.slice(2).join(' ') };
-  if (words.length === 4) return { line1: words.slice(0, 3).join(' '), line2: words.slice(3).join(' ') };
-  if (words.length === 5) return { line1: words.slice(0, 3).join(' '), line2: words.slice(3).join(' ') };
-  if (words.length === 6) return { line1: words.slice(0, 4).join(' '), line2: words.slice(4).join(' ') };
-  return { line1: words.slice(0, 4).join(' '), line2: words.slice(4).join(' ') };
+function splitHookForDisplay(hookText, normalizeEmojiFn) {
+  const norm = typeof normalizeEmojiFn === 'function' ? normalizeEmojiFn : (s) => {
+    const t = String(s || '').trim();
+    return { text: t.replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '').trim(), emoji: '' };
+  };
+  const { text, emoji } = norm(hookText);
+  const em = emoji ? ` ${emoji}` : '';
+  const words = String(text || '').split(/\s+/).filter(Boolean).slice(0, 7);
+  if (!words.length) return { line1: em.trim(), line2: '' };
+  if (words.length <= 2) return { line1: words.join(' ') + em, line2: '' };
+  if (words.length === 3) return { line1: words.slice(0, 2).join(' '), line2: words.slice(2).join(' ') + em };
+  if (words.length === 4) return { line1: words.slice(0, 3).join(' '), line2: words.slice(3).join(' ') + em };
+  if (words.length === 5) return { line1: words.slice(0, 3).join(' '), line2: words.slice(3).join(' ') + em };
+  if (words.length === 6) return { line1: words.slice(0, 4).join(' '), line2: words.slice(4).join(' ') + em };
+  return { line1: words.slice(0, 4).join(' '), line2: words.slice(4).join(' ') + em };
 }
 
 /** ±%2–%4 hız varyasyonu (1.0 etrafında) */
@@ -424,20 +429,35 @@ async function buildCrushRenderPlan(o) {
   const hookText = pickHookText(brand);
   // Director yoksa: istenen aralık (70–95) içinde konumlandır.
   const hookY = Number.isFinite(hook?.y) ? Math.round(hook.y) : Math.round(randRange(70, 95));
-  const stripEmoji = (s) => String(s || '').replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '').trim();
+  function stripAllEmoji(s) {
+    return String(s || '')
+      .replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '')
+      .replace(/\u200D/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  function normalizeHookEmoji(s) {
+    const raw = String(s || '').trim();
+    const tailRun = raw.match(/(?:\s*\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*)+$/u);
+    if (!tailRun) return { text: stripAllEmoji(raw), emoji: '' };
+    const before = raw.slice(0, tailRun.index).trim();
+    const firstEm = tailRun[0].match(/\p{Extended_Pictographic}\uFE0F?/u);
+    const emoji = firstEm ? firstEm[0] : '';
+    return { text: stripAllEmoji(before), emoji };
+  }
   // Apostrof / ters tek-tırnak ffmpeg drawtext parser'ını (bu build'de) bozuyor.
-  // Her ihtimale karşı hook metninden tüm tek tırnakları temizle.
   const sanitizeHookForDrawtext = (s) => String(s || '')
     .replace(/['\u2018\u2019\u02BC\u0060\u00B4]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-  const hookTextFinal = sanitizeHookForDrawtext(
+  const rawHook =
     (hook && typeof hook.text === 'string' && hook.text.trim())
-      ? stripEmoji(hook.text.trim())
-      : stripEmoji(hookText)
-  );
-  const hookTextBandStyled = titleCaseHookText(hookTextFinal);
-  const hookDisplay = splitHookForDisplay(hookTextBandStyled);
+      ? hook.text.trim()
+      : hookText;
+  const { text: hookPlain, emoji: hookEmoji } = normalizeHookEmoji(rawHook);
+  const hookTextFinal = sanitizeHookForDrawtext(hookPlain);
+  const hookTextBandStyled = (titleCaseHookText(hookTextFinal) + (hookEmoji ? ` ${hookEmoji}` : '')).trim();
+  const hookDisplay = splitHookForDisplay(hookTextBandStyled, normalizeHookEmoji);
   const hookColorPool = ['#FFFFFF', '#FFD400', '#9BFF57']; // Beyaz / Sarı / Açık yeşil
   const hookColor = sanitizeHexColor(hook?.color, pickOne(hookColorPool));
   const hookAlpha = randRange(0.88, 0.94);
@@ -589,7 +609,7 @@ async function buildCrushRenderPlan(o) {
               ]
             : [
                 // No-band, outline + shadow ile okunaklı yazı
-                `[${baseLabel}]drawtext=text='${escapeDrawtextText(hookTextFinal)}'${fontPart}:` +
+                `[${baseLabel}]drawtext=text='${escapeDrawtextText(hookTextBandStyled)}'${fontPart}:` +
                   `fontcolor=white@1.000:fontsize=${noBandFontSize}:borderw=3:bordercolor=black@1.000:` +
                   `shadowcolor=black@0.6:shadowx=2:shadowy=2:` +
                   `fix_bounds=1:text_shaping=1:` +
