@@ -1019,6 +1019,16 @@ function isBlockedReactionContent(title, channel, description) {
   return REACTION_BLOCK_RE.test(blob);
 }
 
+/** YouTube Data API: yaş kısıtlı içerik (Shorts listesinde gösterme) */
+function isYoutubeAgeRestrictedItem(item) {
+  try {
+    const r = item && item.contentDetails && item.contentDetails.contentRating;
+    return r && r.ytRating === "ytAgeRestricted";
+  } catch (e) {
+    return false;
+  }
+}
+
 function isBlocked(title, channel) {
   const t = (title + " " + channel).toLowerCase();
   for (const kw of BLOCKED_CHANNELS) if (t.includes(kw)) return true;
@@ -1583,6 +1593,7 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
         }
 
         for (const item of (vData.items || [])) {
+          if (isYoutubeAgeRestrictedItem(item)) continue;
           const views = parseInt(item.statistics.viewCount || 0);
           const likes = parseInt(item.statistics.likeCount || 0);
           const title = item.snippet.title;

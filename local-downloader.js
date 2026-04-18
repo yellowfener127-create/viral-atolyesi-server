@@ -39,7 +39,7 @@ const YTDLP_NET_ARGS = [
   '--concurrent-fragments', '1'
 ];
 
-/** yt-dlp: YouTube yaş/kısıt için — cookies.txt veya tarayıcıdan çerez */
+/** yt-dlp: YouTube için — cookies.txt veya tarayıcıdan çerez (ortam değişkeni) */
 function ytdlpCookieCliArgs() {
   const file = String(process.env.YTDLP_COOKIES_FILE || process.env.YOUTUBE_COOKIES_FILE || '').trim();
   if (file && fs.existsSync(file)) return ['--cookies', file];
@@ -2286,31 +2286,13 @@ app.post('/crush', async (req, res) => {
       await run('yt-dlp', dlArgs, { timeoutMs: dlTimeoutMs });
     } catch (e0) {
       const msg0 = String((e0 && e0.message) || e0 || '');
-      let lastThrow = e0;
 
       if (isYoutubeAgeSignInError(msg0)) {
-        const ageClients = ['tv_embedded', 'web', 'ios'];
-        let ageOk = false;
-        for (const c of ageClients) {
-          try {
-            await run('yt-dlp', buildCrushDlArgs(c), { timeoutMs: dlTimeoutMs });
-            ageOk = true;
-            console.log(`[yt-dlp] Yaş/kısıt için alternatif player_client=${c} ile indirildi.`);
-            break;
-          } catch (eAge) {
-            lastThrow = eAge;
-          }
-        }
-        if (!ageOk) {
-          const hint = !ytdlpCookieCliArgs().length
-            ? ' Çözüm: YouTube’a tarayıcıda giriş yapın ve ortam değişkeni ayarlayın: YTDLP_COOKIES_FROM_BROWSER=chrome veya YTDLP_COOKIES_FILE=yol\\cookies.txt (Netscape formatı).'
-            : ' Hâlâ olmuyorsa cookies dosyasını yenileyin veya farklı tarayıcı deneyin.';
-          return res.status(400).json({
-            error: 'YouTube bu videoyu yaş doğrulaması veya oturum istiyor; indirilemedi.' + hint,
-            detail: String((lastThrow && lastThrow.message) || msg0).slice(0, 500)
-          });
-        }
-      } else if (/did not get any data blocks|unable to download video data|http error 403|http error 416|http error 429|po token/i.test(msg0)) {
+        return res.status(400).json({
+          error: 'Bu video yaş kısıtlı veya oturum istiyor; Telif Ezici bu videoları işlemez. Sitede yaş kısıtlı Shorts listelenmez.'
+        });
+      }
+      if (/did not get any data blocks|unable to download video data|http error 403|http error 416|http error 429|po token/i.test(msg0)) {
         const dlArgsFallback = [
           '--no-playlist',
           '--newline',
