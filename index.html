@@ -1008,6 +1008,13 @@ function isBlockedRegionSocialItem(item) {
   return isBlockedRegionContent(blob, "", "");
 }
 
+const REACTION_BLOCK_RE = /\b(?:reaction\s+videos?|reactions?\b|reacts\b|reacting\b|reacted\b|reactors?\b|react\s+compilation|first\s+time\s+react|youtubers?\s+react|celebrit(?:y|ies)\s+react|my\s+reaction|reaction\s+to|responds?\s+to\s+(?:this|the)\s+video|watch(?:es|ing)?\s+along|family\s+reacts?)\b/i;
+
+function isBlockedReactionContent(title, channel, description) {
+  const blob = [title, channel, description || ""].join(" ");
+  return REACTION_BLOCK_RE.test(blob);
+}
+
 function isBlocked(title, channel) {
   const t = (title + " " + channel).toLowerCase();
   for (const kw of BLOCKED_CHANNELS) if (t.includes(kw)) return true;
@@ -1585,6 +1592,7 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
           if (seenSet.has(String(item.id))) continue;
           if (isBlocked(title, channel)) continue;
           if (isBlockedRegionContent(title, channel, description)) continue;
+          if (isBlockedReactionContent(title, channel, description)) continue;
           if (activeCat === "comedy" && isComedyAnimalHeavy(title, channel)) continue;
           rawItems.push({
             id: item.id,

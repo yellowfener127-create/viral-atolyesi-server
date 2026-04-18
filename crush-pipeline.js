@@ -85,16 +85,16 @@ function pickRandomMusicFile(publicDir, brand) {
 
 function pickHookText(brand) {
   const kaos = [
-    'Ending is unbelievable ⚠️',
-    'Watch for the end! 🤣',
-    'Did not expect that 😂',
-    'End is crazy! 😱'
+    'Ending is unbelievable',
+    'Watch for the end',
+    'Did not expect that',
+    'That ending hits hard'
   ];
   const terapi = [
-    'Ending is so sweet ✨',
-    'Wait for the sweet end! 😍',
-    'Watch till the end ❤️',
-    'Too cute to be real 🥰'
+    'Ending is so sweet',
+    'Wait for the sweet end',
+    'Watch till the end',
+    'Too cute to be real'
   ];
   if (String(brand).toLowerCase() === 'kaos') return pickOne(kaos);
   return pickOne(terapi);
@@ -277,21 +277,21 @@ function titleCaseHookText(s) {
     .trim();
 }
 
-function splitHookForDisplay(hookText, normalizeEmojiFn) {
-  const norm = typeof normalizeEmojiFn === 'function' ? normalizeEmojiFn : (s) => {
-    const t = String(s || '').trim();
-    return { text: t.replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '').trim(), emoji: '' };
-  };
-  const { text, emoji } = norm(hookText);
-  const em = emoji ? ` ${emoji}` : '';
-  const words = String(text || '').split(/\s+/).filter(Boolean).slice(0, 7);
-  if (!words.length) return { line1: em.trim(), line2: '' };
-  if (words.length <= 2) return { line1: words.join(' ') + em, line2: '' };
-  if (words.length === 3) return { line1: words.slice(0, 2).join(' '), line2: words.slice(2).join(' ') + em };
-  if (words.length === 4) return { line1: words.slice(0, 3).join(' '), line2: words.slice(3).join(' ') + em };
-  if (words.length === 5) return { line1: words.slice(0, 3).join(' '), line2: words.slice(3).join(' ') + em };
-  if (words.length === 6) return { line1: words.slice(0, 4).join(' '), line2: words.slice(4).join(' ') + em };
-  return { line1: words.slice(0, 4).join(' '), line2: words.slice(4).join(' ') + em };
+function splitHookForDisplay(hookText) {
+  const words = String(hookText || '')
+    .replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '')
+    .replace(/\u200D/g, '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 7);
+  if (!words.length) return { line1: '', line2: '' };
+  if (words.length <= 2) return { line1: words.join(' '), line2: '' };
+  if (words.length === 3) return { line1: words.slice(0, 2).join(' '), line2: words.slice(2).join(' ') };
+  if (words.length === 4) return { line1: words.slice(0, 3).join(' '), line2: words.slice(3).join(' ') };
+  if (words.length === 5) return { line1: words.slice(0, 3).join(' '), line2: words.slice(3).join(' ') };
+  if (words.length === 6) return { line1: words.slice(0, 4).join(' '), line2: words.slice(4).join(' ') };
+  return { line1: words.slice(0, 4).join(' '), line2: words.slice(4).join(' ') };
 }
 
 /** ±%2–%4 hız varyasyonu (1.0 etrafında) */
@@ -436,15 +436,6 @@ async function buildCrushRenderPlan(o) {
       .replace(/\s+/g, ' ')
       .trim();
   }
-  function normalizeHookEmoji(s) {
-    const raw = String(s || '').trim();
-    const tailRun = raw.match(/(?:\s*\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*)+$/u);
-    if (!tailRun) return { text: stripAllEmoji(raw), emoji: '' };
-    const before = raw.slice(0, tailRun.index).trim();
-    const firstEm = tailRun[0].match(/\p{Extended_Pictographic}\uFE0F?/u);
-    const emoji = firstEm ? firstEm[0] : '';
-    return { text: stripAllEmoji(before), emoji };
-  }
   // Apostrof / ters tek-tırnak ffmpeg drawtext parser'ını (bu build'de) bozuyor.
   const sanitizeHookForDrawtext = (s) => String(s || '')
     .replace(/['\u2018\u2019\u02BC\u0060\u00B4]/g, '')
@@ -454,10 +445,9 @@ async function buildCrushRenderPlan(o) {
     (hook && typeof hook.text === 'string' && hook.text.trim())
       ? hook.text.trim()
       : hookText;
-  const { text: hookPlain, emoji: hookEmoji } = normalizeHookEmoji(rawHook);
-  const hookTextFinal = sanitizeHookForDrawtext(hookPlain);
-  const hookTextBandStyled = (titleCaseHookText(hookTextFinal) + (hookEmoji ? ` ${hookEmoji}` : '')).trim();
-  const hookDisplay = splitHookForDisplay(hookTextBandStyled, normalizeHookEmoji);
+  const hookTextFinal = sanitizeHookForDrawtext(stripAllEmoji(rawHook));
+  const hookTextBandStyled = titleCaseHookText(hookTextFinal);
+  const hookDisplay = splitHookForDisplay(hookTextBandStyled);
   const hookColorPool = ['#FFFFFF', '#FFD400', '#9BFF57']; // Beyaz / Sarı / Açık yeşil
   const hookColor = sanitizeHexColor(hook?.color, pickOne(hookColorPool));
   const hookAlpha = randRange(0.88, 0.94);

@@ -38,6 +38,20 @@ const YTDLP_NET_ARGS = [
   '--force-ipv4',
   '--concurrent-fragments', '1'
 ];
+
+/** yt-dlp: YouTube yaş/kısıt için — cookies.txt veya tarayıcıdan çerez */
+function ytdlpCookieCliArgs() {
+  const file = String(process.env.YTDLP_COOKIES_FILE || process.env.YOUTUBE_COOKIES_FILE || '').trim();
+  if (file && fs.existsSync(file)) return ['--cookies', file];
+  const browser = String(process.env.YTDLP_COOKIES_FROM_BROWSER || '').trim();
+  if (browser) return ['--cookies-from-browser', browser];
+  return [];
+}
+
+function isYoutubeAgeSignInError(msg) {
+  const m = String(msg || '').toLowerCase();
+  return /sign in to confirm your age|confirm your age|age-restricted|inappropriate for some users|login required/i.test(m);
+}
 function geminiEndpointFor(model, project, location) {
   const p = encodeURIComponent(String(project || GEMINI_PROJECT_DEFAULT).trim());
   const loc = encodeURIComponent(String(location || GEMINI_LOCATION_DEFAULT).trim());
@@ -501,17 +515,9 @@ function stripAllEmoji(s) {
     .trim();
 }
 
-/**
- * Hook: ortadaki emojileri sil; sonda TEK emoji varsa koru (videoyla ilgili).
- */
+/** Hook metninde emoji yok (FFmpeg drawtext çoğu yazı tipinde emoji kutusu gösterir). */
 function normalizeHookEmoji(s) {
-  const raw = String(s || '').trim();
-  const tailRun = raw.match(/(?:\s*\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*)+$/u);
-  if (!tailRun) return { text: stripAllEmoji(raw), emoji: '' };
-  const before = raw.slice(0, tailRun.index).trim();
-  const firstEm = tailRun[0].match(/\p{Extended_Pictographic}\uFE0F?/u);
-  const emoji = firstEm ? firstEm[0] : '';
-  return { text: stripAllEmoji(before), emoji };
+  return { text: stripAllEmoji(String(s || '')), emoji: '' };
 }
 
 /** Yarım kalmış başlık: son kelime yardımcı fiil/bağlaç ile bitmesin */
@@ -525,29 +531,10 @@ function hookFeelsComplete(textNoEmoji) {
     'and', 'or', 'but', 'nor', 'the', 'a', 'an', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'with', 'from', 'as',
     'if', 'when', 'so', 'than', 'that', 'this', 'these', 'those', 'my', 'your', 'our', 'their', 'its',
     'no', 'not', 'very', 'too', 'up', 'out', 'off', 'only', 'just', 'even', 'more', 'most', 'least',
-    'here', 'there', 'where', 'how', 'why', 'what', 'which', 'who', 'whom', 'whose', 'into', 'onto'
+    'here', 'there', 'where', 'how', 'why', 'what', 'which', 'who', 'whom', 'whose', 'into', 'onto', 'too'
   ]);
   if (badLast.has(last)) return false;
   return true;
-}
-
-function suggestEmojiForTopic(title, hookFragment) {
-  const t = `${String(title || '')} ${String(hookFragment || '')}`.toLowerCase();
-  if (/\b(croc|gator|alligator|reptile)\b/.test(t)) return '🐊';
-  if (/\b(shark|whale|fish|ocean|sea|splash)\b/.test(t)) return '🌊';
-  if (/\b(dog|puppy|canine)\b/.test(t)) return '🐕';
-  if (/\b(cat|kitten|feline)\b/.test(t)) return '🐱';
-  if (/\b(bird|chicken|eagle|owl)\b/.test(t)) return '🐦';
-  if (/\b(elephant)\b/.test(t)) return '🐘';
-  if (/\b(bear)\b/.test(t)) return '🐻';
-  if (/\b(monkey|ape|gorilla)\b/.test(t)) return '🐵';
-  if (/\b(lion|tiger|leopard)\b/.test(t)) return '🦁';
-  if (/\b(car|truck|crash|drive|road)\b/.test(t)) return '🚗';
-  if (/\b(ball|goal|sport|score|nba|fifa)\b/.test(t)) return '⚽';
-  if (/\b(rank|ranked|top\s*\d|list|#1)\b/.test(t)) return '🏆';
-  if (/\b(fire|burn|hot)\b/.test(t)) return '🔥';
-  if (/\b(baby|kid|child|mom|dad|family)\b/.test(t)) return '💛';
-  return '✨';
 }
 
 function makeUniqueCaption(brand, base, cache) {
@@ -717,10 +704,8 @@ function remixHookFromOldHook(oldHookText, title, isListicle) {
 }
 
 function splitHookTwoLines(hookText, opts) {
-  const titleHint = (opts && opts.titleHint) ? String(opts.titleHint) : '';
-  const { text: rawText, emoji: tailEmoji } = normalizeHookEmoji(String(hookText || ''));
-  const t = rawText.replace(/\s+/g, ' ').trim();
-  if (!t && !tailEmoji) return '';
+  const t = stripAllEmoji(String(hookText || '')).replace(/\s+/g, ' ').trim();
+  if (!t) return '';
   let words = t
     .replace(/\n/g, ' ')
     .split(' ')
@@ -736,17 +721,13 @@ function splitHookTwoLines(hookText, opts) {
     const sp = out.lastIndexOf(' ');
     if (sp > 24) out = out.slice(0, sp).trim();
   }
-  let emoji = tailEmoji;
-  if (!emoji && out.length >= 12 && titleHint) {
-    emoji = suggestEmojiForTopic(titleHint, out);
-  }
-  return emoji ? `${out} ${emoji}`.trim() : out;
+  return out;
 }
 
 async function ytDlpGetTitle(url) {
   return await new Promise((resolve) => {
     try {
-      const child = spawn('yt-dlp', ['--no-playlist', '--print', '%(title)s', url], { stdio: ['ignore', 'pipe', 'ignore'] });
+      const child = spawn('yt-dlp', ['--no-playlist', ...ytdlpCookieCliArgs(), '--print', '%(title)s', url], { stdio: ['ignore', 'pipe', 'ignore'] });
       let out = '';
       const t = setTimeout(() => {
         try {
@@ -775,25 +756,25 @@ function fallbackHookTextForBrand(brand) {
   const b = String(brand || 'terapi').toLowerCase();
   if (b === 'kaos') {
     return pickOne([
-      'Ending is unbelievable ⚠️',
-      'Watch for the end! 🤣',
-      'Did not expect that 😂',
-      'End is crazy! 😱'
+      'Ending is unbelievable',
+      'Watch for the end',
+      'Did not expect that',
+      'That ending hits hard'
     ]);
   }
   if (b === 'umut') {
     return pickOne([
-      'This moment hits different ✨',
+      'This moment hits different',
       'Wait for the payoff',
       'Proof people are amazing',
       'Ending feels earned'
     ]);
   }
   return pickOne([
-    'Ending is so sweet ✨',
-    'Wait for the sweet end! 😍',
-    'Watch till the end ❤️',
-    'Too cute to be real 🥰'
+    'Ending is so sweet',
+    'Wait for the sweet end',
+    'Watch till the end',
+    'Too cute to be real'
   ]);
 }
 
@@ -992,16 +973,14 @@ EK YASAK (KESİN): Hook içinde şu kelimeler GEÇEMEZ: "crazy", "viral", "insan
 HOOK CÜMLE ZORUNLULUĞU (ÇOK KRİTİK):
 - Hook 3-7 kelimelik anlamlı bir İngilizce cümle/ifade olmalı (içerik uzunsa 6-7 kelimeye izin var).
 - TAM CÜMLE / TAM BAŞLIK: Son kelime yarım bırakılmış fiil veya bağlaç OLAMAZ (is, are, was, were, and, or, the, a, to, for… ile BİTİRME).
-- KÖTÜ örnekler: "Last Moments Is", "Ranked Wildest Animal", "Top Moments And" (eksik, kopuk).
+- KÖTÜ örnekler: "Last Moments Is", "Ranked Wildest Animal", "Top Moments And", "Wildest Blind Sunglasses Fails Too" (anlamsız kelime yığını, kopuk).
 - İYİ örnekler: "Wildest animal moments go off the rails", "Ranked chaos hits different every time", "This water strike comes out of nowhere".
 - Hook ASLA sadece "No Mother", "No Way", "No Cap", "Not Again" gibi 2 kelimelik negatif kopuk parça olamaz.
 - Hook videoda ASLA gerçekleşmemiş bir olay iddia edemez (örn: fil yavrusunu korumak için geliyorsa "no mother" gibi yanlış çıkarım yasak).
 - Hook mutlaka özne + eylem veya tamamlanmış bir başlık ifadesi içermeli.
 - Hook pozitif/olumlu bir gözlem anlatmalı; olmayan bir şey üzerinden iddia kurma.
 
-HOOK EMOJİ (KESİN):
-- Hook metninin EN SONUNA (kelimelerden hemen sonra, tek boşlukla) videoyla alakalı TEK emoji ekle (ör. hayvan/wild: 🦁🐊, su: 🌊, risk: 🔥, liste: 🏆).
-- Emoji caption veya hashtag içine YAZILMAZ; sadece hook stringinin sonunda olur.
+HOOK METNİ: Emoji veya özel sembol kullanma (yalnızca harf/rakam/boşluk); çıktı FFmpeg’de düz metin basılır.
 
 SOMUTLUK ŞARTI (KESİN):
 Hook İngilizce olacak ve mutlaka 1 SOMUT NESNE ve 1 SOMUT EYLEM kelimesi içerecek.
@@ -1030,7 +1009,7 @@ KOORDİNAT SİSTEMİ (KESİN):
 ZORUNLU JSON ŞEMASI (KATI):
 {
   "coord_units": "px",
-  "hook": "3-7 kelime tam İngilizce başlık + sonda TEK konu emojisi; crazy/viral/insane yok",
+  "hook": "3-7 kelime tam İngilizce başlık; emoji yok; crazy/viral/insane yok",
   "caption": "TEK cümle İngilizce. Videodaki olayı anlatsın ve izleyiciye hitap etsin. Soru sorma. Emoji yok.",
   "old_hook_text": "",
   "hashtags": ["#viral", "#kesfet", "#trending", "#chaos", "#specific"],
@@ -1189,7 +1168,7 @@ async function geminiVerifyUsernameBlurLeak({ geminiProject, geminiLocation, pre
 }
 
   const prompt = promptIntro + `KURALLAR:
-- hook: tam cümle/başlık; sonda TEK emoji (videoyla alakalı); ortada emoji yok.
+- hook: tam cümle/başlık; emoji veya özel sembol yok (yalnızca düz metin).
 - caption kesinlikle emoji içermez.
 - hook içinde "crazy", "viral", "insane" kelimeleri geçemez.
 - hook 3-7 kelime olabilir; videoyla doğrudan ilgili, somut olmalı (gereksiz uzatma yok).
@@ -1829,7 +1808,7 @@ async function ytDlpGetDurationSec(url) {
 
   return await new Promise((resolve) => {
     try {
-      const child = spawn('yt-dlp', ['--no-playlist', '--print', '%(duration)s', url], { stdio: ['ignore', 'pipe', 'ignore'] });
+      const child = spawn('yt-dlp', ['--no-playlist', ...ytdlpCookieCliArgs(), '--print', '%(duration)s', url], { stdio: ['ignore', 'pipe', 'ignore'] });
       let out = '';
       const t = setTimeout(() => {
         try {
@@ -1957,6 +1936,7 @@ async function runYtDlpToResponse(res, url) {
     '--no-mtime',
     ...YTDLP_NET_ARGS,
     '--downloader', 'ffmpeg',
+    ...ytdlpCookieCliArgs(),
     // MP4 + AAC ses: Windows/MPC/telefonlarda "Opus desteklenmiyor" hatasını önler.
     '--merge-output-format',
     'mp4',
@@ -2070,28 +2050,59 @@ app.post('/crush', async (req, res) => {
     // Download-sections gibi kesme işlerini burada yapmıyoruz; kesmeyi ffmpeg processing tarafında outDur ile garanti ediyoruz.
     const dlTimeoutMs = Math.round(clamp(((metaDur || 20) * 8000) + 60_000, 90_000, 3 * 60 * 1000));
 
-    const dlArgs = [
-      '--no-playlist',
-      '--newline',
-      '--no-part',
-      '--no-mtime',
-      ...YTDLP_NET_ARGS,
-      '--downloader', 'ffmpeg',
-      '--match-filter', '!is_live',
-      '--merge-output-format', 'mp4',
-      '-f',
-      'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best',
-      '-o',
-      inTpl,
-      url
-    ];
+    const buildCrushDlArgs = (youtubeExtractorSuffix) => {
+      const extractorPart = youtubeExtractorSuffix
+        ? ['--extractor-args', `youtube:player_client=${youtubeExtractorSuffix}`]
+        : [];
+      return [
+        '--no-playlist',
+        '--newline',
+        '--no-part',
+        '--no-mtime',
+        ...YTDLP_NET_ARGS,
+        '--downloader', 'ffmpeg',
+        '--match-filter', '!is_live',
+        '--merge-output-format', 'mp4',
+        ...extractorPart,
+        '-f',
+        'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best',
+        '-o',
+        inTpl,
+        ...ytdlpCookieCliArgs(),
+        url
+      ];
+    };
+
+    const dlArgs = buildCrushDlArgs(null);
     try {
       await run('yt-dlp', dlArgs, { timeoutMs: dlTimeoutMs });
     } catch (e0) {
       const msg0 = String((e0 && e0.message) || e0 || '');
-      // Bazı kaynaklarda "Did not get any data blocks" geçici network/CDN kaynaklıdır.
-      // Bu durumda farklı player client ile tek bir fallback denemesi yap.
-      if (/did not get any data blocks|unable to download video data|http error 403|http error 416|http error 429|po token/i.test(msg0)) {
+      let lastThrow = e0;
+
+      if (isYoutubeAgeSignInError(msg0)) {
+        const ageClients = ['tv_embedded', 'web', 'ios'];
+        let ageOk = false;
+        for (const c of ageClients) {
+          try {
+            await run('yt-dlp', buildCrushDlArgs(c), { timeoutMs: dlTimeoutMs });
+            ageOk = true;
+            console.log(`[yt-dlp] Yaş/kısıt için alternatif player_client=${c} ile indirildi.`);
+            break;
+          } catch (eAge) {
+            lastThrow = eAge;
+          }
+        }
+        if (!ageOk) {
+          const hint = !ytdlpCookieCliArgs().length
+            ? ' Çözüm: YouTube’a tarayıcıda giriş yapın ve ortam değişkeni ayarlayın: YTDLP_COOKIES_FROM_BROWSER=chrome veya YTDLP_COOKIES_FILE=yol\\cookies.txt (Netscape formatı).'
+            : ' Hâlâ olmuyorsa cookies dosyasını yenileyin veya farklı tarayıcı deneyin.';
+          return res.status(400).json({
+            error: 'YouTube bu videoyu yaş doğrulaması veya oturum istiyor; indirilemedi.' + hint,
+            detail: String((lastThrow && lastThrow.message) || msg0).slice(0, 500)
+          });
+        }
+      } else if (/did not get any data blocks|unable to download video data|http error 403|http error 416|http error 429|po token/i.test(msg0)) {
         const dlArgsFallback = [
           '--no-playlist',
           '--newline',
@@ -2105,6 +2116,7 @@ app.post('/crush', async (req, res) => {
           'b[ext=mp4][acodec!=none][vcodec!=none]/best[ext=mp4]/best',
           '-o',
           inTpl,
+          ...ytdlpCookieCliArgs(),
           url
         ];
         console.log('[yt-dlp retry] İlk deneme başarısız, progressive mp4 + ffmpeg downloader ile yeniden deneniyor...');
