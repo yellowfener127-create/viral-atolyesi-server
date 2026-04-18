@@ -273,26 +273,6 @@ function splitCaptionPayload(text) {
   };
 }
 
-function looksLikeUsernameText(text) {
-  const raw = String(text || '').trim();
-  if (!raw) return false;
-  const s = raw.replace(/\s+/g, '');
-  if (/@/.test(s)) return true;
-  if (/tiktok\.com\/@/i.test(s)) return true;
-  if (/^[a-z0-9._]{4,32}$/i.test(s) && /\d/.test(s)) return true;
-  if (/^[A-Za-z][A-Za-z0-9._]{5,32}$/.test(s) && (/[A-Z]/.test(s.slice(1)) || /\d/.test(s))) return true;
-  if (/^[A-Za-z]{6,32}\d{1,6}$/.test(s)) return true;
-  return false;
-}
-
-function isConfirmedUsernameRegion(region) {
-  if (!region || typeof region !== 'object') return false;
-  const kind = String(region.kind || '').trim().toLowerCase();
-  const text = String(region.text || '').trim();
-  if (kind && !['username', 'handle', 'watermark_username', 'creator_handle'].includes(kind)) return false;
-  return looksLikeUsernameText(text);
-}
-
 function toSingleSentenceCaption(text) {
   let s = stripHashtagsFromText(String(text || '').trim())
     .replace(/\r/g, '')
@@ -315,23 +295,19 @@ function salvageDirectorJson(text) {
   const explicitTags = extractJsonLikeStringArrayField(src, 'hashtags', 8);
   const inlineTags = extractHashtagsFromText(extractJsonLikeStringField(src, 'hashtags'), 8);
   const originalHeaderHeight = extractJsonLikeNumberField(src, 'original_header_height');
-  const detectGarbage = extractJsonLikeBoxField(src, 'detect_garbage_text') || { x: 0, y: 0, w: 0, h: 0 };
   const oldHookBoxLoose = extractJsonLikeBoxField(src, 'old_hook_box');
   const coordUnitsRaw = extractJsonLikeStringField(src, 'coord_units');
-  const blurRegions = extractJsonLikeBoxArrayField(src, 'blur_regions', 6);
   const hashtags = [...explicitTags, ...inlineTags, ...captionParts.hashtags].filter(Boolean);
 
-  if (!hook && !captionRaw && originalHeaderHeight == null && !blurRegions.length && !oldHookBoxLoose) return null;
+  if (!hook && !captionRaw && originalHeaderHeight == null && !oldHookBoxLoose) return null;
   return {
     hook,
     caption: captionParts.caption || captionRaw || '',
     old_hook_text: oldHookText || '',
     hashtags,
     coord_units: coordUnitsRaw || 'px',
-    detect_garbage_text: detectGarbage,
     old_hook_box: oldHookBoxLoose || { x: 0, y: 0, w: 0, h: 0 },
-    original_header_height: Number.isFinite(originalHeaderHeight) ? originalHeaderHeight : 0,
-    blur_regions: blurRegions
+    original_header_height: Number.isFinite(originalHeaderHeight) ? originalHeaderHeight : 0
   };
 }
 
@@ -817,25 +793,6 @@ async function ffmpegExtractTopBandPreview(inFile, outFile, cropHeight, tSec = 0
   await run('ffmpeg', args, { timeoutMs: 45_000 });
 }
 
-async function ffmpegExtractRegionPreview(inFile, outFile, region, outW, outH, tSec = 0.05, pad = 24) {
-  const x0 = clamp(Math.round(Number(region?.x) || 0) - pad, 0, Math.max(0, outW - 2));
-  const y0 = clamp(Math.round(Number(region?.y) || 0) - pad, 0, Math.max(0, outH - 2));
-  const x1 = clamp(Math.round((Number(region?.x) || 0) + (Number(region?.w) || 0)) + pad, x0 + 8, outW);
-  const y1 = clamp(Math.round((Number(region?.y) || 0) + (Number(region?.h) || 0)) + pad, y0 + 8, outH);
-  const cropW = Math.max(8, x1 - x0);
-  const cropH = Math.max(8, y1 - y0);
-  const args = [
-    '-y',
-    '-ss', String(Math.max(0, tSec).toFixed(3)),
-    '-i', inFile,
-    '-frames:v', '1',
-    '-vf', `crop=${cropW}:${cropH}:${x0}:${y0},scale=512:-1`,
-    '-c:v', 'png',
-    outFile
-  ];
-  await run('ffmpeg', args, { timeoutMs: 45_000 });
-}
-
 function fileToInlineData(filePath, mimeType) {
   const buf = fs.readFileSync(filePath);
   return { inlineData: { mimeType, data: buf.toString('base64') } };
@@ -935,20 +892,6 @@ ANALİZ PROTOKOLÜ:
 2) Tüm karelerde AKSİYON/HİKAYE ara (düşme, çarpma, koşma, sarılma, kurtarma, ring kırılması, vb.).
 3) Ses önizlemesinde PİKLERİ ara (pat/çarpma, gülme, çığlık). Görsel net değilse ses ipucuna ağırlık ver.
 
-SU İŞARETİ / LOGO AVI (ÇOK KRİTİK):
-- Karelerde SADECE kullanıcı adı / hesap adı / creator handle görürsen bunu blur_regions listesine ayrı ayrı koordinat olarak ekle (maks 6 kutu).
-- "@MaddessRnk5", "@pet&wildlifewonders", "tiktok.com/@user", "RankingEverything72" gibi handle/watermark isimlerini ASLA kaçırma.
-- Kareler arasında sadece bir tanesinde görünse bile kaçırmadan koordinatını ver.
-- Eğer username/handle YOKSA blur_regions listesini boş bırak.
-- Tahmin yürütüp rastgele blur bölgesi verme; SADECE gerçekten gördüğün username/handle koordinatını döndür.
-- SADECE merkeze yakın küçük bir kutu verme. TUM GORUNUR yazi alanini ver:
-  soldaki ilk harften sagdaki son harfe kadar TAM GENISLIK,
-  ustteki glow/outline/shadow ve alttaki baseline dahil TAM YUKSEKLIK.
-- Ozellikle alt merkezde duran hesap adlarinda kutu dar olmasin; biraz guven payi birak.
-- Normal altyazıları, sıralama numaralarını, skorları, videonun iç açıklama yazılarını, eski hook'u veya başka dekoratif metinleri blur_regions içine ASLA koyma.
-- blur_regions icindeki her oge icin "text" alanina GORDUGUN username'i, "kind" alanina da "username" yaz.
-- Eger blur_regions ogesindeki text bir username degilse o ogeyi hic ekleme.
-
 ÜST SHORTS HOOK vs İÇERİK METNİ (KESİN — BANT BOYUTU):
 - old_hook_box ve original_header_height YALNIZCA ekranın ÜST kısmında (yaklaşık en üst %0–35), Shorts tarzı SABİT üst başlık/banner varsa doldurulur.
 - Orta veya alt üçte büyük yazı (ör. sahne içi “SUED FOR HELPING THE HOMELESS”, lower-third, merkez headline) video İÇERİĞİDİR; üst şerit hook DEĞİLDİR. Bu durumda old_hook_box={0,0,0,0} ve original_header_height=0 ver.
@@ -1015,9 +958,7 @@ ZORUNLU JSON ŞEMASI (KATI):
   "old_hook_text": "",
   "hashtags": ["#viral", "#kesfet", "#trending", "#chaos", "#specific"],
   "old_hook_box": {"x": 0, "y": 0, "w": 0, "h": 0},
-  "detect_garbage_text": {"x": 0, "y": 0, "w": 0, "h": 0},
-  "original_header_height": 0,
-  "blur_regions": [{"x": 0, "y": 0, "w": 0, "h": 0, "text": "RankingEverything72", "kind": "username"}]
+  "original_header_height": 0
 }
 
 `;
@@ -1091,83 +1032,6 @@ async function geminiVerifyTopBandLeak({ geminiProject, geminiLocation, previewP
   }
 }
 
-async function geminiVerifyUsernameBlurLeak({ geminiProject, geminiLocation, previewPath, expectedUsername }) {
-  if (!previewPath || !fs.existsSync(previewPath)) return null;
-  const quotaProject = String(geminiProject || GEMINI_PROJECT_DEFAULT || '').trim();
-  const vertexLocation = String(geminiLocation || GEMINI_LOCATION_DEFAULT || '').trim();
-  if (!quotaProject) return null;
-
-  const model = GEMINI_LIGHT_MODEL;
-  const prompt = [
-    'You are checking a BLURRED username region from a rendered short video.',
-    `Expected username text: "${String(expectedUsername || '').trim() || '(unknown)'}"`,
-    'First decide whether this crop actually contains a username/handle watermark at all.',
-    'Task: decide whether any username/handle text is still readable in this crop.',
-    'If still readable, estimate how many pixels the blur box should expand on each side.',
-    'If there is NO username/handle in this crop, username_present=false, leak=false and all expand values must be 0.',
-    'If the username is fully unreadable but clearly present, username_present=true, leak=false and all expand values must be 0.',
-    'Return only JSON.'
-  ].join('\n');
-
-  const schema = {
-    type: 'OBJECT',
-    properties: {
-      username_present: { type: 'BOOLEAN' },
-      leak: { type: 'BOOLEAN' },
-      expand_left_px: { type: 'INTEGER' },
-      expand_top_px: { type: 'INTEGER' },
-      expand_right_px: { type: 'INTEGER' },
-      expand_bottom_px: { type: 'INTEGER' },
-      reason: { type: 'STRING' }
-    },
-    required: ['username_present', 'leak', 'expand_left_px', 'expand_top_px', 'expand_right_px', 'expand_bottom_px', 'reason']
-  };
-
-  const body = {
-    contents: [{
-      role: 'user',
-      parts: [
-        { text: prompt },
-        fileToInlineData(previewPath, 'image/png')
-      ]
-    }],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 256,
-      responseMimeType: 'application/json',
-      responseSchema: schema
-    }
-  };
-
-  try {
-    const accessToken = await getVertexAccessToken();
-    const r = await fetch(geminiEndpointFor(model, quotaProject, vertexLocation), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`
-      },
-      body: JSON.stringify(body)
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) return null;
-    const text = (j.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('').trim();
-    const parsed = safeJsonParse(stripJsonFences(text)) || safeJsonParse(extractBalancedJsonObject(text));
-    if (!parsed || typeof parsed !== 'object') return null;
-    return {
-      usernamePresent: !!parsed.username_present,
-      leak: !!parsed.leak,
-      left: clamp(Number(parsed.expand_left_px) || 0, 0, 80),
-      top: clamp(Number(parsed.expand_top_px) || 0, 0, 80),
-      right: clamp(Number(parsed.expand_right_px) || 0, 0, 80),
-      bottom: clamp(Number(parsed.expand_bottom_px) || 0, 0, 80),
-      reason: String(parsed.reason || '').trim()
-    };
-  } catch {
-    return null;
-  }
-}
-
   const prompt = promptIntro + `KURALLAR:
 - hook: tam cümle/başlık; emoji veya özel sembol yok (yalnızca düz metin).
 - caption kesinlikle emoji içermez.
@@ -1182,9 +1046,6 @@ async function geminiVerifyUsernameBlurLeak({ geminiProject, geminiLocation, pre
 - Yeni hook üretirken eski hook varsa onu baz al: aynı iskeleti koru, sadece 1 veya 2 kelimeyi değiştir.
 - hashtags array TAM 5 benzersiz hashtag içermeli ve her biri # ile başlamalı.
 - hashtag formatı: 3 genel (#viral/#kesfet/#trending), 1 konsept (#chaos/#therapy/#motivation), 1 spesifik (ranked ise #ranked).
-- detect_garbage_text: Eğer kullanıcı adı/watermark/logo/rahatsız edici metin görürsen en kritik alanı tek kutu olarak ver; yoksa {0,0,0,0}.
-- blur_regions: SADECE username/handle alanlarını listele (maks 6 kutu); yoksa [] döndür.
-- blur_regions içindeki her objede text=username metni ve kind="username" zorunlu olsun.
 - original_header_height: Üstte orijinal başlık/yazı varsa kapladığı yüksekliği px olarak ver (örn 160). Yoksa 0.
 - old_hook_box: Sadece gerçek ÜST şerit hook varsa kutuyu ver; orta/alt sahne yazısı için {0,0,0,0}.
 - Hook metni: old_hook_text ile çelişen veya videoda görünmeyen özne/nesne uydurma.
@@ -1229,32 +1090,11 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
           w: { type: 'INTEGER' }, h: { type: 'INTEGER' }
         },
         required: ['x', 'y', 'w', 'h']
-      },
-      detect_garbage_text: {
-        type: 'OBJECT',
-        properties: {
-          x: { type: 'INTEGER' }, y: { type: 'INTEGER' },
-          w: { type: 'INTEGER' }, h: { type: 'INTEGER' }
-        },
-        required: ['x', 'y', 'w', 'h']
-      },
-      blur_regions: {
-        type: 'ARRAY',
-        maxItems: 6,
-        items: {
-          type: 'OBJECT',
-          properties: {
-            x: { type: 'INTEGER' }, y: { type: 'INTEGER' },
-            w: { type: 'INTEGER' }, h: { type: 'INTEGER' },
-            text: { type: 'STRING' }, kind: { type: 'STRING' }
-          },
-          required: ['x', 'y', 'w', 'h', 'text', 'kind']
-        }
       }
     },
     required: [
       'coord_units', 'hook', 'caption', 'hashtags',
-      'original_header_height', 'old_hook_box', 'blur_regions', 'old_hook_text'
+      'original_header_height', 'old_hook_box', 'old_hook_text'
     ]
   };
 
@@ -1360,8 +1200,7 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
             hook: !!parsed.hook,
             caption: !!parsed.caption,
             hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags.length : 0,
-            originalHeaderHeight: Number(parsed.original_header_height || 0),
-            blurRegions: Array.isArray(parsed.blur_regions) ? parsed.blur_regions.length : 0
+            originalHeaderHeight: Number(parsed.original_header_height || 0)
           }));
         }
         if (parsed && typeof parsed === 'object') {
@@ -1457,214 +1296,6 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
   return null;
 }
 
-/** [ymin,xmin,ymax,xmax] in 0..1000 → px; prompt zaten ~%15 padding ister, burada ek güven için hafif ölçek. */
-function box2dNorm1000ToPx(box2d, outW, outH, extraPad = 1.08) {
-  if (!Array.isArray(box2d) || box2d.length !== 4) return null;
-  const a = box2d.map((n) => Number(n));
-  if (!a.every((n) => Number.isFinite(n))) return null;
-  let [ymin, xmin, ymax, xmax] = a;
-  if (ymin > ymax) [ymin, ymax] = [ymax, ymin];
-  if (xmin > xmax) [xmin, xmax] = [xmax, xmin];
-  let x1 = (xmin / 1000) * outW;
-  let y1 = (ymin / 1000) * outH;
-  let x2 = (xmax / 1000) * outW;
-  let y2 = (ymax / 1000) * outH;
-  let w = x2 - x1;
-  let h = y2 - y1;
-  if (w < 2 || h < 2) return null;
-  const cx = (x1 + x2) / 2;
-  const cy = (y1 + y2) / 2;
-  w *= extraPad;
-  h *= extraPad;
-  x1 = cx - w / 2;
-  y1 = cy - h / 2;
-  const x = Math.max(0, Math.min(outW - 2, Math.round(x1)));
-  const y = Math.max(0, Math.min(outH - 2, Math.round(y1)));
-  const wPx = Math.max(8, Math.min(outW - x, Math.round(w)));
-  const hPx = Math.max(8, Math.min(outH - y, Math.round(h)));
-  return { x, y, w: wPx, h: hPx };
-}
-
-function sanitizeCopyrightBlurPx(r, outW, outH) {
-  if (!r) return null;
-  const area = r.w * r.h;
-  const frameArea = outW * outH;
-  if (area < 80 * 8) return null;
-  if (area > frameArea * 0.45) return null;
-  const midY = r.y + (r.h / 2);
-  const midX = r.x + (r.w / 2);
-  if (midX < outW * 0.02 || midX > outW * 0.98 || midY < outH * 0.02 || midY > outH * 0.98) {
-    // köşe kenarında anormal tam ekranmış gibi geniş kutu
-    if (r.w > outW * 0.92 && r.h > outH * 0.35) return null;
-  }
-  return r;
-}
-
-function regionFromCopyrightDetection(det, outW, outH) {
-  if (!det || typeof det !== 'object') return null;
-  const label = String(det.label || '').trim();
-  const conf = Number(det.confidence);
-  if (conf === conf && conf < 0.35) return null;
-  const box = det.box_2d != null ? det.box_2d : det.box2d;
-  const px = box2dNorm1000ToPx(Array.isArray(box) ? box : [], outW, outH, 1.08);
-  if (!px || !label) return null;
-  const cleaned = sanitizeCopyrightBlurPx(px, outW, outH);
-  if (!cleaned) return null;
-  return { ...cleaned, text: label.slice(0, 120), kind: 'username' };
-}
-
-/**
- * Telif riski: kullanıcı adı / handle / watermark metinleri için ayrı Gemini pası ([0,1000] box_2d).
- * Sadece döndüğü kutulara pixelate uygulanır (ekstra blur alanı yok).
- */
-async function geminiCopyrightUsernameDetect({ geminiProject, geminiLocation, framePaths, outW, outH }) {
-  const quotaProject = String(geminiProject || GEMINI_PROJECT_DEFAULT || '').trim();
-  const vertexLocation = String(geminiLocation || GEMINI_LOCATION_DEFAULT || '').trim();
-  if (!quotaProject) {
-    return { ok: false, regions: [], source: 'skipped', error: 'no_vertex_project' };
-  }
-  if (String(process.env.GEMINI_COPYRIGHT_DETECT || '1').trim() === '0') {
-    return { ok: false, regions: [], source: 'disabled' };
-  }
-  const paths = (framePaths || []).filter((p) => p && fs.existsSync(p));
-  if (!paths.length) {
-    return { ok: false, regions: [], source: 'skipped', error: 'no_frames' };
-  }
-
-  const model = String(process.env.GEMINI_COPYRIGHT_DETECT_MODEL || GEMINI_LIGHT_MODEL || GEMINI_MODEL).trim();
-  const prompt = [
-    'Bir video analiz uzmanı olarak görev yap.',
-    'Aşağıdaki kareleri inceleyerek telif riski taşıyan sosyal medya kullanıcı adlarını (username), logoları ve metin tabanlı handle\'ları tespit et.',
-    'Özellikle: sol taraftaki listeler, alt orta watermark, @username, TikTok/Instagram/YouTube handle metinleri.',
-    '',
-    'KOORDİNAT: [0,1000] normalize. [0,0] sol üst, [1000,1000] sağ alt.',
-    'JSON alanları: ymin, xmin, ymax, xmax (tamamı 0–1000 tamsayı). Sıra: önce üst/sol, sonra alt/sağ köşe.',
-    'Padding: her kutu metin sınırını tam kapsasın ve gerektiğinde metnin her yönünde yaklaşık %15 ek güven payı içersin.',
-    'Hareket eden veya sadece bir kısımda görünen metin için: videoda göründüğü en geniş/emniyetli tek bir kutu ver.',
-    '',
-    'DÖNÜŞ: Sadece JSON şeması. Açıklama yok, markdown yok.',
-    '',
-    'ÖNEMLİ: Sadece gerçekten tespit ettiklerin için kutu döndür; tahminî rastgele kutu verme.'
-  ].join('\n');
-
-  const copyrightSchema = {
-    type: 'OBJECT',
-    properties: {
-      detections: {
-        type: 'ARRAY',
-        maxItems: 8,
-        items: {
-          type: 'OBJECT',
-          properties: {
-            label: { type: 'STRING' },
-            ymin: { type: 'INTEGER' },
-            xmin: { type: 'INTEGER' },
-            ymax: { type: 'INTEGER' },
-            xmax: { type: 'INTEGER' },
-            confidence: { type: 'NUMBER' }
-          },
-          required: ['label', 'ymin', 'xmin', 'ymax', 'xmax', 'confidence']
-        }
-      }
-    },
-    required: ['detections']
-  };
-
-  const parts = [{ text: prompt }];
-  for (const p of paths.slice(0, 20)) {
-    const ext = path.extname(p).toLowerCase();
-    const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
-    parts.push(fileToInlineData(p, mime));
-  }
-
-  const body = {
-    contents: [{ role: 'user', parts }],
-    generationConfig: {
-      temperature: 0.15,
-      maxOutputTokens: 2048,
-      responseMimeType: 'application/json',
-      responseSchema: copyrightSchema
-    }
-  };
-
-  const requestTimeoutMs = Math.min(
-    300_000,
-    Math.max(60_000, Number(process.env.GEMINI_COPYRIGHT_TIMEOUT_MS || 120_000) || 120_000)
-  );
-  const maxAttempts = 3;
-  let lastErr = null;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const ac = new AbortController();
-    const t = setTimeout(() => {
-      try { ac.abort(); } catch {}
-    }, requestTimeoutMs);
-    try {
-      const accessToken = await getVertexAccessToken();
-      const url = geminiEndpointFor(model, quotaProject, vertexLocation);
-      const r = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
-        },
-        body: JSON.stringify(body),
-        signal: ac.signal
-      }).finally(() => clearTimeout(t));
-
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        const msg = (j && (j.error?.message || j.error)) ? (j.error.message || j.error) : `Gemini HTTP ${r.status}`;
-        throw Object.assign(new Error(msg), { httpStatus: r.status, geminiJson: j });
-      }
-      const text = (j.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('').trim();
-      const parsed = safeJsonParse(stripJsonFences(text)) || safeJsonParse(extractBalancedJsonObject(text));
-      const list = parsed && Array.isArray(parsed.detections) ? parsed.detections : [];
-      const regions = [];
-      for (const det of list.slice(0, 8)) {
-        const box_2d = [
-          Number(det.ymin),
-          Number(det.xmin),
-          Number(det.ymax),
-          Number(det.xmax)
-        ];
-        const rr = regionFromCopyrightDetection({ ...det, box_2d }, outW, outH);
-        if (rr) regions.push(rr);
-      }
-      const uniq = [];
-      const seen = new Set();
-      for (const rr of regions) {
-        const k = `${rr.x}|${rr.y}|${rr.w}|${rr.h}|${String(rr.text).slice(0, 40)}`;
-        if (seen.has(k)) continue;
-        seen.add(k);
-        uniq.push(rr);
-        if (uniq.length >= 6) break;
-      }
-      console.log('[Copyright Blur Detect]', JSON.stringify({ model, attempt, raw: list.length, kept: uniq.length }));
-      return { ok: true, regions: uniq, source: 'copyright_detect', rawCount: list.length };
-    } catch (e) {
-      lastErr = e;
-      const msg = String(e && e.message ? e.message : e);
-      console.log(`[Copyright Blur Detect] attempt ${attempt} failed:`, msg.slice(0, 200));
-      if (attempt < maxAttempts && isGeminiAbortError(e)) {
-        await sleep(4000);
-        continue;
-      }
-      if (attempt < maxAttempts && /429|rate|quota|unavailable|503|timeout|abort/i.test(msg)) {
-        await sleep(5000);
-        continue;
-      }
-      break;
-    }
-  }
-  return {
-    ok: false,
-    regions: [],
-    source: 'error',
-    error: lastErr && lastErr.message ? String(lastErr.message) : String(lastErr || 'unknown')
-  };
-}
-
 function fallbackCaptionForBrand(brand) {
   const b = String(brand || 'terapi').toLowerCase();
   if (b === 'kaos') return 'Chaos in one perfect moment';
@@ -1742,50 +1373,12 @@ function clampCrushCoverBoxHeight(coverBox, outH) {
   return { ...coverBox, h };
 }
 
-function expandTextRegionForBlur(r, outW, outH) {
-  if (!r) return null;
-  const cx = r.x + (r.w / 2);
-  const cy = r.y + (r.h / 2);
-  const isLowerThird = cy > (outH * 0.72);
-  const isTextLike = r.h <= Math.round(outH * 0.06);
-  const minW = Math.round(outW * (isLowerThird ? 0.20 : 0.08));
-  const minH = Math.round(outH * (isLowerThird ? 0.028 : 0.018));
-  const paddedW = Math.max(minW, Math.round(r.w * (isLowerThird && isTextLike ? 1.95 : 1.35)));
-  const paddedH = Math.max(minH, Math.round(r.h * (isLowerThird && isTextLike ? 1.85 : 1.45)));
-  let x = Math.round(cx - (paddedW / 2));
-  let y = Math.round(cy - (paddedH / 2));
-  let w = Math.round(paddedW);
-  let h = Math.round(paddedH);
-  x = Math.max(0, Math.min(outW - 2, x));
-  y = Math.max(0, Math.min(outH - 2, y));
-  w = Math.max(8, Math.min(outW - x, w));
-  h = Math.max(8, Math.min(outH - y, h));
-  return { x, y, w, h };
-}
-
-function sanitizeBlurRegionForText(r, outW, outH) {
-  if (!r) return null;
-  const area = r.w * r.h;
-  const frameArea = outW * outH;
-  const midY = r.y + (r.h / 2);
-  const isLowerThird = midY > outH * 0.72;
-  const maxW = Math.round(outW * (isLowerThird ? 0.78 : 0.62));
-  const maxH = Math.round(outH * (isLowerThird ? 0.09 : 0.18));
-  const tooWide = r.w > maxW;
-  const tooTall = r.h > maxH;
-  const tooLargeArea = area > (frameArea * 0.14);
-  const isMiddleBand = midY > outH * 0.24 && midY < outH * 0.82;
-  // Orta bölgede aşırı büyük kutular çoğunlukla yanlış tespittir.
-  if ((tooWide && tooTall) || tooLargeArea || (isMiddleBand && area > frameArea * 0.08)) return null;
-  return r;
-}
-
 function normalizeDirectorResult(raw, outW, outH, brand, titleHint) {
   if (!raw || typeof raw !== 'object') return null;
   const coordUnits = raw.coord_units || raw.coordUnits || 'px';
   const titleForHook = String(titleHint || '').trim();
   // New strict schema support:
-  if (typeof raw.hook === 'string' || typeof raw.caption === 'string' || raw.original_header_height != null || Array.isArray(raw.blur_regions) || raw.old_hook_box != null || raw.oldHookBox != null) {
+  if (typeof raw.hook === 'string' || typeof raw.caption === 'string' || raw.original_header_height != null || raw.old_hook_box != null || raw.oldHookBox != null) {
     let hookRaw = String(raw.hook || '').trim();
     if (!hookRaw) hookRaw = fallbackHookTextForBrand(brand);
     const hook = splitHookTwoLines(hookRaw, { titleHint: titleForHook });
@@ -1803,20 +1396,6 @@ function normalizeDirectorResult(raw, outW, outH, brand, titleHint) {
     const caption = toSingleSentenceCaption(captionParts.caption || '');
     const headerH = Number(raw.original_header_height);
     let originalHeaderHeight = Number.isFinite(headerH) && headerH > 0 ? headerH : 0;
-    const clampRegion = (r) => {
-      const base = clampRegionForVideo(r, outW, outH, coordUnits);
-      const expanded = expandTextRegionForBlur(base, outW, outH);
-      return sanitizeBlurRegionForText(expanded, outW, outH);
-    };
-    const blurRegions = [];
-    const list = Array.isArray(raw.blur_regions) ? raw.blur_regions : [];
-    for (const r of list.slice(0, 6)) {
-      if (!isConfirmedUsernameRegion(r)) continue;
-      const rr = clampRegion(r);
-      if (rr) blurRegions.push(rr);
-    }
-    // Sadece Gemini'nin blur_regions listesi uygulanır (otomatik ekstra kutu ekleme yok).
-
     let oldHookBoxPx = clampRegionForVideo(raw.old_hook_box || raw.oldHookBox, outW, outH, coordUnits);
     const sanTop = sanitizeDirectorTopOverlay(oldHookBoxPx, originalHeaderHeight, outH);
     oldHookBoxPx = sanTop.oldHookBoxPx;
@@ -1840,7 +1419,6 @@ function normalizeDirectorResult(raw, outW, outH, brand, titleHint) {
       caption,
       oldHookText: stripEmoji(String(raw.old_hook_text || raw.oldHookText || '').trim()),
       hashtags,
-      blurRegions,
       originalHeaderHeight
     };
     if (!out.caption) out.caption = fallbackCaptionForBrand(brand);
@@ -1914,7 +1492,6 @@ function normalizeDirectorResult(raw, outW, outH, brand, titleHint) {
     caption: toSingleSentenceCaption(captionParts.caption || ''),
     oldHookText: stripEmoji(String(raw.old_hook_text || raw.oldHookText || '').trim()),
     hashtags: (hashtags || []).map(String).filter(Boolean).slice(0, 5),
-    blurRegions: [],
     originalHeaderHeight: null
   };
 
@@ -2375,8 +1952,6 @@ app.post('/crush', async (req, res) => {
     let directorError = null;
     let directorDiag = null;
     let geminiUsed = false;
-    /** Ayrı pas: telif watermark/handle kutuları [0,1000] → pixelate yalnızca bu bölgelerde */
-    let copyrightBlurInfo = { ok: false, regions: [], source: 'none' };
     const tmpArtifacts = [];
     try {
       const t = inDur;
@@ -2427,19 +2002,6 @@ app.post('/crush', async (req, res) => {
         } catch (eDir) {
           directorError = (eDir && eDir.message) ? eDir.message : String(eDir);
           director = null;
-        }
-        try {
-          copyrightBlurInfo = await geminiCopyrightUsernameDetect({
-            geminiProject,
-            geminiLocation,
-            framePaths: frames,
-            outW,
-            outH
-          });
-        } catch (eCr) {
-          const m = (eCr && eCr.message) ? eCr.message : String(eCr);
-          console.log('[Copyright Blur Detect] skipped:', m.slice(0, 200));
-          copyrightBlurInfo = { ok: false, regions: [], source: 'error', error: m };
         }
       } else {
         directorError = 'Vertex proje ID yok veya ADC yapılandırılmamış.';
@@ -2630,7 +2192,6 @@ app.post('/crush', async (req, res) => {
             sourceDurSec: inDur,
             hook,
             coverBox,
-            blurRegions: effectiveBlurRegions,
             hasAudio,
             ffmpegPath: 'ffmpeg',
             ffprobePath: 'ffprobe',
@@ -2643,21 +2204,6 @@ app.post('/crush', async (req, res) => {
       }
     };
 
-    // Pixelate: önce telif/handle tespit pası (yalnızca dönen kutular); boşsa Director blur_regions.
-    const directorBlurs = Array.isArray(director?.blurRegions) ? director.blurRegions : [];
-    const copyRegs = copyrightBlurInfo && Array.isArray(copyrightBlurInfo.regions) ? copyrightBlurInfo.regions : [];
-    const effectiveBlurRegions =
-      copyRegs.length > 0
-        ? copyRegs.slice(0, 6)
-        : directorBlurs.filter((r) => isConfirmedUsernameRegion(r)).slice(0, 6);
-    console.log('[Crush Blur]', JSON.stringify({
-      source: copyRegs.length > 0 ? 'copyright_detect' : (directorBlurs.length ? 'director_fallback' : 'none'),
-      copyrightOk: !!(copyrightBlurInfo && copyrightBlurInfo.ok),
-      fromCopyright: copyRegs.length,
-      fromDirector: directorBlurs.length,
-      total: effectiveBlurRegions.length
-    }));
-
     let plan = await crush.buildCrushRenderPlan({
       inFile,
       wmFile,
@@ -2668,7 +2214,6 @@ app.post('/crush', async (req, res) => {
       sourceDurSec: inDur,
       hook,
       coverBox,
-      blurRegions: effectiveBlurRegions,
       hasAudio,
       ffmpegPath: 'ffmpeg',
       ffprobePath: 'ffprobe',
@@ -2723,7 +2268,6 @@ app.post('/crush', async (req, res) => {
             sourceDurSec: inDur,
             hook,
             coverBox,
-            blurRegions: effectiveBlurRegions,
             hasAudio,
             ffmpegPath: 'ffmpeg',
             ffprobePath: 'ffprobe',
@@ -2740,94 +2284,13 @@ app.post('/crush', async (req, res) => {
       }
     }
 
-    const usernameBlurSafety = { checked: false, leakDetected: false, rerendered: false, fixes: [] };
-    if (effectiveBlurRegions.length > 0 && geminiAuthPresent) {
-      usernameBlurSafety.checked = true;
-      let blurAdjusted = false;
-      for (let i = 0; i < effectiveBlurRegions.length; i++) {
-        const reg = effectiveBlurRegions[i];
-        const previewPath = path.join(tmpDir, `blur_region_${i + 1}.png`);
-        try {
-          await ffmpegExtractRegionPreview(outFile, previewPath, reg, outW, outH, 0.05, 20);
-          const check = await geminiVerifyUsernameBlurLeak({
-            geminiProject,
-            geminiLocation,
-            previewPath,
-            expectedUsername: reg && reg.text ? reg.text : ''
-          });
-          if (check && check.usernamePresent === false) {
-            effectiveBlurRegions[i] = null;
-            usernameBlurSafety.fixes.push({
-              index: i,
-              action: 'removed',
-              reason: check.reason || 'username_not_present',
-              region: reg
-            });
-            blurAdjusted = true;
-            continue;
-          }
-          if (check && check.leak) {
-            usernameBlurSafety.leakDetected = true;
-            const next = {
-              ...reg,
-              x: clamp(reg.x - check.left, 0, outW - 8),
-              y: clamp(reg.y - check.top, 0, outH - 8)
-            };
-            next.w = clamp((reg.w + check.left + check.right), 8, outW - next.x);
-            next.h = clamp((reg.h + check.top + check.bottom), 8, outH - next.y);
-            effectiveBlurRegions[i] = next;
-            usernameBlurSafety.fixes.push({
-              index: i,
-              action: 'expanded',
-              reason: check.reason || '',
-              expand: { left: check.left, top: check.top, right: check.right, bottom: check.bottom },
-              region: next
-            });
-            blurAdjusted = true;
-          }
-        } catch (eBlurSafe) {
-          usernameBlurSafety.fixes.push({
-            index: i,
-            reason: `blur_safety_failed: ${String((eBlurSafe && eBlurSafe.message) || eBlurSafe)}`,
-            region: reg
-          });
-        } finally {
-          try { fs.unlinkSync(previewPath); } catch {}
-        }
-      }
-      for (let i = effectiveBlurRegions.length - 1; i >= 0; i--) {
-        if (!effectiveBlurRegions[i]) effectiveBlurRegions.splice(i, 1);
-      }
-      if (blurAdjusted) {
-        console.log('[Crush Blur Safety]', JSON.stringify(usernameBlurSafety));
-        plan = await crush.buildCrushRenderPlan({
-          inFile,
-          wmFile,
-          musicFile,
-          brand,
-          outW,
-          outH,
-          sourceDurSec: inDur,
-          hook,
-          coverBox,
-          blurRegions: effectiveBlurRegions,
-          hasAudio,
-          ffmpegPath: 'ffmpeg',
-          ffprobePath: 'ffprobe',
-          useRubberband: true
-        });
-        plan = await renderPlanWithFallback(plan);
-        usernameBlurSafety.rerendered = true;
-      }
-    }
-
     const verify = await crush.selfCheckCrushOutput('ffmpeg', 'ffprobe', outFile);
 
     return res.json({
       ok: true,
       savedTo: brandDir,
       file: path.basename(outFile),
-      settings: { ...plan.debug, topBandSafety, usernameBlurSafety, copyrightBlur: copyrightBlurInfo },
+      settings: { ...plan.debug, topBandSafety },
       verify,
       geminiAttempted: geminiAuthPresent,
       geminiKeyPresent: geminiAuthPresent,

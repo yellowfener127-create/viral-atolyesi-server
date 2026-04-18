@@ -360,7 +360,6 @@ async function buildCrushRenderPlan(o) {
     sourceDurSec,
     hook,
     coverBox,
-    blurRegions,
     hasAudio,
     ffmpegPath,
     ffprobePath,
@@ -519,35 +518,7 @@ async function buildCrushRenderPlan(o) {
     `,unsharp=5:5:0.70:3:3:0.35` +
     `,setsar=1,setpts=PTS/${effectiveSpeed.toFixed(6)},trim=0:${outDur.toFixed(3)},setpts=PTS-STARTPTS[v0]`;
 
-  // Build pixelate filters (always produce a valid base label)
   let baseLabel = cover ? 'vcover' : 'v0u';
-  const pixelParts = [];
-  {
-    const regs = Array.isArray(blurRegions) ? blurRegions.slice(0, 6) : [];
-    const safe = regs
-      .map((r) => ({
-        x: Math.max(0, Math.min(outW - 2, Math.round(Number(r?.x) || 0))),
-        y: Math.max(0, Math.min(outH - 2, Math.round(Number(r?.y) || 0))),
-        w: Math.max(0, Math.min(outW, Math.round(Number(r?.w) || 0))),
-        h: Math.max(0, Math.min(outH, Math.round(Number(r?.h) || 0)))
-      }))
-      .filter((r) => r.w >= 8 && r.h >= 8 && r.x + r.w <= outW && r.y + r.h <= outH);
-
-    safe.forEach((r, i) => {
-      const bi = `b${i}`;
-      const bt = `bt${i}`;
-      const px = `px${i}`;
-      const bn = `vb${i}`;
-      pixelParts.push(`[${baseLabel}]split=2[${bi}][${bt}]`);
-      pixelParts.push(
-        `[${bt}]crop=w=${r.w}:h=${r.h}:x=${r.x}:y=${r.y},` +
-          `scale=${Math.max(8, Math.round(r.w / 12))}:${Math.max(8, Math.round(r.h / 12))}:flags=neighbor,` +
-          `scale=${r.w}:${r.h}:flags=neighbor[${px}]`
-      );
-      pixelParts.push(`[${bi}][${px}]overlay=x=${r.x}:y=${r.y}:format=auto[${bn}]`);
-      baseLabel = bn;
-    });
-  }
 
   const parts = [
     vChain,
@@ -556,7 +527,6 @@ async function buildCrushRenderPlan(o) {
     ...(cover
       ? [`[v0u]drawbox=x=0:y=${cover.y}:w=${outW}:h=${cover.h}:color=black@${coverFillOpacity.toFixed(3)}:t=fill[vcover]`]
       : []),
-    ...pixelParts,
     ...(hasBand
       ? [
           `[${baseLabel}]drawbox=x=0:y=${bannerY}:w=${outW}:h=${bannerH}:color=black@1.000:t=fill[vtop]`,
