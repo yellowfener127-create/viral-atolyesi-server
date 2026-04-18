@@ -667,6 +667,10 @@ async function crushVideo() {
     }
     msg.style.display = "block";
     msg.textContent = "✅ PC'ye kaydedildi: " + (localData.savedTo || "") + "\\" + (localData.file || "");
+    const crBlur = localData.settings && localData.settings.copyrightBlur;
+    if (crBlur && crBlur.ok && Array.isArray(crBlur.regions) && crBlur.regions.length) {
+      msg.textContent += " | Handle/watermark pixelate: " + crBlur.regions.length + " alan (AI).";
+    }
 
     // Caption entegrasyonu (Telif Ezici altında)
     const capBox = document.getElementById("crushCaptionBox");

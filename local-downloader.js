@@ -1455,6 +1455,214 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
   return null;
 }
 
+/** [ymin,xmin,ymax,xmax] in 0..1000 → px; prompt zaten ~%15 padding ister, burada ek güven için hafif ölçek. */
+function box2dNorm1000ToPx(box2d, outW, outH, extraPad = 1.08) {
+  if (!Array.isArray(box2d) || box2d.length !== 4) return null;
+  const a = box2d.map((n) => Number(n));
+  if (!a.every((n) => Number.isFinite(n))) return null;
+  let [ymin, xmin, ymax, xmax] = a;
+  if (ymin > ymax) [ymin, ymax] = [ymax, ymin];
+  if (xmin > xmax) [xmin, xmax] = [xmax, xmin];
+  let x1 = (xmin / 1000) * outW;
+  let y1 = (ymin / 1000) * outH;
+  let x2 = (xmax / 1000) * outW;
+  let y2 = (ymax / 1000) * outH;
+  let w = x2 - x1;
+  let h = y2 - y1;
+  if (w < 2 || h < 2) return null;
+  const cx = (x1 + x2) / 2;
+  const cy = (y1 + y2) / 2;
+  w *= extraPad;
+  h *= extraPad;
+  x1 = cx - w / 2;
+  y1 = cy - h / 2;
+  const x = Math.max(0, Math.min(outW - 2, Math.round(x1)));
+  const y = Math.max(0, Math.min(outH - 2, Math.round(y1)));
+  const wPx = Math.max(8, Math.min(outW - x, Math.round(w)));
+  const hPx = Math.max(8, Math.min(outH - y, Math.round(h)));
+  return { x, y, w: wPx, h: hPx };
+}
+
+function sanitizeCopyrightBlurPx(r, outW, outH) {
+  if (!r) return null;
+  const area = r.w * r.h;
+  const frameArea = outW * outH;
+  if (area < 80 * 8) return null;
+  if (area > frameArea * 0.45) return null;
+  const midY = r.y + (r.h / 2);
+  const midX = r.x + (r.w / 2);
+  if (midX < outW * 0.02 || midX > outW * 0.98 || midY < outH * 0.02 || midY > outH * 0.98) {
+    // köşe kenarında anormal tam ekranmış gibi geniş kutu
+    if (r.w > outW * 0.92 && r.h > outH * 0.35) return null;
+  }
+  return r;
+}
+
+function regionFromCopyrightDetection(det, outW, outH) {
+  if (!det || typeof det !== 'object') return null;
+  const label = String(det.label || '').trim();
+  const conf = Number(det.confidence);
+  if (conf === conf && conf < 0.35) return null;
+  const box = det.box_2d != null ? det.box_2d : det.box2d;
+  const px = box2dNorm1000ToPx(Array.isArray(box) ? box : [], outW, outH, 1.08);
+  if (!px || !label) return null;
+  const cleaned = sanitizeCopyrightBlurPx(px, outW, outH);
+  if (!cleaned) return null;
+  return { ...cleaned, text: label.slice(0, 120), kind: 'username' };
+}
+
+/**
+ * Telif riski: kullanıcı adı / handle / watermark metinleri için ayrı Gemini pası ([0,1000] box_2d).
+ * Sadece döndüğü kutulara pixelate uygulanır (ekstra blur alanı yok).
+ */
+async function geminiCopyrightUsernameDetect({ geminiProject, geminiLocation, framePaths, outW, outH }) {
+  const quotaProject = String(geminiProject || GEMINI_PROJECT_DEFAULT || '').trim();
+  const vertexLocation = String(geminiLocation || GEMINI_LOCATION_DEFAULT || '').trim();
+  if (!quotaProject) {
+    return { ok: false, regions: [], source: 'skipped', error: 'no_vertex_project' };
+  }
+  if (String(process.env.GEMINI_COPYRIGHT_DETECT || '1').trim() === '0') {
+    return { ok: false, regions: [], source: 'disabled' };
+  }
+  const paths = (framePaths || []).filter((p) => p && fs.existsSync(p));
+  if (!paths.length) {
+    return { ok: false, regions: [], source: 'skipped', error: 'no_frames' };
+  }
+
+  const model = String(process.env.GEMINI_COPYRIGHT_DETECT_MODEL || GEMINI_LIGHT_MODEL || GEMINI_MODEL).trim();
+  const prompt = [
+    'Bir video analiz uzmanı olarak görev yap.',
+    'Aşağıdaki kareleri inceleyerek telif riski taşıyan sosyal medya kullanıcı adlarını (username), logoları ve metin tabanlı handle\'ları tespit et.',
+    'Özellikle: sol taraftaki listeler, alt orta watermark, @username, TikTok/Instagram/YouTube handle metinleri.',
+    '',
+    'KOORDİNAT: [0,1000] normalize. [0,0] sol üst, [1000,1000] sağ alt.',
+    'JSON alanları: ymin, xmin, ymax, xmax (tamamı 0–1000 tamsayı). Sıra: önce üst/sol, sonra alt/sağ köşe.',
+    'Padding: her kutu metin sınırını tam kapsasın ve gerektiğinde metnin her yönünde yaklaşık %15 ek güven payı içersin.',
+    'Hareket eden veya sadece bir kısımda görünen metin için: videoda göründüğü en geniş/emniyetli tek bir kutu ver.',
+    '',
+    'DÖNÜŞ: Sadece JSON şeması. Açıklama yok, markdown yok.',
+    '',
+    'ÖNEMLİ: Sadece gerçekten tespit ettiklerin için kutu döndür; tahminî rastgele kutu verme.'
+  ].join('\n');
+
+  const copyrightSchema = {
+    type: 'OBJECT',
+    properties: {
+      detections: {
+        type: 'ARRAY',
+        maxItems: 8,
+        items: {
+          type: 'OBJECT',
+          properties: {
+            label: { type: 'STRING' },
+            ymin: { type: 'INTEGER' },
+            xmin: { type: 'INTEGER' },
+            ymax: { type: 'INTEGER' },
+            xmax: { type: 'INTEGER' },
+            confidence: { type: 'NUMBER' }
+          },
+          required: ['label', 'ymin', 'xmin', 'ymax', 'xmax', 'confidence']
+        }
+      }
+    },
+    required: ['detections']
+  };
+
+  const parts = [{ text: prompt }];
+  for (const p of paths.slice(0, 20)) {
+    const ext = path.extname(p).toLowerCase();
+    const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
+    parts.push(fileToInlineData(p, mime));
+  }
+
+  const body = {
+    contents: [{ role: 'user', parts }],
+    generationConfig: {
+      temperature: 0.15,
+      maxOutputTokens: 2048,
+      responseMimeType: 'application/json',
+      responseSchema: copyrightSchema
+    }
+  };
+
+  const requestTimeoutMs = Math.min(
+    300_000,
+    Math.max(60_000, Number(process.env.GEMINI_COPYRIGHT_TIMEOUT_MS || 120_000) || 120_000)
+  );
+  const maxAttempts = 3;
+  let lastErr = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const ac = new AbortController();
+    const t = setTimeout(() => {
+      try { ac.abort(); } catch {}
+    }, requestTimeoutMs);
+    try {
+      const accessToken = await getVertexAccessToken();
+      const url = geminiEndpointFor(model, quotaProject, vertexLocation);
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify(body),
+        signal: ac.signal
+      }).finally(() => clearTimeout(t));
+
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const msg = (j && (j.error?.message || j.error)) ? (j.error.message || j.error) : `Gemini HTTP ${r.status}`;
+        throw Object.assign(new Error(msg), { httpStatus: r.status, geminiJson: j });
+      }
+      const text = (j.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('').trim();
+      const parsed = safeJsonParse(stripJsonFences(text)) || safeJsonParse(extractBalancedJsonObject(text));
+      const list = parsed && Array.isArray(parsed.detections) ? parsed.detections : [];
+      const regions = [];
+      for (const det of list.slice(0, 8)) {
+        const box_2d = [
+          Number(det.ymin),
+          Number(det.xmin),
+          Number(det.ymax),
+          Number(det.xmax)
+        ];
+        const rr = regionFromCopyrightDetection({ ...det, box_2d }, outW, outH);
+        if (rr) regions.push(rr);
+      }
+      const uniq = [];
+      const seen = new Set();
+      for (const rr of regions) {
+        const k = `${rr.x}|${rr.y}|${rr.w}|${rr.h}|${String(rr.text).slice(0, 40)}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        uniq.push(rr);
+        if (uniq.length >= 6) break;
+      }
+      console.log('[Copyright Blur Detect]', JSON.stringify({ model, attempt, raw: list.length, kept: uniq.length }));
+      return { ok: true, regions: uniq, source: 'copyright_detect', rawCount: list.length };
+    } catch (e) {
+      lastErr = e;
+      const msg = String(e && e.message ? e.message : e);
+      console.log(`[Copyright Blur Detect] attempt ${attempt} failed:`, msg.slice(0, 200));
+      if (attempt < maxAttempts && isGeminiAbortError(e)) {
+        await sleep(4000);
+        continue;
+      }
+      if (attempt < maxAttempts && /429|rate|quota|unavailable|503|timeout|abort/i.test(msg)) {
+        await sleep(5000);
+        continue;
+      }
+      break;
+    }
+  }
+  return {
+    ok: false,
+    regions: [],
+    source: 'error',
+    error: lastErr && lastErr.message ? String(lastErr.message) : String(lastErr || 'unknown')
+  };
+}
+
 function fallbackCaptionForBrand(brand) {
   const b = String(brand || 'terapi').toLowerCase();
   if (b === 'kaos') return 'Chaos in one perfect moment';
@@ -2151,6 +2359,8 @@ app.post('/crush', async (req, res) => {
     let directorError = null;
     let directorDiag = null;
     let geminiUsed = false;
+    /** Ayrı pas: telif watermark/handle kutuları [0,1000] → pixelate yalnızca bu bölgelerde */
+    let copyrightBlurInfo = { ok: false, regions: [], source: 'none' };
     const tmpArtifacts = [];
     try {
       const t = inDur;
@@ -2179,23 +2389,41 @@ app.post('/crush', async (req, res) => {
       tmpArtifacts.push(...frames, audioPrev);
       if (geminiAuthPresent) {
         geminiUsed = true;
-        const rawDir = await geminiDirectorAnalyze({ geminiProject, geminiLocation, brand, framePaths: frames, audioPath: audioPrev, title: metaTitle });
-        if (rawDir && rawDir.__va_status === 'RATE_LIMIT_EXHAUSTED') {
-          const rawMsg = String(rawDir.message || '');
-          if (/high demand|spikes in demand|try again later|temporarily unavailable|service unavailable|overloaded/i.test(rawMsg)) {
-            directorError = `Gemini yoğunlukta: tüm denemeler başarısız oldu. (${rawMsg || 'high demand'})`;
+        try {
+          const rawDir = await geminiDirectorAnalyze({ geminiProject, geminiLocation, brand, framePaths: frames, audioPath: audioPrev, title: metaTitle });
+          if (rawDir && rawDir.__va_status === 'RATE_LIMIT_EXHAUSTED') {
+            const rawMsg = String(rawDir.message || '');
+            if (/high demand|spikes in demand|try again later|temporarily unavailable|service unavailable|overloaded/i.test(rawMsg)) {
+              directorError = `Gemini yoğunlukta: tüm denemeler başarısız oldu. (${rawMsg || 'high demand'})`;
+            } else {
+              directorError = `Gemini kota/rate-limit: 5 denemede de başarısız. (${rawMsg || 'quota'})`;
+            }
+            directorDiag = rawDir.__va_diag || null;
+            director = null;
+          } else if (rawDir && rawDir.__va_status === 'PARSE_FAILED') {
+            directorError = `${rawDir.message || 'Gemini parse hatası'} Raw: ${String(rawDir.rawSnippet || '').slice(0, 180)}`;
+            directorDiag = rawDir.__va_diag || null;
+            director = null;
           } else {
-            directorError = `Gemini kota/rate-limit: 5 denemede de başarısız. (${rawMsg || 'quota'})`;
+            director = rawDir ? normalizeDirectorResult(rawDir, outW, outH, brand, metaTitle) : null;
+            directorDiag = rawDir && rawDir.__va_diag ? rawDir.__va_diag : null;
           }
-          directorDiag = rawDir.__va_diag || null;
+        } catch (eDir) {
+          directorError = (eDir && eDir.message) ? eDir.message : String(eDir);
           director = null;
-        } else if (rawDir && rawDir.__va_status === 'PARSE_FAILED') {
-          directorError = `${rawDir.message || 'Gemini parse hatası'} Raw: ${String(rawDir.rawSnippet || '').slice(0, 180)}`;
-          directorDiag = rawDir.__va_diag || null;
-          director = null;
-        } else {
-          director = rawDir ? normalizeDirectorResult(rawDir, outW, outH, brand, metaTitle) : null;
-          directorDiag = rawDir && rawDir.__va_diag ? rawDir.__va_diag : null;
+        }
+        try {
+          copyrightBlurInfo = await geminiCopyrightUsernameDetect({
+            geminiProject,
+            geminiLocation,
+            framePaths: frames,
+            outW,
+            outH
+          });
+        } catch (eCr) {
+          const m = (eCr && eCr.message) ? eCr.message : String(eCr);
+          console.log('[Copyright Blur Detect] skipped:', m.slice(0, 200));
+          copyrightBlurInfo = { ok: false, regions: [], source: 'error', error: m };
         }
       } else {
         directorError = 'Vertex proje ID yok veya ADC yapılandırılmamış.';
@@ -2393,15 +2621,19 @@ app.post('/crush', async (req, res) => {
       }
     };
 
-    // Blur tamamen kapalı:
-    // Gemini koordinat döndürse bile hiçbir bölgeye blur uygulanmaz.
-    const geminiBlurs = Array.isArray(director?.blurRegions) ? director.blurRegions : [];
-    const effectiveBlurRegions = [];
+    // Pixelate: önce telif/handle tespit pası (yalnızca dönen kutular); boşsa Director blur_regions.
+    const directorBlurs = Array.isArray(director?.blurRegions) ? director.blurRegions : [];
+    const copyRegs = copyrightBlurInfo && Array.isArray(copyrightBlurInfo.regions) ? copyrightBlurInfo.regions : [];
+    const effectiveBlurRegions =
+      copyRegs.length > 0
+        ? copyRegs.slice(0, 6)
+        : directorBlurs.filter((r) => isConfirmedUsernameRegion(r)).slice(0, 6);
     console.log('[Crush Blur]', JSON.stringify({
-      fromGemini: geminiBlurs.length,
-      total: effectiveBlurRegions.length,
-      regions: effectiveBlurRegions,
-      disabled: true
+      source: copyRegs.length > 0 ? 'copyright_detect' : (directorBlurs.length ? 'director_fallback' : 'none'),
+      copyrightOk: !!(copyrightBlurInfo && copyrightBlurInfo.ok),
+      fromCopyright: copyRegs.length,
+      fromDirector: directorBlurs.length,
+      total: effectiveBlurRegions.length
     }));
 
     let plan = await crush.buildCrushRenderPlan({
@@ -2573,7 +2805,7 @@ app.post('/crush', async (req, res) => {
       ok: true,
       savedTo: brandDir,
       file: path.basename(outFile),
-      settings: { ...plan.debug, topBandSafety, usernameBlurSafety },
+      settings: { ...plan.debug, topBandSafety, usernameBlurSafety, copyrightBlur: copyrightBlurInfo },
       verify,
       geminiAttempted: geminiAuthPresent,
       geminiKeyPresent: geminiAuthPresent,
