@@ -683,17 +683,12 @@ function remixHookFromOldHook(oldHookText, title, isListicle) {
     took: 'went',
     seriously: 'too far'
   };
-  const titleWords = extractKeywordsFromTitle(title).slice(0, 2);
   let changed = 0;
-  const out = words.map((w, idx) => {
+  const out = words.map((w) => {
     const key = String(w || '').toLowerCase();
     if (replacements[key] && changed < 2) {
       changed += 1;
       return replacements[key];
-    }
-    if (changed < 2 && idx === words.length - 1 && titleWords[0] && key !== titleWords[0]) {
-      changed += 1;
-      return titleWords[0];
     }
     return w;
   });
@@ -954,6 +949,11 @@ SU İŞARETİ / LOGO AVI (ÇOK KRİTİK):
 - blur_regions icindeki her oge icin "text" alanina GORDUGUN username'i, "kind" alanina da "username" yaz.
 - Eger blur_regions ogesindeki text bir username degilse o ogeyi hic ekleme.
 
+ÜST SHORTS HOOK vs İÇERİK METNİ (KESİN — BANT BOYUTU):
+- old_hook_box ve original_header_height YALNIZCA ekranın ÜST kısmında (yaklaşık en üst %0–35), Shorts tarzı SABİT üst başlık/banner varsa doldurulur.
+- Orta veya alt üçte büyük yazı (ör. sahne içi “SUED FOR HELPING THE HOMELESS”, lower-third, merkez headline) video İÇERİĞİDİR; üst şerit hook DEĞİLDİR. Bu durumda old_hook_box={0,0,0,0} ve original_header_height=0 ver.
+- Gerçek üst hook yoksa bu alanları sıfır bırak; sistem gereksiz dev siyah bant çizmesin.
+
 ZORUNLU SİYAH BANT (FORCE MASK) — SIZINTI YASAK (ÇOK KRİTİK):
 - Üstte tek satırlı başlık + ALTINDA ikinci satır/tagline/emoji (“…”, “last moments…”, “😭”) gibi bir
   ek metin BILE görünse, hepsini TEK “üst metin bloğu” say.
@@ -961,7 +961,7 @@ ZORUNLU SİYAH BANT (FORCE MASK) — SIZINTI YASAK (ÇOK KRİTİK):
   Sadece ilk satıra sıkı küçük kutu VERME; ikinci satır bandın altında “hayalet” kalır.
 - original_header_height: Videonun ÜST KENARINDAN (y=0) en alttaki üst-metin pikseline kadar olan
   toplam piksel yüksekliği (720x1280 referans). Bu, kutunun altı ile UYUMLU olmalı; ikisi çelişirse
-  daha BÜYÜK olanı esas al (daha güvenli).
+  daha BÜYÜK olanı esas al (daha güvenli). Makul üst şerit genelde 80–320 px arası; 450 px üstü şüpheli.
 - Videonun en üst kısmında herhangi bir yazı/başlık/hook görürsen original_header_height > 0 olmalı.
   Sadece gerçekten üstte hiç metin yoksa original_header_height=0 döndür.
 - Listicle/ranked videolarda üst başlık + alt satır kombinasyonunu özellikle kaçırma.
@@ -977,6 +977,7 @@ HOOK CÜMLE ZORUNLULUĞU (ÇOK KRİTİK):
 - İYİ örnekler: "Wildest animal moments go off the rails", "Ranked chaos hits different every time", "This water strike comes out of nowhere".
 - Hook ASLA sadece "No Mother", "No Way", "No Cap", "Not Again" gibi 2 kelimelik negatif kopuk parça olamaz.
 - Hook videoda ASLA gerçekleşmemiş bir olay iddia edemez (örn: fil yavrusunu korumak için geliyorsa "no mother" gibi yanlış çıkarım yasak).
+- old_hook_text veya karelerde görünen ana konu neyse (ör. homeless, salon, lawsuit) hook bunu çürütmemeli; farklı özne veya nesne UYDURMA (ör. videoda “homeless” varken “woman” veya tersi).
 - Hook mutlaka özne + eylem veya tamamlanmış bir başlık ifadesi içermeli.
 - Hook pozitif/olumlu bir gözlem anlatmalı; olmayan bir şey üzerinden iddia kurma.
 
@@ -1185,7 +1186,8 @@ async function geminiVerifyUsernameBlurLeak({ geminiProject, geminiLocation, pre
 - blur_regions: SADECE username/handle alanlarını listele (maks 6 kutu); yoksa [] döndür.
 - blur_regions içindeki her objede text=username metni ve kind="username" zorunlu olsun.
 - original_header_height: Üstte orijinal başlık/yazı varsa kapladığı yüksekliği px olarak ver (örn 160). Yoksa 0.
-- old_hook_box: Üstte eski hook varsa kutuyu ver; yoksa {0,0,0,0}.
+- old_hook_box: Sadece gerçek ÜST şerit hook varsa kutuyu ver; orta/alt sahne yazısı için {0,0,0,0}.
+- Hook metni: old_hook_text ile çelişen veya videoda görünmeyen özne/nesne uydurma.
 
 NOT:
 Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/impact/surprise hook’u üret; ama yine de jenerik yasaklara uy.
@@ -1711,6 +1713,35 @@ function clampRegionForVideo(r, outW, outH, coordUnits) {
   return (w >= 8 && h >= 8) ? { x, y, w, h } : null;
 }
 
+/** Shorts üst şerit metni (~üst %35); orta/alt sahne yazısı değil — yanlış tespitte bant yarım ekranı kaplamasın */
+function sanitizeDirectorTopOverlay(oldHookBoxPx, originalHeaderHeight, outH) {
+  const maxHdr = Math.round(outH * 0.36);
+  let hdr = Number.isFinite(originalHeaderHeight) && originalHeaderHeight > 0 ? Math.round(originalHeaderHeight) : 0;
+  if (hdr > maxHdr) hdr = 0;
+  if (hdr > 0) hdr = Math.min(hdr, maxHdr);
+
+  let box = oldHookBoxPx;
+  if (box && box.w >= 8 && box.h >= 8) {
+    const topY = box.y;
+    const bottom = box.y + box.h;
+    const midY = box.y + box.h / 2;
+    if (topY > outH * 0.34 || midY > outH * 0.44 || bottom > outH * 0.6) {
+      box = null;
+    }
+  }
+  return { oldHookBoxPx: box, originalHeaderHeight: hdr };
+}
+
+const CRUSH_MAX_BAND_HEIGHT_FRAC = 0.34;
+const CRUSH_MAX_BAND_HEIGHT_CAP = 460;
+
+function clampCrushCoverBoxHeight(coverBox, outH) {
+  if (!coverBox || !Number.isFinite(coverBox.h)) return coverBox;
+  const hMax = Math.min(CRUSH_MAX_BAND_HEIGHT_CAP, Math.round(outH * CRUSH_MAX_BAND_HEIGHT_FRAC));
+  const h = Math.min(Math.max(8, Math.round(coverBox.h)), hMax);
+  return { ...coverBox, h };
+}
+
 function expandTextRegionForBlur(r, outW, outH) {
   if (!r) return null;
   const cx = r.x + (r.w / 2);
@@ -1771,7 +1802,7 @@ function normalizeDirectorResult(raw, outW, outH, brand, titleHint) {
     }
     const caption = toSingleSentenceCaption(captionParts.caption || '');
     const headerH = Number(raw.original_header_height);
-    const originalHeaderHeight = Number.isFinite(headerH) && headerH > 0 ? headerH : 0;
+    let originalHeaderHeight = Number.isFinite(headerH) && headerH > 0 ? headerH : 0;
     const clampRegion = (r) => {
       const base = clampRegionForVideo(r, outW, outH, coordUnits);
       const expanded = expandTextRegionForBlur(base, outW, outH);
@@ -1786,7 +1817,10 @@ function normalizeDirectorResult(raw, outW, outH, brand, titleHint) {
     }
     // Sadece Gemini'nin blur_regions listesi uygulanır (otomatik ekstra kutu ekleme yok).
 
-    const oldHookBoxPx = clampRegionForVideo(raw.old_hook_box || raw.oldHookBox, outW, outH, coordUnits);
+    let oldHookBoxPx = clampRegionForVideo(raw.old_hook_box || raw.oldHookBox, outW, outH, coordUnits);
+    const sanTop = sanitizeDirectorTopOverlay(oldHookBoxPx, originalHeaderHeight, outH);
+    oldHookBoxPx = sanTop.oldHookBoxPx;
+    originalHeaderHeight = sanTop.originalHeaderHeight;
     const hasOldBox = !!(oldHookBoxPx && oldHookBoxPx.w >= 8 && oldHookBoxPx.h >= 8);
     const hasHeader = originalHeaderHeight > 0;
     const isListicle =
@@ -2439,7 +2473,10 @@ app.post('/crush', async (req, res) => {
         !looksGenericHook(hookBase) &&
         hookMakesSense(hookBase) &&
         hookFeelsComplete(hookPlain);
-      const hookSeed = oldHookRemix || (hookBaseGood ? hookBase : (titleHook || hookBase));
+      const hookSeed =
+        hookBaseGood
+          ? hookBase
+          : (oldHookRemix && hookMakesSense(oldHookRemix) ? oldHookRemix : '') || titleHook || hookBase;
       const hookText = splitHookTwoLines(makeUniqueHook(brand, hookSeed, cache, isListicle || titleIsListicle), {
         titleHint: metaTitle || ''
       });
@@ -2497,11 +2534,16 @@ app.post('/crush', async (req, res) => {
         bandH = Math.max(minBandHdr, Math.round(outH * 0.22));
         bandReason = 'auto_listicle_fallback';
       }
+      const bandHMax = Math.min(CRUSH_MAX_BAND_HEIGHT_CAP, Math.round(outH * CRUSH_MAX_BAND_HEIGHT_FRAC));
+      if (bandH > bandHMax) {
+        bandH = bandHMax;
+        if (bandReason !== 'none') bandReason = `${bandReason}_capped`;
+      }
       if (bandH > 0) {
-        coverBox = { y: bandY, h: bandH, w: outW, opacity: 1 };
+        coverBox = clampCrushCoverBoxHeight({ y: bandY, h: bandH, w: outW, opacity: 1 }, outH);
         if (hook) {
           hook.boxOpacity = 1;
-          hook.bannerY = bandY;
+          hook.bannerY = coverBox.y;
         }
       }
       console.log('[Crush Band]', JSON.stringify({
@@ -2531,18 +2573,16 @@ app.post('/crush', async (req, res) => {
         // Y merkezini koru: yükseklik büyüdüyse yukarı taşı
         const safeY = baseY - (safeH - baseH) / 2;
 
-        coverBox = {
-          // biraz daha yukarı çek (padding)
+        coverBox = clampCrushCoverBoxHeight({
           y: safeY - (outH * 0.01),
           h: safeH,
           w: outW,
           opacity: 1
-        };
+        }, outH);
 
         // Hook'u eski yazının ortasına hizala (banner içinde)
         if (hook) {
           hook.boxOpacity = 1;
-          // Banner'ı doğrudan coverBox üstüne taşı
           hook.bannerY = coverBox.y;
         }
       }
@@ -2661,10 +2701,10 @@ app.post('/crush', async (req, res) => {
           const growPx = clamp(topLeak.extraBandPx || 40, 24, 140);
           const oldBottom = Math.max(0, Math.round((coverBox.y || 0) + (coverBox.h || 0)));
           const newBottom = Math.min(outH, oldBottom + growPx);
-          coverBox = { y: 0, h: newBottom, w: outW, opacity: 1 };
+          coverBox = clampCrushCoverBoxHeight({ y: 0, h: newBottom, w: outW, opacity: 1 }, outH);
           if (hook) {
             hook.boxOpacity = 1;
-            hook.bannerY = 0;
+            hook.bannerY = coverBox.y;
           }
           console.log('[Crush Safety]', JSON.stringify({
             round: round + 1,
