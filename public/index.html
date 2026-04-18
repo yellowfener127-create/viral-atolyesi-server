@@ -967,6 +967,47 @@ const BLOCKED_CHANNELS = [
   "red chillies","balaji telefilms","ultra bollywood","goldmines"
 ];
 
+// Hindistan / Pakistan / Bangladeş / Nepal / Afganistan / Çin ağırlıklı içerik (Unicode + Latin)
+const RE_SCRIPT_DEVANAGARI = /[\u0900-\u097F]/;
+const RE_SCRIPT_BENGALI = /[\u0980-\u09FF]/;
+const RE_SCRIPT_GURMUKHI = /[\u0A00-\u0A7F]/;
+const RE_SCRIPT_GUJARATI = /[\u0A80-\u0AFF]/;
+const RE_SCRIPT_ORIYA = /[\u0B00-\u0B7F]/;
+const RE_SCRIPT_TAMIL = /[\u0B80-\u0BFF]/;
+const RE_SCRIPT_TELUGU = /[\u0C00-\u0C7F]/;
+const RE_SCRIPT_KANNADA = /[\u0C80-\u0CFF]/;
+const RE_SCRIPT_MALAYALAM = /[\u0D00-\u0D7F]/;
+const RE_SCRIPT_SINHALA = /[\u0D80-\u0DFF]/;
+const RE_SCRIPT_TIBETAN = /[\u0F00-\u0FFF]/;
+const RE_SCRIPT_MYANMAR = /[\u1000-\u109F]/;
+const RE_SCRIPT_ARABIC = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\ufb50-\ufdff\ufe70-\ufeff]/;
+const RE_SCRIPT_CJK = /[\u4E00-\u9FFF\u3400-\u4DBF]/;
+
+const REGION_LATIN_BLOCK_RE = /\b(?:pakistan|pakistani|punjabi|sindh|karachi|lahore|islamabad|peshawar|multan|rawalpindi|urdu|pashto|baloch|bangladesh|bangladeshi|dhaka|chittagong|sylhet|nepal|nepali|kathmandu|pokhara|sri\s*lanka|lankan|colombo|kandy|afghanistan|afghan|kabul|kandahar|mazar|taliban|haqqani|india|indian|hindi|hindu|hindustan|bollywood|tollywood|kollywood|filmy|filmi|gully|desi|mumbai|delhi|chennai|bangalore|bengal|hyderabad|kolkata|ahmedabad|pune|jaipur|lucknow|patna|bhopal|srinagar|gujarat|rajasthan|bihar|uttar|pradesh|tamil|telugu|kannada|malayalam|marathi|assam|odia|oriya|china|chinese|mandarin|cantonese|hanyu|pinyin|shanghai|beijing|guangzhou|shenzhen|hangzhou|chengdu|chongqing|wuhan|nanjing|xinjiang|uyghur|uighur|tibet|tibetan|lhasa|cctv|cgtn|weibo|douyin|bilibili)\b/i;
+
+function hasBlockedRegionalScript(s) {
+  if (!s) return false;
+  return (
+    RE_SCRIPT_DEVANAGARI.test(s) || RE_SCRIPT_BENGALI.test(s) || RE_SCRIPT_GURMUKHI.test(s) ||
+    RE_SCRIPT_GUJARATI.test(s) || RE_SCRIPT_ORIYA.test(s) || RE_SCRIPT_TAMIL.test(s) || RE_SCRIPT_TELUGU.test(s) ||
+    RE_SCRIPT_KANNADA.test(s) || RE_SCRIPT_MALAYALAM.test(s) || RE_SCRIPT_SINHALA.test(s) ||
+    RE_SCRIPT_TIBETAN.test(s) || RE_SCRIPT_MYANMAR.test(s) || RE_SCRIPT_ARABIC.test(s) || RE_SCRIPT_CJK.test(s)
+  );
+}
+
+function isBlockedRegionContent(title, channel, description) {
+  const blob = [title, channel, description].filter(Boolean).join(" ");
+  if (hasBlockedRegionalScript(blob)) return true;
+  return REGION_LATIN_BLOCK_RE.test(blob);
+}
+
+function isBlockedRegionSocialItem(item) {
+  if (!item || typeof item !== "object") return false;
+  const blob = [item.title, item.caption, item.desc, item.description, item.channel, item.author, item.username, item.channelTitle]
+    .filter(Boolean).map(String).join(" ");
+  return isBlockedRegionContent(blob, "", "");
+}
+
 function isBlocked(title, channel) {
   const t = (title + " " + channel).toLowerCase();
   for (const kw of BLOCKED_CHANNELS) if (t.includes(kw)) return true;
@@ -1450,7 +1491,7 @@ async function fetchTikTokFeed() {
   const data = await res.json();
   if (!res.ok) throw new Error((data && data.error) || res.statusText || "TikTok API");
   if (!Array.isArray(data)) throw new Error((data && data.error) || "TikTok yanıtı geçersiz");
-  return data.filter(v => v && (v.url || v.id));
+  return data.filter(v => v && (v.url || v.id)).filter((v) => !isBlockedRegionSocialItem(v));
 }
 
 async function fetchInstagramFeed() {
@@ -1472,7 +1513,7 @@ async function fetchInstagramFeed() {
     if (seen.has(v.id)) return false;
     seen.add(v.id);
     return true;
-  });
+  }).filter((v) => !isBlockedRegionSocialItem(v));
   if (!out.length) throw new Error("Instagram: API boş sonuç döndürüyor (abonelik/limit/yanıt formatı).");
   return out;
 }
@@ -1491,16 +1532,17 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
   const rawItems = [];
   const orders = ["relevance", "date", "viewCount"];
   const order = orders[Math.abs(varietyIndex) % orders.length];
-  const maxPagesPerQuery = 1;
-  const stopAfterRaw = 70;
+  const maxPagesPerQuery = 2;
+  const stopAfterRaw = 90;
 
   outer: for (const q of queries) {
     let pageToken = "";
     for (let page = 0; page < maxPagesPerQuery; page++) {
       try {
         const tokenPart = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "";
+        const regionPart = "&relevanceLanguage=en&regionCode=US";
         const sRes = await fetch(
-          backendUrl(`/youtube/search?part=snippet&q=${encodeURIComponent(q)}&type=video&videoDuration=short&order=${order}&maxResults=50&key=${encodeURIComponent(savedKey)}${afterParam}${tokenPart}`),
+          backendUrl(`/youtube/search?part=snippet&q=${encodeURIComponent(q)}&type=video&videoDuration=short&order=${order}&maxResults=50&key=${encodeURIComponent(savedKey)}${regionPart}${afterParam}${tokenPart}`),
           { cache: "no-store" }
         );
         const sData = await sRes.json();
@@ -1535,12 +1577,14 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
           const title = item.snippet.title;
           const channel = item.snippet.channelTitle;
           const channelId = item.snippet.channelId;
+          const description = item.snippet.description || "";
           const duration = parseDuration(item.contentDetails?.duration || "PT0S");
 
           if (views < 100000) continue;
           if (duration < minDur || duration > maxDur) continue;
           if (seenSet.has(String(item.id))) continue;
           if (isBlocked(title, channel)) continue;
+          if (isBlockedRegionContent(title, channel, description)) continue;
           if (activeCat === "comedy" && isComedyAnimalHeavy(title, channel)) continue;
           rawItems.push({
             id: item.id,
