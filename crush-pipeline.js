@@ -278,18 +278,15 @@ function titleCaseHookText(s) {
 }
 
 function splitHookForDisplay(hookText) {
-  const words = String(hookText || '').split(/\s+/).filter(Boolean).slice(0, 5);
+  const words = String(hookText || '').split(/\s+/).filter(Boolean).slice(0, 7);
   if (!words.length) return { line1: '', line2: '' };
   if (words.length <= 2) return { line1: words.join(' '), line2: '' };
-  // Kullanıcı isteği: ilk satır daha dolu, ikinci satır daha kısa/temiz olsun.
-  // Örn: "This package explodes with" => "This package explodes" / "with"
+  // İlk satır daha dolu, ikinci satır daha kısa (3–7 kelime).
   if (words.length === 3) return { line1: words.slice(0, 2).join(' '), line2: words.slice(2).join(' ') };
   if (words.length === 4) return { line1: words.slice(0, 3).join(' '), line2: words.slice(3).join(' ') };
-  const cut = 3;
-  return {
-    line1: words.slice(0, cut).join(' '),
-    line2: words.slice(cut).join(' ')
-  };
+  if (words.length === 5) return { line1: words.slice(0, 3).join(' '), line2: words.slice(3).join(' ') };
+  if (words.length === 6) return { line1: words.slice(0, 4).join(' '), line2: words.slice(4).join(' ') };
+  return { line1: words.slice(0, 4).join(' '), line2: words.slice(4).join(' ') };
 }
 
 /** ±%2–%4 hız varyasyonu (1.0 etrafında) */

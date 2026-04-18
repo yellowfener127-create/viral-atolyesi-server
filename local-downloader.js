@@ -17,12 +17,15 @@ const DOWNLOAD_DIR = process.env.VA_DOWNLOAD_DIR || DEFAULT_DIR;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const GEMINI_PROJECT_DEFAULT = process.env.GEMINI_PROJECT || 'gen-lang-client-0508869582';
 const GEMINI_LOCATION_DEFAULT = process.env.GEMINI_LOCATION || 'us-central1';
-// Vertex AI'da bu projede çalışan zincir: önce 2.5 Pro, sonra 2.5 Flash.
-const GEMINI_MODELS = (process.env.GEMINI_VERTEX_MODELS || 'gemini-2.5-pro,gemini-2.5-flash')
+// Varsayılan: yalnızca en güçlü model (2.5 Pro). Flash vb. ucuz modelleri istemiyorsanız bu yeterli.
+// İsterseniz ortama yazın: GEMINI_VERTEX_MODELS=gemini-2.5-pro,gemini-2.5-flash (yedek)
+const GEMINI_MODELS = (process.env.GEMINI_VERTEX_MODELS || 'gemini-2.5-pro')
   .split(',')
   .map((s) => String(s || '').trim())
   .filter(Boolean);
 const GEMINI_MODEL = GEMINI_MODELS[0];
+/** Küçük doğrulama (üst bant sızıntısı vb.) — varsayılan Pro */
+const GEMINI_LIGHT_MODEL = (process.env.GEMINI_VERTEX_LIGHT_MODEL || 'gemini-2.5-pro').trim();
 const GEMINI_VERTEX_PRICE_USD_PER_MTOKEN = {
   'gemini-2.5-pro': { input: 1.25, output: 10.0 }
 };
@@ -537,7 +540,7 @@ function hookMakesSense(s) {
   // Tamamen tek konu + negasyon olanları çıkar
   if (/^(no|not)\s+(mother|father|dad|mom|one|body|way|cap|idea)$/.test(t)) return false;
   // Kelimelerin hiçbiri somut değilse (en az 1 isim veya eylem gerekli)
-  const anyConcrete = /\b(dog|cat|baby|kid|elephant|bear|car|bike|skate|ball|stairs|door|water|pool|road|park|phone|woman|man|boy|girl|mom|mother|father|dad|team|player|ring|boxer|slip|slipped|fall|fell|crash|hit|hits|drop|drops|save|saves|rescue|rescues|jumps|jump|lands|flip|flips|escape|escapes|push|pushes|throw|throws|protect|protects|catch|catches|climb|climbs|climb|runs|runs|scream|screams|cry|cries|laugh|laughs|kicks|kick|punch|punches|grabs|grab|swings|swing|spill|spills)\b/.test(t);
+  const anyConcrete = /\b(dog|dogs|cat|cats|baby|kid|elephant|bear|car|bike|skate|ball|stairs|door|water|pool|road|park|phone|woman|man|boy|girl|mom|mother|father|dad|team|player|ring|boxer|bird|birds|chicken|animal|animals|wild|slip|slipped|fall|fell|crash|hit|hits|drop|drops|save|saves|rescue|rescues|jumps|jump|lands|flip|flips|escape|escapes|push|pushes|throw|throws|protect|protects|catch|catches|climb|climbs|climb|runs|runs|scream|screams|cry|cries|laugh|laughs|kicks|kick|punch|punches|grabs|grab|swings|swing|spill|spills)\b/.test(t);
   return anyConcrete;
 }
 
@@ -614,7 +617,7 @@ function remixHookFromOldHook(oldHookText, title, isListicle) {
     .trim()
     .split(' ')
     .filter(Boolean)
-    .slice(0, 5);
+    .slice(0, 7);
   if (!words.length) return '';
   const replacements = {
     ranking: 'ranked',
@@ -658,20 +661,18 @@ function remixHookFromOldHook(oldHookText, title, isListicle) {
 function splitHookTwoLines(hookText) {
   const t = stripEmoji(String(hookText || '')).replace(/\s+/g, ' ').trim();
   if (!t) return '';
-  // Zorunlu kural: hook en fazla 5 kelime, tek satır ve ortalanabilir olmalı.
+  // Hook: en fazla 7 kelime (5 yerine 6–7 denemesi için); drawtext taşmasını sınırla.
   let words = t
     .replace(/\n/g, ' ')
     .split(' ')
     .filter(Boolean)
-    .slice(0, 5);
-  // Taşma koruması: drawtext'te sağdan kesilmemesi için karakter uzunluğunu sınırla.
-  // Önce uzun kelimeleri budar, sonra toplam uzunluğu küçültür.
+    .slice(0, 7);
   words = words.map((w) => (w.length > 14 ? w.slice(0, 14) : w));
-  while (words.join(' ').length > 28 && words.length > 1) {
+  while (words.join(' ').length > 48 && words.length > 1) {
     words.pop();
   }
   let out = words.join(' ').trim();
-  if (out.length > 28) out = out.slice(0, 28).trim();
+  if (out.length > 48) out = out.slice(0, 48).trim();
   return out;
 }
 
@@ -905,21 +906,24 @@ SU İŞARETİ / LOGO AVI (ÇOK KRİTİK):
 - blur_regions icindeki her oge icin "text" alanina GORDUGUN username'i, "kind" alanina da "username" yaz.
 - Eger blur_regions ogesindeki text bir username degilse o ogeyi hic ekleme.
 
-ZORUNLU SİYAH BANT (FORCE MASK) KURALI:
-- Videonun en üst kısmında herhangi bir yazı/başlık/hook görürsen (arkasında şerit olsun olmasın),
-  original_header_height değerini mutlaka ölç ve döndür (px). Bu değer 0 olamaz.
-- Sadece gerçekten hiçbir yazı yoksa original_header_height=0 döndür.
-- Eski hook/yazı varsa old_hook_box koordinatını da ver (x,y,w,h). Site bu alanı siyah bantla kapatacak.
-- Video başlığı "RANKING", "TOP", "RANKED", "BEST" gibi bir listicle başlığı içeriyorsa,
-  videonun ilk karesinde üstte büyük bir başlık yazısı olma ihtimali ÇOK yüksektir.
-  Bu durumda original_header_height değerini mutlaka >= 200 olarak ver ve old_hook_box alanını doldur.
+ZORUNLU SİYAH BANT (FORCE MASK) — SIZINTI YASAK (ÇOK KRİTİK):
+- Üstte tek satırlı başlık + ALTINDA ikinci satır/tagline/emoji (“…”, “last moments…”, “😭”) gibi bir
+  ek metin BILE görünse, hepsini TEK “üst metin bloğu” say.
+- old_hook_box: x,y,w,h kutusu mutlaka bu bloğun TAMAMINI içermeli (ana başlık + alt satır + emoji alanı).
+  Sadece ilk satıra sıkı küçük kutu VERME; ikinci satır bandın altında “hayalet” kalır.
+- original_header_height: Videonun ÜST KENARINDAN (y=0) en alttaki üst-metin pikseline kadar olan
+  toplam piksel yüksekliği (720x1280 referans). Bu, kutunun altı ile UYUMLU olmalı; ikisi çelişirse
+  daha BÜYÜK olanı esas al (daha güvenli).
+- Videonun en üst kısmında herhangi bir yazı/başlık/hook görürsen original_header_height > 0 olmalı.
+  Sadece gerçekten üstte hiç metin yoksa original_header_height=0 döndür.
+- Listicle/ranked videolarda üst başlık + alt satır kombinasyonunu özellikle kaçırma.
 
 JENERİK YASAKLAR (KESİN):
 Hook şu kalıpları içeremez: "wait for it", "wait for the end", "watch until the end", "amazing end", "sweet end" (ve benzerleri).
 EK YASAK (KESİN): Hook içinde şu kelimeler GEÇEMEZ: "crazy", "viral", "insane".
 
 HOOK CÜMLE ZORUNLULUĞU (ÇOK KRİTİK):
-- Hook 3-5 kelimelik anlamlı bir İngilizce cümle/ifade olmalı.
+- Hook 3-7 kelimelik anlamlı bir İngilizce cümle/ifade olmalı (içerik uzunsa 6-7 kelimeye izin var).
 - Hook ASLA sadece "No Mother", "No Way", "No Cap", "Not Again" gibi 2 kelimelik negatif kopuk parça olamaz.
 - Hook videoda ASLA gerçekleşmemiş bir olay iddia edemez (örn: fil yavrusunu korumak için geliyorsa "no mother" gibi yanlış çıkarım yasak).
 - Hook mutlaka özne + eylem içermeli. Örn: "Mom rescues her baby", "Dog stops the fight", "Kid saves the day".
@@ -952,7 +956,7 @@ KOORDİNAT SİSTEMİ (KESİN):
 ZORUNLU JSON ŞEMASI (KATI):
 {
   "coord_units": "px",
-  "hook": "TEK satır, en fazla 5 kelime, emoji-free, no crazy/viral/insane",
+  "hook": "TEK satır (sonra 2 satıra bölünür), 3-7 kelime, emoji-free, no crazy/viral/insane",
   "caption": "TEK cümle İngilizce. Videodaki olayı anlatsın ve izleyiciye hitap etsin. Soru sorma. Emoji kullanma.",
   "old_hook_text": "",
   "hashtags": ["#viral", "#kesfet", "#trending", "#chaos", "#specific"],
@@ -970,14 +974,15 @@ async function geminiVerifyTopBandLeak({ geminiProject, geminiLocation, previewP
   const vertexLocation = String(geminiLocation || GEMINI_LOCATION_DEFAULT || '').trim();
   if (!quotaProject) return null;
 
-  const model = 'gemini-2.5-flash';
+  const model = GEMINI_LIGHT_MODEL;
   const prompt = [
-    'You are checking the TOP BAND of an already-rendered short video frame.',
-    `Intended new hook text: "${String(hookText || '').trim() || '(empty)'}"`,
-    `Band box roughly starts at y=${Math.round(Number(coverBox?.y) || 0)} and height=${Math.round(Number(coverBox?.h) || 0)}.`,
-    'Task: decide if ANY extra leftover text fragments are still visible in the top area besides the intended new hook.',
-    'Count as leak=true if old text is peeking from the very top edge, above the new hook, behind it, or as leftover fragments.',
-    'Do NOT treat the intended new hook itself as a leak.',
+    'You are checking the TOP of an already-rendered 9:16 short video frame after a black band was applied.',
+    `Our NEW hook (ignore this as leak): "${String(hookText || '').trim() || '(empty)'}"`,
+    `Black band covers from y=${Math.round(Number(coverBox?.y) || 0)} with height=${Math.round(Number(coverBox?.h) || 0)} (pixels from top; 0=top).`,
+    'FAIL if ANY original/foreign text remains visible IMMEDIATELY BELOW the black band edge (common bug: a second headline line, partial words, emojis, or faded old caption peeking into the content area).',
+    'Also FAIL if old white/colored text shows through under the band.',
+    'SUCCESS (leak=false) only if ONLY our new hook is readable on the band and NO old stacked title lines remain below it.',
+    'Return extra_band_px: how many pixels taller the black band should be (8-120) if leak=true; else 0.',
     'Return only JSON.'
   ].join('\n');
 
@@ -1024,7 +1029,7 @@ async function geminiVerifyTopBandLeak({ geminiProject, geminiLocation, previewP
     if (!parsed || typeof parsed !== 'object') return null;
     return {
       leak: !!parsed.leak,
-      extraBandPx: clamp(Number(parsed.extra_band_px) || 0, 0, 160),
+      extraBandPx: clamp(Number(parsed.extra_band_px) || 0, 0, 200),
       reason: String(parsed.reason || '').trim()
     };
   } catch {
@@ -1038,7 +1043,7 @@ async function geminiVerifyUsernameBlurLeak({ geminiProject, geminiLocation, pre
   const vertexLocation = String(geminiLocation || GEMINI_LOCATION_DEFAULT || '').trim();
   if (!quotaProject) return null;
 
-  const model = 'gemini-2.5-flash';
+  const model = GEMINI_LIGHT_MODEL;
   const prompt = [
     'You are checking a BLURRED username region from a rendered short video.',
     `Expected username text: "${String(expectedUsername || '').trim() || '(unknown)'}"`,
@@ -1112,7 +1117,7 @@ async function geminiVerifyUsernameBlurLeak({ geminiProject, geminiLocation, pre
   const prompt = promptIntro + `KURALLAR:
 - hook kesinlikle emoji içermez.
 - hook içinde "crazy", "viral", "insane" kelimeleri geçemez.
-- hook en fazla 5 kelime olmalı, kısa ve videoyla doğrudan ilgili olmalı.
+- hook 3-7 kelime olabilir; videoyla doğrudan ilgili, somut olmalı (gereksiz uzatma yok).
 - caption içine hashtag yazma; hashtagleri SADECE hashtags array içine koy.
 - caption TEK cümle olsun.
 - caption soru cümlesi OLMAMALI. Soru işareti kullanma.
@@ -1200,11 +1205,13 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
   const body = {
     contents: [{ role: 'user', parts }],
     generationConfig: {
-      temperature: 0.55,
+      temperature: 0.45,
       maxOutputTokens: 4096,
       responseMimeType: 'application/json',
       responseSchema: directorSchema,
-      thinkingConfig: { thinkingBudget: 1024 }
+      thinkingConfig: {
+        thinkingBudget: Math.min(8192, Math.max(0, Number(process.env.GEMINI_VERTEX_THINKING_BUDGET || 2048) || 2048))
+      }
     }
   };
 
@@ -1217,7 +1224,7 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
   const retryWaitMsQuota = 60_000;
   const retryWaitMsAbort = 10_000;
   const retryWaitMsDemand = 15_000;
-  const requestTimeoutMs = 90_000;
+  const requestTimeoutMs = Math.min(600_000, Math.max(45_000, Number(process.env.GEMINI_VERTEX_TIMEOUT_MS || 180_000) || 180_000));
   const modelsToTry = Array.isArray(GEMINI_MODELS) && GEMINI_MODELS.length ? GEMINI_MODELS.slice() : [GEMINI_MODEL];
   let lastErr = null;
   let lastModelTried = GEMINI_MODEL;
@@ -2160,12 +2167,16 @@ app.post('/crush', async (req, res) => {
       if (director.oldHookBox && director.oldHookBox.w >= 8 && director.oldHookBox.h >= 8) {
         const ob = director.oldHookBox;
         const padY = Math.max(3, Math.round(outH * 0.004));
-        const bottom = Math.max(2, Math.min(outH, Math.round(ob.y + ob.h + padY)));
-        // Kullanıcı kuralı:
-        // - Üstte hook varsa siyah bant HER ZAMAN videonun en üstünden başlamalı.
-        // - Sadece alt sınır (bitiş noktası) Gemini old_hook_box alt kenarına göre değişmeli.
+        // İkinci satır/emoji sızıntısı: kutu sadece 1. satıra sıkı ölçülmüş olabiliyor — ekstra güven payı.
+        const antiLeakPad = Math.max(26, Math.round(outH * 0.034));
+        const fromBoxBottom = Math.max(2, Math.min(outH, Math.round(ob.y + ob.h + padY + antiLeakPad)));
+        const fromHdr =
+          Number.isFinite(hdr) && hdr > 0
+            ? Math.max(2, Math.min(outH, Math.round(hdr * 1.12)))
+            : 0;
+        // Kullanıcı kuralı: bant y=0’dan başlar; alt kenar = kutunun altı ile header_height ölçümünün MAX’i (+padding).
         bandY = 0;
-        bandH = Math.max(minBandHook, Math.min(outH, bottom));
+        bandH = Math.max(minBandHook, Math.min(outH, Math.max(fromBoxBottom, fromHdr)));
         bandReason = 'gemini_old_hook_box_top_anchored';
       } else if (Number.isFinite(hdr) && hdr > 0) {
         bandY = 0;
@@ -2312,35 +2323,38 @@ app.post('/crush', async (req, res) => {
     });
     plan = await renderPlanWithFallback(plan);
 
-    const topBandSafety = { checked: false, leakDetected: false, rerendered: false, reason: '', extraBandPx: 0 };
+    const topBandSafety = { checked: false, leakDetected: false, rerendered: false, rounds: 0, reason: '', extraBandPx: 0 };
     if (coverBox && geminiAuthPresent) {
       const topPreview = path.join(tmpDir, 'top_band_preview.png');
       try {
-        const previewH = Math.min(outH, Math.max(220, Math.round((coverBox.y || 0) + (coverBox.h || 0) + 60)));
-        await ffmpegExtractTopBandPreview(outFile, topPreview, previewH, 0.05);
-        const topLeak = await geminiVerifyTopBandLeak({
-          geminiProject,
-          geminiLocation,
-          previewPath: topPreview,
-          hookText: hook && hook.text ? hook.text : '',
-          coverBox
-        });
-        topBandSafety.checked = true;
-        if (topLeak) {
-          topBandSafety.reason = topLeak.reason || '';
-          topBandSafety.extraBandPx = Number(topLeak.extraBandPx) || 0;
-        }
-        if (topLeak && topLeak.leak) {
+        for (let round = 0; round < 2; round++) {
+          const previewH = Math.min(outH, Math.max(260, Math.round((coverBox.y || 0) + (coverBox.h || 0) + 88)));
+          await ffmpegExtractTopBandPreview(outFile, topPreview, previewH, 0.05);
+          const topLeak = await geminiVerifyTopBandLeak({
+            geminiProject,
+            geminiLocation,
+            previewPath: topPreview,
+            hookText: hook && hook.text ? hook.text : '',
+            coverBox
+          });
+          topBandSafety.checked = true;
+          if (topLeak) {
+            topBandSafety.reason = topLeak.reason || '';
+            topBandSafety.extraBandPx = Number(topLeak.extraBandPx) || 0;
+          }
+          if (!topLeak || !topLeak.leak) break;
           topBandSafety.leakDetected = true;
-          const growPx = clamp(topLeak.extraBandPx || 34, 18, 96);
+          topBandSafety.rounds = round + 1;
+          const growPx = clamp(topLeak.extraBandPx || 40, 24, 140);
           const oldBottom = Math.max(0, Math.round((coverBox.y || 0) + (coverBox.h || 0)));
           const newBottom = Math.min(outH, oldBottom + growPx);
-          coverBox = { y: 0, h: Math.max(oldBottom, newBottom), w: outW, opacity: 1 };
+          coverBox = { y: 0, h: newBottom, w: outW, opacity: 1 };
           if (hook) {
             hook.boxOpacity = 1;
             hook.bannerY = 0;
           }
           console.log('[Crush Safety]', JSON.stringify({
+            round: round + 1,
             leakDetected: true,
             growPx,
             newCoverBox: coverBox,
