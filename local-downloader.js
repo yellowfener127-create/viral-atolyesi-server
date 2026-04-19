@@ -15,6 +15,8 @@ const PORT = process.env.LOCAL_DOWNLOADER_PORT || 8787;
 const DEFAULT_DIR = path.join(process.env.USERPROFILE || process.cwd(), 'Videos', 'Viral Atölyesi İndirilenler');
 const DOWNLOAD_DIR = process.env.VA_DOWNLOAD_DIR || DEFAULT_DIR;
 const PUBLIC_DIR = path.join(__dirname, 'public');
+/** Gemini’ye giden kareler + tüm bbox’lar bu kare uzayında (letterbox 1000×1000). */
+const GEMINI_ANALYSIS_PX = 1000;
 const GEMINI_PROJECT_DEFAULT = process.env.GEMINI_PROJECT || 'gen-lang-client-0508869582';
 const GEMINI_LOCATION_DEFAULT = process.env.GEMINI_LOCATION || 'us-central1';
 // Varsayılan: yalnızca en güçlü model (2.5 Pro). Flash vb. ucuz modelleri istemiyorsanız bu yeterli.
@@ -299,15 +301,17 @@ function salvageDirectorJson(text) {
   const coordUnitsRaw = extractJsonLikeStringField(src, 'coord_units');
   const hashtags = [...explicitTags, ...inlineTags, ...captionParts.hashtags].filter(Boolean);
 
-  if (!hook && !captionRaw && originalHeaderHeight == null && !oldHookBoxLoose) return null;
+  const usernameBlur1k = extractJsonLikeBoxArrayField(src, 'username_blur_boxes_1k', 12);
+  if (!hook && !captionRaw && originalHeaderHeight == null && !oldHookBoxLoose && !usernameBlur1k.length) return null;
   return {
     hook,
     caption: captionParts.caption || captionRaw || '',
     old_hook_text: oldHookText || '',
     hashtags,
-    coord_units: coordUnitsRaw || 'px',
+    coord_units: coordUnitsRaw || 'analysis_1k',
     old_hook_box: oldHookBoxLoose || { x: 0, y: 0, w: 0, h: 0 },
-    original_header_height: Number.isFinite(originalHeaderHeight) ? originalHeaderHeight : 0
+    original_header_height: Number.isFinite(originalHeaderHeight) ? originalHeaderHeight : 0,
+    username_blur_boxes_1k: usernameBlur1k
   };
 }
 
@@ -749,23 +753,23 @@ function fallbackHookTextForBrand(brand) {
   ]);
 }
 
-async function ffmpegExtractFrame(inFile, outFile, tSec) {
+async function ffmpegExtractFrame(inFile, outFile, tSec, ffmpegBin = 'ffmpeg') {
   const args = [
     '-y',
     '-ss', String(Math.max(0, tSec).toFixed(3)),
     '-i', inFile,
     '-frames:v', '1',
-    // Token tasarrufu için daha küçük kareler
-    '-vf', 'scale=512:-1',
-    // Bu FFmpeg build'inde JPEG(mjpeg) encoder strictness hatası çıkabiliyor.
-    // PNG ile garanti alıyoruz.
+    // Gemini: sabit 1000×1000 letterbox — tüm bbox koordinatları bu uzayda.
+    '-vf',
+    `scale=${GEMINI_ANALYSIS_PX}:${GEMINI_ANALYSIS_PX}:force_original_aspect_ratio=decrease,` +
+      `pad=${GEMINI_ANALYSIS_PX}:${GEMINI_ANALYSIS_PX}:(ow-iw)/2:(oh-ih)/2:color=black`,
     '-c:v', 'png',
     outFile
   ];
-  await run('ffmpeg', args, { timeoutMs: 45_000 });
+  await run(ffmpegBin, args, { timeoutMs: 45_000 });
 }
 
-async function ffmpegExtractAudioPreview(inFile, outFile, durSec = 10) {
+async function ffmpegExtractAudioPreview(inFile, outFile, durSec = 10, ffmpegBin = 'ffmpeg') {
   const args = [
     '-y',
     '-i', inFile,
@@ -776,7 +780,7 @@ async function ffmpegExtractAudioPreview(inFile, outFile, durSec = 10) {
     '-b:a', '32k',
     outFile
   ];
-  await run('ffmpeg', args, { timeoutMs: 45_000 });
+  await run(ffmpegBin, args, { timeoutMs: 45_000 });
 }
 
 async function ffmpegExtractTopBandPreview(inFile, outFile, cropHeight, tSec = 0.05) {
@@ -786,7 +790,9 @@ async function ffmpegExtractTopBandPreview(inFile, outFile, cropHeight, tSec = 0
     '-ss', String(Math.max(0, tSec).toFixed(3)),
     '-i', inFile,
     '-frames:v', '1',
-    '-vf', `crop=iw:${cropH}:0:0,scale=512:-1`,
+    '-vf',
+    `crop=iw:${cropH}:0:0,scale=${GEMINI_ANALYSIS_PX}:${GEMINI_ANALYSIS_PX}:force_original_aspect_ratio=decrease,` +
+      `pad=${GEMINI_ANALYSIS_PX}:${GEMINI_ANALYSIS_PX}:(ow-iw)/2:(oh-ih)/2:color=black`,
     '-c:v', 'png',
     outFile
   ];
@@ -934,11 +940,19 @@ ANTI-HALLUCINATION:
 
 SİYAH BANT (SIZINTI YASAK):
 - İki satırlı üst başlık + tagline + emoji tek blok; old_hook_box tümünü kapsasın.
-- original_header_height: y=0'dan son üst-metin pikseline (720x1280). Çelişirde büyük olanı al. Tipik 80–320 px.
+- original_header_height: **1000×1000 analiz PNG** üzerinde y=0’dan üst metin bloğunun en alt pikseline kadar olan yükseklik (0–1000 tamsayı). Siyah letterbox üstüne düşme; sadece görünen üst başlık alanı.
 - Ranked üst başlık + alt satırı kaçırma.
 
-KOORDİNAT JSON:
-- coord_units px veya norm; old_hook_box yoksa sıfır.
+KOORDİNAT UZAYI (ZORUNLU — TEK SİSTEM):
+- Sana giden HER kare **${GEMINI_ANALYSIS_PX}×${GEMINI_ANALYSIS_PX}** PNG: video oranı korunur, etraf siyah letterbox ile kare tamamlanır.
+- **coord_units** alanında MUTLAKA şunu yaz: "analysis_1k".
+- **old_hook_box** ve **username_blur_boxes_1k** içindeki x,y,w,h **tam bu ${GEMINI_ANALYSIS_PX}×${GEMINI_ANALYSIS_PX} görüntü pikselidir** (sol üst 0,0; sağ alt ${GEMINI_ANALYSIS_PX},${GEMINI_ANALYSIS_PX}). 720×1280 veya başka çözünürlük kullanma.
+
+USERNAME / HANDLE GİZLİLİĞİ (ZORUNLU ALAN):
+- username_blur_boxes_1k: **dizi** (boş [] olabilir). Her eleman {x,y,w,h} — kullanıcı adı, @handle, kanal watermark yazısı, profil adı vb. **okunabilir metin + küçük çevresi** (yaklaşık 6–32 px padding) tek dikdörtgende.
+- Görünür bir kullanıcı adı / handle varsa mutlaka bir kutu ekle; yoksa [] döndür.
+- Kutuları abartılı büyütme (tüm ekranı kaplama yasak); sadece metin + hemen çevresi.
+- old_hook_box ile aynı uzay: ikisi de analysis_1k.
 
 === BÖLÜM C — İÇ SES (JSON DIŞI, SADECE DÜŞÜN) ===
 Çıktıya yazma; sırayla zihninde işle:
@@ -989,13 +1003,14 @@ Ranked stratejisi: mümkünse en güçlü payoff (çoğunlukla son bölüm / son
 
 ZORUNLU JSON ŞEMASI:
 {
-  "coord_units": "px",
+  "coord_units": "analysis_1k",
   "hook": "3-7 kelime tam İngilizce başlık; emoji yok; crazy/viral/insane yok",
   "caption": "TEK cümle İngilizce. Videodaki olayı anlatsın ve izleyiciye hitap etsin. Soru sorma. Emoji yok.",
   "old_hook_text": "",
   "hashtags": ["#viral", "#kesfet", "#trending", "#chaos", "#specific"],
   "old_hook_box": {"x": 0, "y": 0, "w": 0, "h": 0},
-  "original_header_height": 0
+  "original_header_height": 0,
+  "username_blur_boxes_1k": []
 }
 
 `;
@@ -1009,7 +1024,9 @@ ZORUNLU JSON ŞEMASI:
 - caption: tek cümle, soru yok, emoji yok, hashtag yok; sıcak ton; ranked CTA hafif olabilir (tek cümle).
 - old_hook_text: üst metin varsa aynen; yoksa "".
 - hashtags: tam 5, # ile, benzersiz; 3 genel + 1 konsept (#chaos/#therapy/#motivation) + 1 spesifik (#ranked ranked ise).
-- old_hook_box / original_header_height: üst şerit kuralları; içerik yazısı = sıfır.
+- coord_units: "analysis_1k" zorunlu; old_hook_box ve username_blur_boxes_1k bu uzayda (0–${GEMINI_ANALYSIS_PX}).
+- username_blur_boxes_1k: dizi zorunlu (yoksa []); her kutu @username/handle çevresi; hayali kutu yok.
+- old_hook_box / original_header_height: üst şerit kuralları; içerik yazısı = sıfır; yükseklik 1k dikey ölçekte.
 - Ranked: payoff sona yakın tercih.
 
 NOT: Aksiyon belirsizse ses piklerine dayan; yine yasaklara uy. Her durumda başlık + karelerle uyumlu hook.
@@ -1037,7 +1054,7 @@ NOT: Aksiyon belirsizse ses piklerine dayan; yine yasaklara uy. Her durumda baş
   const directorSchema = {
     type: 'OBJECT',
     properties: {
-      coord_units: { type: 'STRING', enum: ['px', 'norm'] },
+      coord_units: { type: 'STRING', enum: ['analysis_1k', 'px', 'norm'] },
       hook: { type: 'STRING' },
       caption: { type: 'STRING' },
       old_hook_text: { type: 'STRING' },
@@ -1050,11 +1067,27 @@ NOT: Aksiyon belirsizse ses piklerine dayan; yine yasaklara uy. Her durumda baş
           w: { type: 'INTEGER' }, h: { type: 'INTEGER' }
         },
         required: ['x', 'y', 'w', 'h']
+      },
+      username_blur_boxes_1k: {
+        type: 'ARRAY',
+        minItems: 0,
+        maxItems: 10,
+        items: {
+          type: 'OBJECT',
+          properties: {
+            x: { type: 'INTEGER' },
+            y: { type: 'INTEGER' },
+            w: { type: 'INTEGER' },
+            h: { type: 'INTEGER' }
+          },
+          required: ['x', 'y', 'w', 'h']
+        }
       }
     },
     required: [
       'coord_units', 'hook', 'caption', 'hashtags',
-      'original_header_height', 'old_hook_box', 'old_hook_text'
+      'original_header_height', 'old_hook_box', 'old_hook_text',
+      'username_blur_boxes_1k'
     ]
   };
 
@@ -1339,7 +1372,7 @@ function fallbackHashtagsForBrand(brand) {
   return ['#cute', '#wholesome', '#animals', '#funny', '#viral'];
 }
 
-/** coord_units: "px" (720x1280) veya "norm" (0–100 yüzde) */
+/** coord_units: "px" (720x1280) veya "norm" (0–100 yüzde). analysis_1k burada işlenmez (null). */
 function regionPixelsFromRaw(r, outW, outH, coordUnits) {
   if (!r || typeof r !== 'object') return null;
   let x = Number(r.x);
@@ -1348,6 +1381,7 @@ function regionPixelsFromRaw(r, outW, outH, coordUnits) {
   let h = Number(r.h);
   if (![x, y, w, h].every(Number.isFinite)) return null;
   const u = String(coordUnits || 'px').toLowerCase();
+  if (u === 'analysis_1k') return null;
   let useNorm = (u === 'norm' || u === 'normalized' || u === 'percent' || u === '0-100');
   // Gemini bazen coord_units ile gerçek sayı ölçeğini karıştırabiliyor.
   // - norm denip 0..100 dışı değer gelirse px kabul et
@@ -1402,12 +1436,80 @@ function clampCrushCoverBoxHeight(coverBox, outH) {
   return { ...coverBox, h };
 }
 
-function normalizeDirectorResult(raw, outW, outH, brand, titleHint) {
+/**
+ * Gemini director çıktısından hook + üst bant + username blur dikdörtgenleri (remix/cache yok — sunucu /tools/crush ile paylaşım).
+ */
+function crushHookCoverUsernameFromDirector(director, outW, outH, titleIsListicle = false) {
+  const usernameBlurRects =
+    director && Array.isArray(director.usernameBlurRectsOut) ? director.usernameBlurRectsOut : [];
+  if (!director || !director.newHook) {
+    return { hook: null, coverBox: null, usernameBlurRects };
+  }
+  const hookText = String(director.newHook.text || '').trim();
+  const hook = {
+    text: hookText,
+    bannerY: outH * (1 - (Number(director.newHook.yPx) / 100)),
+    y: Number(director.newHook.yPx),
+    boxOpacity: Number(director.newHook.boxOpacity),
+    color: director.hookColor || null
+  };
+  const isListicle = !!director.isListicle;
+  let coverBox = null;
+  const minBandHdr = Math.round(outH * 0.22);
+  const minBandHook = Math.round(outH * 0.10);
+  const hdr = Number(director.originalHeaderHeight);
+  let bandY = 0;
+  let bandH = 0;
+  if (director.oldHookBox && director.oldHookBox.w >= 8 && director.oldHookBox.h >= 8) {
+    const ob = director.oldHookBox;
+    const padY = Math.max(3, Math.round(outH * 0.004));
+    const antiLeakPad = Math.max(26, Math.round(outH * 0.034));
+    const fromBoxBottom = Math.max(2, Math.min(outH, Math.round(ob.y + ob.h + padY + antiLeakPad)));
+    const fromHdr =
+      Number.isFinite(hdr) && hdr > 0
+        ? Math.max(2, Math.min(outH, Math.round(hdr * 1.12)))
+        : 0;
+    bandY = 0;
+    bandH = Math.max(minBandHook, Math.min(outH, Math.max(fromBoxBottom, fromHdr)));
+  } else if (Number.isFinite(hdr) && hdr > 0) {
+    bandY = 0;
+    bandH = Math.max(2, Math.min(outH, Math.max(minBandHdr, Math.round(hdr * 1.35))));
+  }
+  if (bandH === 0 && (isListicle || titleIsListicle)) {
+    bandY = 0;
+    bandH = Math.max(minBandHdr, Math.round(outH * 0.22));
+  }
+  const bandHMax = Math.min(CRUSH_MAX_BAND_HEIGHT_CAP, Math.round(outH * CRUSH_MAX_BAND_HEIGHT_FRAC));
+  if (bandH > bandHMax) bandH = bandHMax;
+  if (bandH > 0) {
+    coverBox = clampCrushCoverBoxHeight({ y: bandY, h: bandH, w: outW, opacity: 1 }, outH);
+    hook.boxOpacity = 1;
+    hook.bannerY = coverBox.y;
+  }
+  if (!director.hasOriginalHook && (!Number.isFinite(hook.boxOpacity) || hook.boxOpacity <= 0)) {
+    hook.boxOpacity = randRange(0.30, 0.50);
+  }
+  return { hook, coverBox, usernameBlurRects };
+}
+
+function normalizeDirectorResult(raw, outW, outH, brand, titleHint, sourceRef) {
   if (!raw || typeof raw !== 'object') return null;
-  const coordUnits = raw.coord_units || raw.coordUnits || 'px';
+  let coordUnits = String(raw.coord_units || raw.coordUnits || 'analysis_1k').toLowerCase();
+  if (coordUnits !== 'analysis_1k' && coordUnits !== 'px' && coordUnits !== 'norm') coordUnits = 'analysis_1k';
   const titleForHook = String(titleHint || '').trim();
+  const inW = sourceRef && Number.isFinite(sourceRef.inW) ? sourceRef.inW : null;
+  const inH = sourceRef && Number.isFinite(sourceRef.inH) ? sourceRef.inH : null;
+  const canMap1k = !!(inW && inH && coordUnits === 'analysis_1k');
   // New strict schema support:
-  if (typeof raw.hook === 'string' || typeof raw.caption === 'string' || raw.original_header_height != null || raw.old_hook_box != null || raw.oldHookBox != null) {
+  if (
+    typeof raw.hook === 'string' ||
+    typeof raw.caption === 'string' ||
+    raw.original_header_height != null ||
+    raw.old_hook_box != null ||
+    raw.oldHookBox != null ||
+    (Array.isArray(raw.username_blur_boxes_1k) && raw.username_blur_boxes_1k.length) ||
+    (Array.isArray(raw.usernameBlurBoxes1k) && raw.usernameBlurBoxes1k.length)
+  ) {
     let hookRaw = String(raw.hook || '').trim();
     if (!hookRaw) hookRaw = fallbackHookTextForBrand(brand);
     const hook = splitHookTwoLines(hookRaw, { titleHint: titleForHook });
@@ -1425,7 +1527,27 @@ function normalizeDirectorResult(raw, outW, outH, brand, titleHint) {
     const caption = toSingleSentenceCaption(captionParts.caption || '');
     const headerH = Number(raw.original_header_height);
     let originalHeaderHeight = Number.isFinite(headerH) && headerH > 0 ? headerH : 0;
-    let oldHookBoxPx = clampRegionForVideo(raw.old_hook_box || raw.oldHookBox, outW, outH, coordUnits);
+    const rawBox = raw.old_hook_box || raw.oldHookBox;
+    let oldHookBoxPx = null;
+    if (canMap1k && rawBox && (rawBox.w > 0 || rawBox.h > 0)) {
+      const b1k = clampUsernameBlurBox1k(rawBox);
+      oldHookBoxPx = b1k ? mapUsernameBlurBox1kToOutPx(b1k, inW, inH, outW, outH) : null;
+      if (originalHeaderHeight > 0) {
+        originalHeaderHeight = map1kVerticalSpanToOutHeight(
+          0,
+          clampInt(originalHeaderHeight, 1, GEMINI_ANALYSIS_PX),
+          inW,
+          inH,
+          outW,
+          outH
+        );
+      }
+    } else {
+      oldHookBoxPx = clampRegionForVideo(rawBox, outW, outH, coordUnits);
+      if (coordUnits === 'analysis_1k' && !canMap1k && originalHeaderHeight > 0) {
+        originalHeaderHeight = Math.round((originalHeaderHeight / GEMINI_ANALYSIS_PX) * outH);
+      }
+    }
     const sanTop = sanitizeDirectorTopOverlay(oldHookBoxPx, originalHeaderHeight, outH);
     oldHookBoxPx = sanTop.oldHookBoxPx;
     originalHeaderHeight = sanTop.originalHeaderHeight;
@@ -1437,6 +1559,8 @@ function normalizeDirectorResult(raw, outW, outH, brand, titleHint) {
       : raw.listicle != null ? !!raw.listicle
       : false;
 
+    const usernameBlurBoxes1k = normalizeUsernameBlurBoxes1k(raw);
+    const usernameBlurRectsOut = canMap1k ? mapUsernameBlurBoxes1kToOutPx(usernameBlurBoxes1k, inW, inH, outW, outH) : [];
     const out = {
       hasOriginalHook: hasHeader || hasOldBox,
       oldHook: hasHeader ? { yPct: 0, hPct: (originalHeaderHeight / outH) * 100 } : null,
@@ -1448,7 +1572,10 @@ function normalizeDirectorResult(raw, outW, outH, brand, titleHint) {
       caption,
       oldHookText: stripEmoji(String(raw.old_hook_text || raw.oldHookText || '').trim()),
       hashtags,
-      originalHeaderHeight
+      originalHeaderHeight,
+      usernameBlurBoxes1k,
+      usernameBlurRectsOut,
+      analysisSpacePx: GEMINI_ANALYSIS_PX
     };
     if (!out.caption) out.caption = fallbackCaptionForBrand(brand);
     return out;
@@ -1639,6 +1766,129 @@ function clamp(n, lo, hi) {
   const x = Number(n);
   if (!Number.isFinite(x)) return lo;
   return Math.min(hi, Math.max(lo, x));
+}
+
+function clampInt(n, lo, hi) {
+  const x = Math.round(Number(n));
+  if (!Number.isFinite(x)) return lo;
+  return Math.min(hi, Math.max(lo, x));
+}
+
+/** ffprobe → ilk video akışı genişlik/yükseklik */
+async function probeVideoStreamSize(filePath, ffprobeBin = 'ffprobe') {
+  const args = [
+    '-v', 'error',
+    '-select_streams', 'v:0',
+    '-show_entries', 'stream=width,height',
+    '-of', 'csv=p=0',
+    filePath
+  ];
+  const child = spawn(ffprobeBin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  return await new Promise((resolve) => {
+    child.stdout.on('data', (d) => { out += d.toString(); });
+    child.on('error', () => resolve(null));
+    child.on('close', (code) => {
+      if (code !== 0) return resolve(null);
+      const parts = String(out || '').trim().split(',');
+      const width = Number(parts[0]);
+      const height = Number(parts[1]);
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width < 16 || height < 16) return resolve(null);
+      resolve({ width: Math.round(width), height: Math.round(height) });
+    });
+  });
+}
+
+/** Letterbox 1000×1000 analiz karesindeki (ax,ay) → kaynak video (ix,iy) oranları; sonra çıktı crop (outW×outH). */
+function mapAnalysisPointToOut(ax, ay, inW, inH, outW, outH) {
+  const Wk = GEMINI_ANALYSIS_PX;
+  const sA = Math.min(Wk / inW, Wk / inH);
+  const fitW = inW * sA;
+  const fitH = inH * sA;
+  const padX = (Wk - fitW) / 2;
+  const padY = (Wk - fitH) / 2;
+  const ix = clamp((ax - padX) / sA, 0, inW);
+  const iy = clamp((ay - padY) / sA, 0, inH);
+  const sC = Math.max(outW / inW, outH / inH);
+  const sw = inW * sC;
+  const sh = inH * sC;
+  const cox = (sw - outW) / 2;
+  const coy = (sh - outH) / 2;
+  return {
+    ox: clampInt(ix * sC - cox, 0, outW - 1),
+    oy: clampInt(iy * sC - coy, 0, outH - 1)
+  };
+}
+
+function map1kVerticalSpanToOutHeight(y0a, y1a, inW, inH, outW, outH) {
+  const xa = GEMINI_ANALYSIS_PX / 2;
+  const p0 = mapAnalysisPointToOut(xa, clamp(y0a, 0, GEMINI_ANALYSIS_PX), inW, inH, outW, outH);
+  const p1 = mapAnalysisPointToOut(xa, clamp(y1a, 0, GEMINI_ANALYSIS_PX), inW, inH, outW, outH);
+  return Math.max(0, Math.round(Math.abs(p1.oy - p0.oy)));
+}
+
+function clampUsernameBlurBox1k(b) {
+  const x = clampInt(b?.x, 0, GEMINI_ANALYSIS_PX - 1);
+  const y = clampInt(b?.y, 0, GEMINI_ANALYSIS_PX - 1);
+  let w = clampInt(b?.w, 0, GEMINI_ANALYSIS_PX);
+  let h = clampInt(b?.h, 0, GEMINI_ANALYSIS_PX);
+  w = Math.min(w, GEMINI_ANALYSIS_PX - x);
+  h = Math.min(h, GEMINI_ANALYSIS_PX - y);
+  if (w < 6 || h < 6) return null;
+  return { x, y, w, h };
+}
+
+function normalizeUsernameBlurBoxes1k(raw) {
+  const arr = Array.isArray(raw?.username_blur_boxes_1k)
+    ? raw.username_blur_boxes_1k
+    : Array.isArray(raw?.usernameBlurBoxes1k)
+      ? raw.usernameBlurBoxes1k
+      : [];
+  const out = [];
+  for (const b of arr) {
+    const c = clampUsernameBlurBox1k(b);
+    if (c) out.push(c);
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
+/** 1000×1000 letterbox kutusu → ilk scale+crop sonrası outW×outH piksel dikdörtgen */
+function mapUsernameBlurBox1kToOutPx(box1k, inW, inH, outW, outH) {
+  const corners = [
+    mapAnalysisPointToOut(box1k.x, box1k.y, inW, inH, outW, outH),
+    mapAnalysisPointToOut(box1k.x + box1k.w, box1k.y, inW, inH, outW, outH),
+    mapAnalysisPointToOut(box1k.x, box1k.y + box1k.h, inW, inH, outW, outH),
+    mapAnalysisPointToOut(box1k.x + box1k.w, box1k.y + box1k.h, inW, inH, outW, outH)
+  ];
+  let minOx = Infinity;
+  let minOy = Infinity;
+  let maxOx = -Infinity;
+  let maxOy = -Infinity;
+  for (const c of corners) {
+    minOx = Math.min(minOx, c.ox);
+    minOy = Math.min(minOy, c.oy);
+    maxOx = Math.max(maxOx, c.ox);
+    maxOy = Math.max(maxOy, c.oy);
+  }
+  const x = clampInt(Math.floor(minOx), 0, outW - 2);
+  const y = clampInt(Math.floor(minOy), 0, outH - 2);
+  let w = clampInt(Math.ceil(maxOx - minOx), 4, outW);
+  let h = clampInt(Math.ceil(maxOy - minOy), 4, outH);
+  w = Math.min(w, outW - x);
+  h = Math.min(h, outH - y);
+  if (w < 8 || h < 8) return null;
+  return { x, y, w, h };
+}
+
+function mapUsernameBlurBoxes1kToOutPx(boxes1k, inW, inH, outW, outH) {
+  if (!inW || !inH || !boxes1k || !boxes1k.length) return [];
+  const out = [];
+  for (const b of boxes1k) {
+    const m = mapUsernameBlurBox1kToOutPx(b, inW, inH, outW, outH);
+    if (m) out.push(m);
+  }
+  return out.slice(0, 10);
 }
 
 async function ytDlpGetDurationSec(url) {
@@ -1975,6 +2225,7 @@ app.post('/crush', async (req, res) => {
     const outH = 1280;
     const hasAudio = await probeHasAudio(inFile);
     const musicFile = crush.pickRandomMusicFile(PUBLIC_DIR, brand);
+    const inVideoSize = await probeVideoStreamSize(inFile).catch(() => null);
 
     // Director v3: 20 kare + kısa audio preview → Gemini analizi
     let director = null;
@@ -2025,7 +2276,12 @@ app.post('/crush', async (req, res) => {
             directorDiag = rawDir.__va_diag || null;
             director = null;
           } else {
-            director = rawDir ? normalizeDirectorResult(rawDir, outW, outH, brand, metaTitle) : null;
+            director = rawDir
+              ? normalizeDirectorResult(rawDir, outW, outH, brand, metaTitle, {
+                inW: (inVideoSize && inVideoSize.width) || 1080,
+                inH: (inVideoSize && inVideoSize.height) || 1920
+              })
+              : null;
             directorDiag = rawDir && rawDir.__va_diag ? rawDir.__va_diag : null;
           }
         } catch (eDir) {
@@ -2196,9 +2452,20 @@ app.post('/crush', async (req, res) => {
       rememberUsed(cache, 'captions', finalCaption);
       saveDirectorCache(cache);
       if (!director) {
-        director = { caption: finalCaption, hashtags: finalHashtags };
+        director = {
+          caption: finalCaption,
+          hashtags: finalHashtags,
+          usernameBlurBoxes1k: [],
+          usernameBlurRectsOut: [],
+          analysisSpacePx: GEMINI_ANALYSIS_PX
+        };
       }
     }
+
+    const usernameBlurRects =
+      director && Array.isArray(director.usernameBlurRectsOut)
+        ? director.usernameBlurRectsOut
+        : [];
 
     const runFfmpeg = async (plan) => {
       await run('ffmpeg', [...plan.ffmpegArgsTail, outFile], { timeoutMs: 8 * 60 * 1000 });
@@ -2221,6 +2488,7 @@ app.post('/crush', async (req, res) => {
             sourceDurSec: inDur,
             hook,
             coverBox,
+            usernameBlurRects,
             hasAudio,
             ffmpegPath: 'ffmpeg',
             ffprobePath: 'ffprobe',
@@ -2243,6 +2511,7 @@ app.post('/crush', async (req, res) => {
       sourceDurSec: inDur,
       hook,
       coverBox,
+      usernameBlurRects,
       hasAudio,
       ffmpegPath: 'ffmpeg',
       ffprobePath: 'ffprobe',
@@ -2297,6 +2566,7 @@ app.post('/crush', async (req, res) => {
             sourceDurSec: inDur,
             hook,
             coverBox,
+            usernameBlurRects,
             hasAudio,
             ffmpegPath: 'ffmpeg',
             ffprobePath: 'ffprobe',
@@ -2355,9 +2625,22 @@ app.post('/crush', async (req, res) => {
   }
 });
 
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`Local Downloader running on http://127.0.0.1:${PORT}`);
-  console.log('Download dir:', DOWNLOAD_DIR);
-  console.log('Install yt-dlp then open your frontend and click Download.');
-});
+if (require.main === module) {
+  app.listen(PORT, '127.0.0.1', () => {
+    console.log(`Local Downloader running on http://127.0.0.1:${PORT}`);
+    console.log('Download dir:', DOWNLOAD_DIR);
+    console.log('Install yt-dlp then open your frontend and click Download.');
+  });
+}
+
+module.exports = {
+  GEMINI_ANALYSIS_PX,
+  geminiDirectorAnalyze,
+  normalizeDirectorResult,
+  probeVideoStreamSize,
+  ffmpegExtractFrame,
+  ffmpegExtractAudioPreview,
+  fileToInlineData,
+  crushHookCoverUsernameFromDirector
+};
 

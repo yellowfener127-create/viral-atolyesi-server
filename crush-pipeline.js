@@ -349,6 +349,50 @@ function clampDur(n, lo, hi) {
   return Math.min(hi, Math.max(lo, x));
 }
 
+/**
+ * outW×outH akışında username dikdörtgenlerine blur (ilk scale+crop sonrası).
+ * @param {string} inputLabel
+ * @param {Array<{x:number,y:number,w:number,h:number}>} rects
+ * @param {number} outW
+ * @param {number} outH
+ * @param {string} finalLabel
+ * @returns {{ chain: string, outLabel: string }}
+ */
+function buildUsernameBlurOverlayChain(inputLabel, rects, outW, outH, finalLabel) {
+  const list = (rects || []).filter((r) =>
+    r &&
+    Number.isFinite(r.x) &&
+    Number.isFinite(r.y) &&
+    Number.isFinite(r.w) &&
+    Number.isFinite(r.h) &&
+    r.w >= 8 &&
+    r.h >= 8
+  ).slice(0, 10);
+  if (!list.length) return { chain: '', outLabel: inputLabel };
+
+  const parts = [];
+  let cur = inputLabel;
+  list.forEach((r, i) => {
+    const x = Math.max(0, Math.min(outW - 2, Math.round(r.x)));
+    const y = Math.max(0, Math.min(outH - 2, Math.round(r.y)));
+    let w = Math.min(outW - x, Math.max(8, Math.round(r.w)));
+    let h = Math.min(outH - y, Math.max(8, Math.round(r.h)));
+    w -= w % 2;
+    h -= h % 2;
+    if (w < 8 || h < 8) return;
+    const nextLab = i === list.length - 1 ? finalLabel : `ubm${i}`;
+    const lr = Math.min(18, Math.max(6, Math.round(Math.min(w, h) / 12)));
+    parts.push(
+      `[${cur}]split=2[ubo${i}][ubp${i}];` +
+        `[ubp${i}]crop=${w}:${h}:${x}:${y},boxblur=${lr}:1[ubb${i}];` +
+        `[ubo${i}][ubb${i}]overlay=${x}:${y}:format=auto[${nextLab}]`
+    );
+    cur = nextLab;
+  });
+  if (!parts.length) return { chain: '', outLabel: inputLabel };
+  return { chain: parts.join(';'), outLabel: finalLabel };
+}
+
 async function buildCrushRenderPlan(o) {
   const {
     inFile,
@@ -360,6 +404,7 @@ async function buildCrushRenderPlan(o) {
     sourceDurSec,
     hook,
     coverBox,
+    usernameBlurRects,
     hasAudio,
     ffmpegPath,
     ffprobePath,
@@ -508,10 +553,18 @@ async function buildCrushRenderPlan(o) {
   const bandShadow = 'black@0.45';
 
   // hflip kapalı: yakılmış (burned-in) yazı pikseldir; altyazı akışı yoksa tespit edilemez, flip metni ters çevirir.
+  const ubRects = Array.isArray(usernameBlurRects) ? usernameBlurRects : [];
+  const ubChain = buildUsernameBlurOverlayChain('v0base', ubRects, outW, outH, 'v0postblur');
+
   let vChain = `[0:v]setpts=PTS-STARTPTS,fps=${targetFps}`;
+  vChain += `,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}[v0base]`;
+  if (ubChain.chain) {
+    vChain += `;${ubChain.chain}`;
+  } else {
+    vChain += `;[v0base]crop=${outW}:${outH}:0:0[v0postblur]`;
+  }
   vChain +=
-    `,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}` +
-    `,crop=${cropW}:${cropH}:(iw-ow)/2:(ih-oh)/2` +
+    `;[v0postblur]crop=${cropW}:${cropH}:(iw-ow)/2:(ih-oh)/2` +
     `,scale=iw*${zoom.toFixed(4)}:ih*${zoom.toFixed(4)},crop=${outW}:${outH}` +
     `,eq=contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}:brightness=${brightness.toFixed(4)}` +
     // Zoom kaynaklı yumuşamayı hafif toparla (çok agresif değil)
@@ -722,6 +775,7 @@ async function buildCrushRenderPlan(o) {
       targetFps,
       outDurSec: Number(outDur.toFixed(3)),
       edge,
+      usernameBlurCount: ubRects.length,
       musicFile: musicFile && fs.existsSync(musicFile) ? path.basename(musicFile) : null,
       hookFont: fontFile ? path.basename(fontFile) : null
     }
