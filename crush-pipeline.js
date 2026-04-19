@@ -343,7 +343,8 @@ function wrapCaptionLinesForReels(text, maxCharsPerLine, maxLines) {
 /**
  * Terapi/Umut: kesin dikey tuval (outW×outH, tipik 1080×1920), düz renk arka plan.
  * Üstte başlık bandı; videoyu bandın altındaki alanda genişliği dolduracak şekilde (increase+crop)
- * ölçekler — yanlarda dev boşluk oluşmaz. Hafif aşağı kaydırma ile üst “kutu” kalır.
+ * ölçekler — yanlarda dev boşluk oluşmaz. Hook metni tuval tepesine yapışık değil;
+ * videonun başladığı çizginin hemen üstüne hizalanır.
  * Girdi [v0], çıkış [v1].
  */
 function buildReelsInstagramCanvasFilters({
@@ -360,13 +361,23 @@ function buildReelsInstagramCanvasFilters({
   const titleBandH = Math.round(outH * 0.135);
   const bottomPad = Math.round(outH * 0.02);
   const contentH = Math.max(320, outH - titleBandH - bottomPad);
-  const captionBandTop = Math.round(44 * sy);
-  const fontSize = Math.max(20, Math.round(40 * s));
-  const lineStep = Math.max(Math.round(fontSize * 1.32), fontSize + 4);
-  const maxCapLines = Math.max(1, Math.floor((titleBandH - captionBandTop - 10) / lineStep));
-  const lines = (escapedLines || []).slice(0, maxCapLines);
   const nudgeDown = Math.round(18 * sy);
   const yTop = titleBandH + nudgeDown;
+  const gapAboveVideo = Math.round(12 * sy);
+  const minCaptionY = Math.round(18 * sy);
+  const fontSize = Math.max(20, Math.round(40 * s));
+  const lineStep = Math.max(Math.round(fontSize * 1.32), fontSize + 4);
+  const roomForLines = yTop - gapAboveVideo - minCaptionY;
+  const maxCapLines = Math.min(5, Math.max(1, Math.floor(roomForLines / lineStep)));
+  const lines = (escapedLines || []).slice(0, maxCapLines);
+  const textTail = Math.round(fontSize * 1.08);
+  const captionBandTop =
+    lines.length > 0
+      ? Math.max(
+          minCaptionY,
+          yTop - gapAboveVideo - (lines.length - 1) * lineStep - textTail
+        )
+      : minCaptionY;
   const bgHex = brandNorm === 'umut' ? '0xF5F5F5' : '0xF0F8FF';
   const padX = Math.max(16, Math.round(22 * sx));
 

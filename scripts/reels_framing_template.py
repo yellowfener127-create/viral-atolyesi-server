@@ -32,7 +32,8 @@ CANVAS_W = 1080
 CANVAS_H = 1920
 TITLE_BAND_FRAC = 0.135
 BOTTOM_PAD_FRAC = 0.02
-CAPTION_BAND_TOP = 44
+GAP_ABOVE_VIDEO = 12
+MIN_CAPTION_Y = 18
 FONT_SIZE = 40
 TEXT_WRAP_CHARS = 34
 NUDGE_DOWN = 18
@@ -110,12 +111,20 @@ def build_video_filter_complex_fixed(
     sr = float(scale_ratio) if scale_ratio and scale_ratio > 0 else 1.0
     content_h = max(240, int(content_h * min(1.0, sr)))
 
-    nudge = round(NUDGE_DOWN * (CANVAS_H / 1920))
+    sy = CANVAS_H / 1920
+    nudge = round(NUDGE_DOWN * sy)
     y_top = title_band_h + nudge
+    gap = max(8, round(GAP_ABOVE_VIDEO * sy))
+    min_cy = max(12, round(MIN_CAPTION_Y * sy))
     pad_x = max(16, round(22 * (CANVAS_W / 1080)))
     line_step = max(int(FONT_SIZE * 1.32), FONT_SIZE + 4)
-    max_lines = max(1, (title_band_h - CAPTION_BAND_TOP - 10) // line_step)
-    lines = [ln for ln in lines[:max_lines] if ln.strip()]
+    room = y_top - gap - min_cy
+    cap_lines = min(5, max(1, room // line_step))
+    kept = [ln for ln in lines[:cap_lines] if ln.strip()]
+    text_tail = int(FONT_SIZE * 1.08)
+    first_y = (
+        max(min_cy, y_top - gap - (len(kept) - 1) * line_step - text_tail) if kept else min_cy
+    )
 
     vf_vid = (
         f"[0:v]scale={CANVAS_W}:{content_h}:force_original_aspect_ratio=increase,"
@@ -123,18 +132,18 @@ def build_video_filter_complex_fixed(
     )
     color = f"color=c={bg_hex}:s={CANVAS_W}x{CANVAS_H}:d=99999[bg]"
     base = f"{vf_vid};{color};[bg][vid]overlay=x=(W-w)/2:y={y_top}:shortest=1[vt]"
-    if not lines:
+    if not kept:
         return f"{base};[vt]format=yuv420p[vout]"
 
     chain: list[str] = [base]
     cur_label = "vt"
     out_i = 0
-    for i, line in enumerate(lines):
+    for i, line in enumerate(kept):
         esc = escape_drawtext(line.strip())
         if not esc:
             continue
         ff = f":fontfile='{fontfile}'" if fontfile else ""
-        y = CAPTION_BAND_TOP + i * line_step
+        y = first_y + i * line_step
         nxt = f"vtxt{out_i}"
         chain.append(
             f"[{cur_label}]drawtext=text='{esc}'{ff}:fontsize={FONT_SIZE}:fontcolor=0x1a1a1a"
