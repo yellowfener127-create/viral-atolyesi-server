@@ -419,8 +419,8 @@ function buildManualBlurDelogoChain(inputLabel, rects, outW, outH, finalLabel) {
     h -= h % 2;
     if (w < 8 || h < 8) return;
     const nextLab = i === list.length - 1 ? finalLabel : `dlb${i}`;
-    const band = Math.min(16, Math.max(4, Math.round(Math.min(w, h) / 10)));
-    parts.push(`[${cur}]delogo=x=${x}:y=${y}:w=${w}:h=${h}:band=${band}:show=0[${nextLab}]`);
+    // Bazı Windows FFmpeg derlemelerinde delogo "band" seçeneği yok — sadece x,y,w,h (+ show).
+    parts.push(`[${cur}]delogo=x=${x}:y=${y}:w=${w}:h=${h}:show=0[${nextLab}]`);
     cur = nextLab;
   });
   if (!parts.length) return { chain: '', outLabel: inputLabel };
