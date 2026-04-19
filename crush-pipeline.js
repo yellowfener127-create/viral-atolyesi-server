@@ -349,16 +349,54 @@ function clampDur(n, lo, hi) {
   return Math.min(hi, Math.max(lo, x));
 }
 
+const MANUAL_BLUR_REF_W = 720;
+const MANUAL_BLUR_REF_H = 1280;
+
+/** İstek gövdesinden {x,y,w,h} dizisi (px, 720×1280 referansı). */
+function parseManualBlurRectsInput(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const r of raw) {
+    if (!r || typeof r !== 'object') continue;
+    const x = Math.round(Number(r.x));
+    const y = Math.round(Number(r.y));
+    const w = Math.round(Number(r.w));
+    const h = Math.round(Number(r.h));
+    if (![x, y, w, h].every((n) => Number.isFinite(n))) continue;
+    if (w < 4 || h < 4) continue;
+    const x0 = Math.max(0, Math.min(MANUAL_BLUR_REF_W - 1, x));
+    const y0 = Math.max(0, Math.min(MANUAL_BLUR_REF_H - 1, y));
+    const w0 = Math.max(4, Math.min(MANUAL_BLUR_REF_W - x0, w));
+    const h0 = Math.max(4, Math.min(MANUAL_BLUR_REF_H - y0, h));
+    out.push({ x: x0, y: y0, w: w0, h: h0 });
+  }
+  return out.slice(0, 10);
+}
+
+/** 720×1280 px alanı → gerçek çıktı çözünürlüğü (outW×outH). */
+function scaleManualBlurRectsToOutputPx(rects, refW, refH, outW, outH) {
+  const rw = Math.max(1, Number(refW) || MANUAL_BLUR_REF_W);
+  const rh = Math.max(1, Number(refH) || MANUAL_BLUR_REF_H);
+  const sx = outW / rw;
+  const sy = outH / rh;
+  return (rects || []).map((r) => ({
+    x: Math.round(r.x * sx),
+    y: Math.round(r.y * sy),
+    w: Math.round(r.w * sx),
+    h: Math.round(r.h * sy)
+  }));
+}
+
 /**
- * outW×outH akışında username dikdörtgenlerine blur (ilk scale+crop sonrası).
+ * outW×outH akışında manuel dikdörtgenler — delogo zinciri (ilk scale+crop sonrası).
  * @param {string} inputLabel
- * @param {Array<{x:number,y:number,w:number,h:number}>} rects
+ * @param {Array<{x:number,y:number,w:number,h:number}>} rects çıktı pikseli (outW×outH)
  * @param {number} outW
  * @param {number} outH
  * @param {string} finalLabel
  * @returns {{ chain: string, outLabel: string }}
  */
-function buildUsernameBlurOverlayChain(inputLabel, rects, outW, outH, finalLabel) {
+function buildManualBlurDelogoChain(inputLabel, rects, outW, outH, finalLabel) {
   const list = (rects || []).filter((r) =>
     r &&
     Number.isFinite(r.x) &&
@@ -380,13 +418,9 @@ function buildUsernameBlurOverlayChain(inputLabel, rects, outW, outH, finalLabel
     w -= w % 2;
     h -= h % 2;
     if (w < 8 || h < 8) return;
-    const nextLab = i === list.length - 1 ? finalLabel : `ubm${i}`;
-    const lr = Math.min(18, Math.max(6, Math.round(Math.min(w, h) / 12)));
-    parts.push(
-      `[${cur}]split=2[ubo${i}][ubp${i}];` +
-        `[ubp${i}]crop=${w}:${h}:${x}:${y},boxblur=${lr}:1[ubb${i}];` +
-        `[ubo${i}][ubb${i}]overlay=${x}:${y}:format=auto[${nextLab}]`
-    );
+    const nextLab = i === list.length - 1 ? finalLabel : `dlb${i}`;
+    const band = Math.min(16, Math.max(4, Math.round(Math.min(w, h) / 10)));
+    parts.push(`[${cur}]delogo=x=${x}:y=${y}:w=${w}:h=${h}:band=${band}:show=0[${nextLab}]`);
     cur = nextLab;
   });
   if (!parts.length) return { chain: '', outLabel: inputLabel };
@@ -404,7 +438,6 @@ async function buildCrushRenderPlan(o) {
     sourceDurSec,
     hook,
     coverBox,
-    usernameBlurRects,
     hasAudio,
     ffmpegPath,
     ffprobePath,
@@ -553,8 +586,9 @@ async function buildCrushRenderPlan(o) {
   const bandShadow = 'black@0.45';
 
   // hflip kapalı: yakılmış (burned-in) yazı pikseldir; altyazı akışı yoksa tespit edilemez, flip metni ters çevirir.
-  const ubRects = Array.isArray(usernameBlurRects) ? usernameBlurRects : [];
-  const ubChain = buildUsernameBlurOverlayChain('v0base', ubRects, outW, outH, 'v0postblur');
+  const rawManual = parseManualBlurRectsInput(o.manual_blur_rects ?? o.manualBlurRects ?? []);
+  const ubRects = scaleManualBlurRectsToOutputPx(rawManual, o.manualBlurRefW, o.manualBlurRefH, outW, outH);
+  const ubChain = buildManualBlurDelogoChain('v0base', ubRects, outW, outH, 'v0postblur');
 
   let vChain = `[0:v]setpts=PTS-STARTPTS,fps=${targetFps}`;
   vChain += `,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}[v0base]`;
@@ -775,7 +809,7 @@ async function buildCrushRenderPlan(o) {
       targetFps,
       outDurSec: Number(outDur.toFixed(3)),
       edge,
-      usernameBlurCount: ubRects.length,
+      manualBlurCount: ubRects.length,
       musicFile: musicFile && fs.existsSync(musicFile) ? path.basename(musicFile) : null,
       hookFont: fontFile ? path.basename(fontFile) : null
     }
@@ -838,5 +872,9 @@ module.exports = {
   probeContainerDurationSec: probeDurationViaFfmpeg,
   buildMetadataArgs,
   BASE_EDIT_SPEED,
-  AUDIO_EXTS
+  AUDIO_EXTS,
+  parseManualBlurRectsInput,
+  scaleManualBlurRectsToOutputPx,
+  MANUAL_BLUR_REF_W,
+  MANUAL_BLUR_REF_H
 };

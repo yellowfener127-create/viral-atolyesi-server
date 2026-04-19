@@ -8,7 +8,6 @@ const os = require('os');
 const { pipeline } = require('stream/promises');
 const ffmpegPath = require('ffmpeg-static');
 const crush = require('./crush-pipeline');
-const vaCrush = require('./local-downloader');
 
 const app = express(); // 1. Sırada bu olmalı
 
@@ -528,102 +527,9 @@ app.post('/tools/crush', async (req, res) => {
     const ffprobeGuess = path.join(path.dirname(ffmpegPath), process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe');
     const ffprobeResolved = fs.existsSync(ffprobeGuess) ? ffprobeGuess : null;
 
-    const GEMINI_PROJECT_SERVER = String(process.env.GEMINI_PROJECT || process.env.VA_GEMINI_PROJECT || '').trim();
-    const GEMINI_LOCATION_SERVER = String(process.env.GEMINI_LOCATION || 'us-central1').trim();
-
-    let hook = null;
-    let coverBox = null;
-    let usernameBlurRects = [];
-
-    if (GEMINI_PROJECT_SERVER) {
-      try {
-        const inVideoSize = await vaCrush
-          .probeVideoStreamSize(inFile, ffprobeResolved || 'ffprobe')
-          .catch(() => null);
-        const t = sourceDur;
-        const early = [0.10, 0.50, 0.90, 1.30, 1.70].map((sec) => Math.max(0, Math.min(t - 0.05, sec)));
-        const restStart = Math.min(Math.max(2.0, 0), Math.max(0, t - 0.05));
-        const restEnd = Math.max(restStart, t - 0.05);
-        const restCount = 15;
-        const rest = [];
-        if (restCount > 0) {
-          const span = Math.max(0.001, restEnd - restStart);
-          for (let i = 0; i < restCount; i++) {
-            const k = restCount === 1 ? 0.5 : (i / (restCount - 1));
-            rest.push(restStart + span * k);
-          }
-        }
-        const times = [...early, ...rest].slice(0, 20).map((sec) => Math.max(0, Math.min(t - 0.05, sec)));
-        const framePaths = times.map((_, i) => path.join(tmpDir, `srv_frame_${String(i + 1).padStart(2, '0')}.png`));
-        for (let i = 0; i < times.length; i++) {
-          await vaCrush.ffmpegExtractFrame(inFile, framePaths[i], times[i], ffmpegPath);
-        }
-        const audioPrev = path.join(tmpDir, 'srv_audio_preview.mp3');
-        await vaCrush.ffmpegExtractAudioPreview(inFile, audioPrev, Math.min(12, t), ffmpegPath);
-
-        let metaTitle = '';
-        try {
-          metaTitle = await new Promise((resolve) => {
-            const args = ['--no-playlist', '--no-warnings', '--print', '%(title)s', url];
-            if (crushDownloadCookieFile && fs.existsSync(crushDownloadCookieFile)) {
-              args.unshift('--cookies', crushDownloadCookieFile);
-            }
-            const child = spawn(YTDLP_PATH, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-            let out = '';
-            const to = setTimeout(() => {
-              try { child.kill('SIGKILL'); } catch {}
-            }, 8000);
-            child.stdout.on('data', (d) => {
-              out += d.toString();
-            });
-            child.on('error', () => {
-              clearTimeout(to);
-              resolve('');
-            });
-            child.on('close', (code) => {
-              clearTimeout(to);
-              if (code !== 0) return resolve('');
-              resolve(String(out || '').trim().slice(0, 500));
-            });
-          });
-        } catch {
-          metaTitle = '';
-        }
-
-        const rawDir = await vaCrush.geminiDirectorAnalyze({
-          geminiProject: GEMINI_PROJECT_SERVER,
-          geminiLocation: GEMINI_LOCATION_SERVER,
-          brand,
-          framePaths,
-          audioPath: audioPrev,
-          title: metaTitle
-        });
-
-        if (rawDir && typeof rawDir === 'object' && rawDir.__va_status) {
-          console.warn('/tools/crush Gemini:', rawDir.__va_status, rawDir.message || '');
-        } else if (rawDir && typeof rawDir === 'object') {
-          const director = vaCrush.normalizeDirectorResult(rawDir, outW, outH, brand, metaTitle || '', {
-            inW: (inVideoSize && inVideoSize.width) || 1080,
-            inH: (inVideoSize && inVideoSize.height) || 1920
-          });
-          if (director) {
-            const titleIsListicle = /ranked|ranking|top\s*\d|#\s*1/i.test(String(metaTitle || ''));
-            const vis = vaCrush.crushHookCoverUsernameFromDirector(director, outW, outH, titleIsListicle);
-            hook = vis.hook;
-            coverBox = vis.coverBox;
-            usernameBlurRects = vis.usernameBlurRects;
-          }
-        }
-
-        for (const p of [...framePaths, audioPrev]) {
-          try {
-            fs.unlinkSync(p);
-          } catch {}
-        }
-      } catch (eGem) {
-        console.error('/tools/crush Gemini optional failed:', eGem && eGem.message ? eGem.message : eGem);
-      }
-    }
+    const manualBlurRects = crush.parseManualBlurRectsInput(
+      req.body?.manual_blur_rects ?? req.body?.manualBlurRects ?? []
+    );
 
     const plan = await crush.buildCrushRenderPlan({
       inFile,
@@ -633,9 +539,11 @@ app.post('/tools/crush', async (req, res) => {
       outW,
       outH,
       sourceDurSec: sourceDur,
-      hook,
-      coverBox,
-      usernameBlurRects,
+      hook: null,
+      coverBox: null,
+      manual_blur_rects: manualBlurRects,
+      manualBlurRefW: crush.MANUAL_BLUR_REF_W,
+      manualBlurRefH: crush.MANUAL_BLUR_REF_H,
       hasAudio,
       ffmpegPath,
       ffprobePath: ffprobeResolved,

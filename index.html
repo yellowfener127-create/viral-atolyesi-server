@@ -272,8 +272,8 @@
 
     <!-- Gemini API Key (Local Director) -->
     <div class="tool-card">
-      <div class="tool-title">🧠 Gemini API Key (Local Director)</div>
-      <div class="tool-desc">Bu key sadece PC’de (Local Downloader) kullanılır. Kare + ses analiziyle hook konumunu/kaplama kutusunu iyileştirir.</div>
+      <div class="tool-title">🧠 Gemini API Key (isteğe bağlı / eski)</div>
+      <div class="tool-desc">Telif Ezici artık Vertex kullanmıyor; manuel blur + başlık tabanlı caption çalışır. Bu alan başka araçlar için saklanabilir.</div>
       <input class="tool-input" type="password" id="geminiInput" placeholder="AIzaSy... Gemini API key"/>
       <button class="tool-btn" type="button" id="geminiSaveBtn" onclick="saveGeminiKey()">Kaydet</button>
       <div class="tool-result" id="geminiStatus" style="display:block;margin-top:10px;font-size:12px;color:var(--muted)"></div>
@@ -287,9 +287,8 @@
         <ul class="tool-features">
           <li>9:16 kare, hafif zoom/renk, ~1.1× temel hız + küçük rastgele hız varyasyonu (±%2–%4)</li>
           <li>Kenarlardan 4–6 px mikro kırpma + merkez sabitleme</li>
-          <li>Hook bandı + edit-style font + hafif daha büyük başlık yerleşimi</li>
-          <li>20 kare + ses önizlemesi ile Gemini Director analizi</li>
-          <li>Eski hook varsa ona yakın yeni hook üretimi</li>
+          <li>Hook bandı + edit-style font + başlık yerleşimi (başlık tabanlı kanca; AI koordinat yok)</li>
+          <li><strong>Manuel blur:</strong> 720×1280 px referansında canvas üzerinde dikdörtgen çizip gönderirsin; sunucu FFmpeg <code>delogo</code> zinciri uygular</li>
         </ul>
         <ul class="tool-features more" id="crushFeaturesMore">
           <li>Tek cümle İngilizce caption + otomatik 5 hashtag paketi</li>
@@ -300,10 +299,9 @@
           <li>Dinamik FPS tespiti + hedef FPS ayarı + senkron ses/video render</li>
           <li>CRF 18, slower preset, unsharp, yuv420p ve sosyal medya uyumlu bitrate sınırları</li>
           <li>Çıkışta metadata/chapter temizliği; yeni <code>creation_time</code> ve mobil cihaz etiketi (kaynak cihaz sızmaz)</li>
-          <li>Local Downloader üstünden Vertex Gemini logları, retry ve fallback caption akışı</li>
         </ul>
         <button type="button" class="tool-expand-btn" id="crushExpandBtn" onclick="toggleCrushFeatures()">+ daha fazlası</button>
-        <span style="font-size:11px;color:var(--muted)">PC’de <code>localhost:8787/crush</code> (Local Downloader) tam özellik; sunucuda <code>/tools/crush</code> aynı pipeline (rubberband yoksa otomatik atempo).</span>
+        <span style="font-size:11px;color:var(--muted)">PC’de <code>localhost:8787/crush</code> (Local Downloader); sunucuda <code>POST /tools/crush</code> aynı <code>manual_blur_rects</code> + pipeline.</span>
       </div>
       <input class="tool-input" type="url" id="crushUrl" placeholder="YouTube / TikTok / Instagram linki"/>
       <select class="platform-select" id="crushBrand">
@@ -311,14 +309,26 @@
         <option value="kaos">KAOS ATÖLYESİ</option>
         <option value="umut">UMUT ATÖLYESİ</option>
       </select>
+      <div style="font-size:12px;color:var(--muted);margin:10px 0 6px">
+        <strong>Manuel blur (720×1280 px):</strong> Aynı videonun yerel kopyasını yükleyin; canvas 9:16 merkez kırpımına yakın önizleme gösterir. Koordinatlar px cinsinden 720×1280 çıktı uzayına map edilir.
+      </div>
+      <input class="tool-input" type="file" id="crushPreviewFile" accept="video/*" />
+      <div id="crushBlurPreviewWrap" style="display:none;margin-top:10px;">
+        <video id="crushPreviewVideo" muted playsinline preload="metadata" style="display:none;width:0;height:0;position:absolute;visibility:hidden"></video>
+        <canvas id="crushBlurCanvas" width="720" height="1280" tabindex="0" style="max-width:100%;max-height:52vh;width:auto;height:auto;border:1px solid #333;border-radius:6px;background:#0a0a0a;display:block;touch-action:none"></canvas>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center">
+          <button type="button" class="tool-btn" id="crushBlurModeBtn" onclick="toggleCrushBlurDrawMode()">Blur Ekle</button>
+          <label style="font-size:11px;color:var(--muted)">Kare (s)
+            <input type="range" id="crushPreviewSeek" min="0" max="1" step="0.05" value="0" disabled style="width:160px;vertical-align:middle" />
+          </label>
+          <button type="button" class="tool-btn" id="crushRectDeleteBtn" onclick="deleteSelectedCrushRect()" style="display:none">Seçili kutuyu sil</button>
+        </div>
+        <div id="crushBlurRectList" style="font-size:11px;color:var(--muted);margin-top:6px;max-height:100px;overflow:auto"></div>
+      </div>
       <button class="tool-btn" type="button" id="crushBtn" onclick="crushVideo()">⚡ İndir + Telif Ez (9:16)</button>
       <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
       <div class="tool-result" id="crushCaptionBox" style="display:none;margin-top:10px"></div>
       <button class="tool-copy-btn" id="crushCaptionCopy" style="display:none" onclick="copyToolText('crushCaptionBox','crushCaptionCopy')">📋 Caption'ı Kopyala</button>
-      <div id="crushBlurPreviewWrap" style="display:none;margin-top:10px;">
-        <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">1000×1000 analiz uzayı — username blur kutuları (taralı önizleme; videoda alan bulanık)</div>
-        <canvas id="crushBlurCanvas" width="220" height="220" style="border:1px solid #333;border-radius:6px;background:#0a0a0a;image-rendering:pixelated;"></canvas>
-      </div>
     </div>
 
     <!-- Global Caption (English Only) — Terapi/Kaos/Umut -->
@@ -632,40 +642,242 @@ function copyToolText(resultId, btnId) {
   });
 }
 
-function drawCrushBlurPreview(canvas, boxes1k, space) {
-  const W = Number(space) > 0 ? Number(space) : 1000;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  const s = canvas.width / W;
-  ctx.fillStyle = "#0a0a0a";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = "#333";
-  ctx.strokeRect(0.5, 0.5, canvas.width - 1, canvas.height - 1);
-  const list = Array.isArray(boxes1k) ? boxes1k : [];
-  for (const b of list) {
-    const x = (Number(b.x) || 0) * s;
-    const y = (Number(b.y) || 0) * s;
-    const w = (Number(b.w) || 0) * s;
-    const h = (Number(b.h) || 0) * s;
-    ctx.fillStyle = "rgba(255,80,80,0.12)";
-    ctx.fillRect(x, y, w, h);
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x, y, w, h);
-    ctx.clip();
-    const step = 7;
-    ctx.strokeStyle = "rgba(255,200,100,0.55)";
-    ctx.lineWidth = 1;
-    for (let i = -h; i < w + h; i += step) {
-      ctx.beginPath();
-      ctx.moveTo(x + i, y);
-      ctx.lineTo(x + i + h, y + h);
-      ctx.stroke();
+/** Manuel blur: 720×1280 px dikdörtgenler (canvas iç çözünürlük sabit). */
+var __crushManual = { rects: [], selectedId: null, drawMode: false, drag: null, nextId: 1, REF_W: 720, REF_H: 1280 };
+
+function crushCanvasCoords(ev, canvas) {
+  const r = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / r.width;
+  const scaleY = canvas.height / r.height;
+  return { mx: (ev.clientX - r.left) * scaleX, my: (ev.clientY - r.top) * scaleY };
+}
+
+function crushClampRect(x, y, w, h) {
+  const RW = __crushManual.REF_W, RH = __crushManual.REF_H;
+  x = Math.max(0, Math.min(RW - 4, x));
+  y = Math.max(0, Math.min(RH - 4, y));
+  w = Math.max(4, Math.min(RW - x, w));
+  h = Math.max(4, Math.min(RH - y, h));
+  return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+}
+
+function crushDrawVideoFrameOntoCanvas() {
+  const v = document.getElementById("crushPreviewVideo");
+  const cv = document.getElementById("crushBlurCanvas");
+  if (!v || !cv || !v.videoWidth) return;
+  const ctx = cv.getContext("2d");
+  const cw = cv.width, ch = cv.height;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, cw, ch);
+  const vw = v.videoWidth, vh = v.videoHeight;
+  const scale = Math.max(cw / vw, ch / vh);
+  const dw = vw * scale, dh = vh * scale;
+  const ox = (cw - dw) / 2, oy = (ch - dh) / 2;
+  ctx.drawImage(v, ox, oy, dw, dh);
+}
+
+function crushDrawRectsOverlay() {
+  const cv = document.getElementById("crushBlurCanvas");
+  if (!cv) return;
+  const ctx = cv.getContext("2d");
+  crushDrawVideoFrameOntoCanvas();
+  for (const rec of __crushManual.rects) {
+    const sel = rec.id === __crushManual.selectedId;
+    ctx.strokeStyle = sel ? "#6ae" : "#e8b84a";
+    ctx.lineWidth = sel ? 3 : 2;
+    ctx.strokeRect(rec.x + 0.5, rec.y + 0.5, Math.max(1, rec.w - 1), Math.max(1, rec.h - 1));
+    ctx.fillStyle = sel ? "rgba(100,180,255,0.14)" : "rgba(255,200,100,0.1)";
+    ctx.fillRect(rec.x, rec.y, rec.w, rec.h);
+    if (sel) {
+      const hs = 10;
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(rec.x + rec.w - hs, rec.y + rec.h - hs, hs, hs);
     }
-    ctx.restore();
-    ctx.strokeStyle = "#e8b84a";
-    ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, w - 1), Math.max(0, h - 1));
   }
+}
+
+function crushUpdateRectList() {
+  const el = document.getElementById("crushBlurRectList");
+  if (!el) return;
+  if (!__crushManual.rects.length) { el.textContent = "(Henüz kutu yok — Blur Ekle ile çizin)"; return; }
+  el.textContent = __crushManual.rects.map((r) => "#" + r.id + "  x=" + r.x + " y=" + r.y + "  w=" + r.w + " h=" + r.h + " px").join(" · ");
+}
+
+function crushGetHitRect(mx, my) {
+  for (let i = __crushManual.rects.length - 1; i >= 0; i--) {
+    const r = __crushManual.rects[i];
+    if (mx >= r.x && my >= r.y && mx <= r.x + r.w && my <= r.y + r.h) return r;
+  }
+  return null;
+}
+
+function crushHitBrHandle(mx, my, r) {
+  const hs = 10;
+  return mx >= r.x + r.w - hs && my >= r.y + r.h - hs && mx <= r.x + r.w && my <= r.y + r.h;
+}
+
+function crushUpdateDeleteBtn() {
+  const b = document.getElementById("crushRectDeleteBtn");
+  if (b) b.style.display = __crushManual.selectedId ? "inline-block" : "none";
+}
+
+function onCrushCanvasMouseDown(ev) {
+  const cv = document.getElementById("crushBlurCanvas");
+  const v = document.getElementById("crushPreviewVideo");
+  if (!cv || !v || !v.videoWidth) return;
+  const { mx, my } = crushCanvasCoords(ev, cv);
+  const hit = crushGetHitRect(mx, my);
+  if (__crushManual.drawMode) {
+    __crushManual.drag = { type: "new", sx: mx, sy: my };
+    ev.preventDefault();
+    return;
+  }
+  if (hit && __crushManual.selectedId === hit.id && crushHitBrHandle(mx, my, hit)) {
+    __crushManual.drag = { type: "resize", id: hit.id, mx0: mx, my0: my, w0: hit.w, h0: hit.h };
+    ev.preventDefault();
+    return;
+  }
+  if (hit && !__crushManual.drawMode) {
+    __crushManual.selectedId = hit.id;
+    __crushManual.drag = { type: "move", id: hit.id, mx0: mx, my0: my, x0: hit.x, y0: hit.y };
+    crushDrawRectsOverlay();
+    crushUpdateDeleteBtn();
+    ev.preventDefault();
+    return;
+  }
+  __crushManual.selectedId = null;
+  crushDrawRectsOverlay();
+  crushUpdateDeleteBtn();
+}
+
+function onCrushCanvasMouseMove(ev) {
+  const d = __crushManual.drag;
+  if (!d) return;
+  const cv = document.getElementById("crushBlurCanvas");
+  if (!cv) return;
+  const { mx, my } = crushCanvasCoords(ev, cv);
+  if (d.type === "new") {
+    const x = Math.min(d.sx, mx), y = Math.min(d.sy, my);
+    const w = Math.abs(mx - d.sx), h = Math.abs(my - d.sy);
+    crushDrawVideoFrameOntoCanvas();
+    const ctx = cv.getContext("2d");
+    const c = crushClampRect(x, y, w, h);
+    ctx.strokeStyle = "#8f8";
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(c.x, c.y, c.w, c.h);
+    ctx.setLineDash([]);
+    __crushManual._preview = c;
+    ev.preventDefault();
+    return;
+  }
+  if (d.type === "resize") {
+    const r = __crushManual.rects.find((x) => x.id === d.id);
+    if (!r) return;
+    const nw = Math.max(4, d.w0 + (mx - d.mx0));
+    const nh = Math.max(4, d.h0 + (my - d.my0));
+    const c = crushClampRect(r.x, r.y, nw, nh);
+    r.w = c.w; r.h = c.h;
+    crushDrawRectsOverlay();
+    crushUpdateRectList();
+    ev.preventDefault();
+    return;
+  }
+  if (d.type === "move") {
+    const r = __crushManual.rects.find((x) => x.id === d.id);
+    if (!r) return;
+    const dx = mx - d.mx0;
+    const dy = my - d.my0;
+    const nx = Math.max(0, Math.min(__crushManual.REF_W - r.w, Math.round(d.x0 + dx)));
+    const ny = Math.max(0, Math.min(__crushManual.REF_H - r.h, Math.round(d.y0 + dy)));
+    r.x = nx;
+    r.y = ny;
+    crushDrawRectsOverlay();
+    crushUpdateRectList();
+    ev.preventDefault();
+  }
+}
+
+function onCrushCanvasMouseUp(ev) {
+  const d = __crushManual.drag;
+  if (!d) return;
+  __crushManual.drag = null;
+  if (d.type === "new" && __crushManual._preview) {
+    const c = __crushManual._preview;
+    if (c.w >= 8 && c.h >= 8) {
+      const id = __crushManual.nextId++;
+      __crushManual.rects.push({ id: id, x: c.x, y: c.y, w: c.w, h: c.h });
+      __crushManual.selectedId = id;
+    }
+    delete __crushManual._preview;
+    crushDrawRectsOverlay();
+    crushUpdateRectList();
+    crushUpdateDeleteBtn();
+  }
+  ev.preventDefault();
+}
+
+function toggleCrushBlurDrawMode() {
+  __crushManual.drawMode = !__crushManual.drawMode;
+  const b = document.getElementById("crushBlurModeBtn");
+  if (b) {
+    b.textContent = __crushManual.drawMode ? "Çizim: AÇIK" : "Blur Ekle";
+    b.classList.toggle("saved", __crushManual.drawMode);
+  }
+  const cv = document.getElementById("crushBlurCanvas");
+  if (cv) cv.style.cursor = __crushManual.drawMode ? "crosshair" : "default";
+}
+
+function deleteSelectedCrushRect() {
+  if (!__crushManual.selectedId) return;
+  __crushManual.rects = __crushManual.rects.filter((r) => r.id !== __crushManual.selectedId);
+  __crushManual.selectedId = null;
+  crushDrawRectsOverlay();
+  crushUpdateRectList();
+  crushUpdateDeleteBtn();
+}
+
+function wireCrushManualBlurUi() {
+  const file = document.getElementById("crushPreviewFile");
+  const v = document.getElementById("crushPreviewVideo");
+  const cv = document.getElementById("crushBlurCanvas");
+  const seek = document.getElementById("crushPreviewSeek");
+  const wrap = document.getElementById("crushBlurPreviewWrap");
+  if (!file || !v || !cv || !seek || !wrap) return;
+  file.addEventListener("change", () => {
+    __crushManual.rects = [];
+    __crushManual.selectedId = null;
+    const f = file.files && file.files[0];
+    if (!f) {
+      wrap.style.display = "none";
+      try { v.removeAttribute("src"); } catch (e2) {}
+      return;
+    }
+    try { v.src = URL.createObjectURL(f); } catch (e3) {
+      wrap.style.display = "none";
+      return;
+    }
+    wrap.style.display = "block";
+  });
+  v.addEventListener("loadeddata", () => {
+    const dur = Math.max(0.05, v.duration || 0.1);
+    seek.max = String(dur);
+    seek.value = String(Math.min(0.25, dur * 0.1));
+    seek.disabled = false;
+    v.currentTime = Number(seek.value);
+  });
+  seek.addEventListener("input", () => {
+    v.currentTime = Number(seek.value) || 0;
+  });
+  v.addEventListener("seeked", () => { crushDrawRectsOverlay(); });
+  cv.addEventListener("mousedown", onCrushCanvasMouseDown);
+  window.addEventListener("mousemove", onCrushCanvasMouseMove);
+  window.addEventListener("mouseup", onCrushCanvasMouseUp);
+  cv.addEventListener("keydown", (e) => {
+    if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      deleteSelectedCrushRect();
+    }
+  });
 }
 
 function toggleCrushFeatures() {
@@ -684,86 +896,49 @@ async function crushVideo() {
   const msg = document.getElementById("crushMsg");
   if (!url) { alert("Link gir."); return; }
 
+  const manual_blur_rects = (__crushManual.rects || []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
+
   btn.disabled = true;
   btn.textContent = "⏳ Hazırlanıyor...";
   msg.style.display = "none";
 
   try {
-    // Render KULLANMA: her zaman Local Downloader (PC'ye kaydet)
     msg.style.display = "block";
     msg.textContent = "Local Downloader ile hazırlanıyor (PC'ye kaydedilecek)…";
-    let geminiProject = "gen-lang-client-0508869582";
-    try { geminiProject = localStorage.getItem("gemini_project_id") || geminiProject; } catch(e) {}
-    let geminiLocation = "us-central1";
-    try { geminiLocation = localStorage.getItem("gemini_location") || geminiLocation; } catch(e) {}
     const localRes = await fetch("http://127.0.0.1:8787/crush", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, brand, geminiProject, geminiLocation })
+      body: JSON.stringify({ url, brand, manual_blur_rects })
     });
     const localData = await localRes.json().catch(() => ({}));
     if (!localRes.ok || !localData.ok) {
       throw new Error((localData && localData.error) ? localData.error : "Local Downloader çalışmıyor (8787).");
     }
     msg.style.display = "block";
-    msg.textContent = "✅ PC'ye kaydedildi: " + (localData.savedTo || "") + "\\" + (localData.file || "");
+    msg.textContent = "✅ PC'ye kaydedildi: " + (localData.savedTo || "") + "\\" + (localData.file || "") +
+      (manual_blur_rects.length ? " · " + manual_blur_rects.length + " blur kutusu" : "");
 
-    const blurWrap = document.getElementById("crushBlurPreviewWrap");
-    const blurCv = document.getElementById("crushBlurCanvas");
-    if (blurWrap) blurWrap.style.display = "none";
-    const dirOk = localData.director && localData.director.ok;
-    const boxes1k = dirOk && Array.isArray(localData.director.usernameBlurBoxes1k) ? localData.director.usernameBlurBoxes1k : [];
-    if (blurWrap && blurCv && dirOk) {
-      drawCrushBlurPreview(blurCv, boxes1k, localData.director.analysisSpacePx || 1000);
-      blurWrap.style.display = "block";
-    }
-
-    // Caption entegrasyonu (Telif Ezici altında)
     const capBox = document.getElementById("crushCaptionBox");
     const capCopy = document.getElementById("crushCaptionCopy");
     if (capBox) { capBox.style.display = "none"; capBox.textContent = ""; capBox.classList.remove("show"); }
     if (capCopy) capCopy.style.display = "none";
 
-    // Gemini durumu + caption/hashtags gösterimi
-    if (capBox && capCopy) {
-      const dir = localData.director || null;
-      const attempted = !!(localData.geminiAttempted || dir);
-      if (dir && dir.ok) {
-        const cap = String(dir.caption || "")
-          .replace(/\\n/g, " ")
-          .replace(/\s+/g, " ")
-          .trim();
-        const tags = Array.isArray(dir.hashtags) ? dir.hashtags : [];
-        const line = [cap, tags.join(" ")].filter(Boolean).join(" ");
-        if (line) {
-          capBox.textContent = line;
-          capBox.classList.add("show");
-          capBox.style.display = "block";
-          capCopy.style.display = "block";
-        } else {
-          capBox.textContent = "Gemini çalıştı ama caption/hashtag boş döndü.";
-          capBox.classList.add("show");
-          capBox.style.display = "block";
-          capCopy.style.display = "none";
-        }
-      } else if (attempted) {
-        const rawErr = (dir && dir.error) ? String(dir.error) : "Gemini çalışmadı veya cevap alınamadı.";
-        const err = /this operation was aborted/i.test(rawErr)
-          ? "Gemini timeout oldu (yanıt süresi aşıldı)."
-          : rawErr;
-        const diag = dir && dir.diag ? ` | Diag: ${JSON.stringify(dir.diag)}` : "";
-        const fallbackCap = String(dir && dir.fallbackCaption || "").replace(/\\n/g, " ").replace(/\s+/g, " ").trim();
-        const fallbackTags = Array.isArray(dir && dir.fallbackHashtags) ? dir.fallbackHashtags : [];
-        const fallbackLine = [fallbackCap, fallbackTags.join(" ")].filter(Boolean).join(" ");
-        capBox.textContent = "Gemini durumu: ÇALIŞMADI — " + err + diag + (fallbackLine ? "\nFallback: " + fallbackLine : "");
+    const dir = localData.director || null;
+    if (capBox && capCopy && dir && dir.ok) {
+      const cap = String(dir.caption || "")
+        .replace(/\n/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      const tags = Array.isArray(dir.hashtags) ? dir.hashtags : [];
+      const line = [cap, tags.join(" ")].filter(Boolean).join(" ");
+      if (line) {
+        capBox.textContent = line;
         capBox.classList.add("show");
         capBox.style.display = "block";
-        capCopy.style.display = "none";
+        capCopy.style.display = "block";
       }
     }
   } catch (e) {
-    const blurWrapErr = document.getElementById("crushBlurPreviewWrap");
-    if (blurWrapErr) blurWrapErr.style.display = "none";
     msg.style.display = "block";
     msg.textContent = "Hata: " + (e.message || e);
   } finally {
@@ -818,11 +993,12 @@ window.onload = function() {
       const b = document.getElementById("geminiSaveBtn");
       b.textContent = "✓ Kaydedildi";
       b.classList.add("saved");
-      if (st) st.textContent = "✅ Key kayıtlı (Local Director aktif).";
+      if (st) st.textContent = "✅ Key kayıtlı (isteğe bağlı; Telif Ezici artık Vertex kullanmıyor).";
     } else {
-      if (st) st.textContent = "Key yoksa Director analizi devre dışı (normal Telif Ezici).";
+      if (st) st.textContent = "Telif Ezici: manuel blur + başlık tabanlı caption (Vertex yok).";
     }
   } catch(e) {}
+  try { wireCrushManualBlurUi(); } catch (e4) {}
 };
 
 function saveGeminiKey() {
