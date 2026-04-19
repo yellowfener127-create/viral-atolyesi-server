@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const https = require('https');
 const os = require('os');
 const path = require('path');
 const crush = require('./crush-pipeline');
@@ -726,6 +727,78 @@ function normBrand(brand) {
   return 'terapi';
 }
 
+/**
+ * Gemini (Google AI Studio key): tek satır İngilizce hook. Başarısız olursa reject.
+ * Ortam: GEMINI_API_KEY ve isteğe bağlı GEMINI_MODEL (örn. gemini-2.0-flash).
+ */
+function fetchGeminiHookEnglish(apiKey, title, brand) {
+  const n = normBrand(brand);
+  const tone =
+    n === 'umut'
+      ? 'hopeful, emotional, inspiring, sincere (no graphic injury topics)'
+      : 'wholesome, gentle, uplifting, family-friendly';
+  const prompt =
+    `Write ONE English hook line for a vertical Shorts/Reels/TikTok video.\n` +
+    `Rules: max 88 characters. No quotation marks. No hashtags. English only.\n` +
+    `Tone: ${tone}.\n` +
+    `Video title (may be vague): ${String(title || '').slice(0, 220)}\n` +
+    `Return only the hook line, nothing else.`;
+  const model = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
+  const body = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.85, maxOutputTokens: 96 }
+  });
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: 'generativelanguage.googleapis.com',
+        path: `/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body)
+        },
+        timeout: 28_000
+      },
+      (res) => {
+        let raw = '';
+        res.on('data', (c) => {
+          raw += c.toString();
+        });
+        res.on('end', () => {
+          try {
+            const j = JSON.parse(raw);
+            const errMsg = j && (j.error && (j.error.message || j.error.status)) ? String(j.error.message || j.error.status) : '';
+            if (res.statusCode && res.statusCode >= 400) {
+              return reject(new Error(errMsg || `Gemini HTTP ${res.statusCode}`));
+            }
+            const t =
+              (j &&
+                j.candidates &&
+                j.candidates[0] &&
+                j.candidates[0].content &&
+                j.candidates[0].content.parts &&
+                j.candidates[0].content.parts.map((p) => p.text || '').join('')) ||
+              '';
+            const line = String(t)
+              .replace(/\s+/g, ' ')
+              .replace(/^["']|["']$/g, '')
+              .trim()
+              .slice(0, 120);
+            if (line.length >= 6) return resolve(line);
+            return reject(new Error('Gemini empty hook'));
+          } catch (e) {
+            return reject(e);
+          }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 function getBrandFolderName(brand) {
   const n = normBrand(brand);
   if (n === 'kaos') return 'Kaos Atölyesi';
@@ -1272,13 +1345,23 @@ app.post('/crush', async (req, res) => {
     if (inDur > 60) {
       return res.status(400).json({ error: `Bu araç sadece 60 saniye altı videolarda çalışır. Video süresi: ${Math.round(inDur)}s` });
     }
-    const outW = 720;
-    const outH = 1280;
+    const outW = 1080;
+    const outH = 1920;
     const hasAudio = await probeHasAudio(inFile);
     const musicFile = crush.pickRandomMusicFile(PUBLIC_DIR, brand);
     const cache = loadDirectorCache();
     const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: titleIsListicle });
-    const seed = titleHook || fallbackHookTextForBrand(brand);
+    let gemHook = '';
+    const gemKey = String(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+    if (gemKey && metaTitle && (normBrand(brand) === 'terapi' || normBrand(brand) === 'umut')) {
+      try {
+        gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand);
+      } catch (e) {
+        console.warn('[gemini hook]', (e && e.message) || e);
+      }
+    }
+    const seed =
+      gemHook && gemHook.length > 8 ? gemHook : titleHook || fallbackHookTextForBrand(brand);
     const hookText = splitHookTwoLines(makeUniqueHook(brand, seed, cache, titleIsListicle), {
       titleHint: metaTitle || ''
     });

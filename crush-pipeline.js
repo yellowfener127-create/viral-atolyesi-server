@@ -96,7 +96,15 @@ function pickHookText(brand) {
     'Watch till the end',
     'Too cute to be real'
   ];
-  if (String(brand).toLowerCase() === 'kaos') return pickOne(kaos);
+  const umut = [
+    'This moment hits different',
+    'Proof people are still good',
+    'Wait for the payoff',
+    'Small kindness, huge impact'
+  ];
+  const b = String(brand || '').toLowerCase();
+  if (b === 'kaos') return pickOne(kaos);
+  if (b === 'umut') return pickOne(umut);
   return pickOne(terapi);
 }
 
@@ -227,6 +235,7 @@ function pickThreeFonts() {
     return [
       // Popüler “social” fontlar (kuruluysa otomatik seçilir)
       'C:\\Windows\\Fonts\\Montserrat-Bold.ttf', // kullanıcı yüklediyse
+      'C:\\Windows\\Fonts\\arialbd.ttf', // Arial Bold (Reels / IG üst yazı)
       'C:\\Windows\\Fonts\\LuckiestGuy-Regular.ttf', // kullanıcı yüklediyse
       'C:\\Windows\\Fonts\\ariblk.ttf', // Arial Black
       'C:\\Windows\\Fonts\\impact.ttf' // Impact
@@ -254,6 +263,8 @@ function pickExistingFontForDrawtext() {
   const prefer = (existing.length ? existing : fonts).map(String);
   const montserrat = prefer.find((p) => /montserrat-bold\.ttf$/i.test(p));
   if (montserrat) return montserrat;
+  const arialbd = prefer.find((p) => /arialbd\.ttf$/i.test(p));
+  if (arialbd) return arialbd;
   const ariblk = prefer.find((p) => /ariblk\.ttf$/i.test(p));
   if (ariblk) return ariblk;
   const impact = prefer.find((p) => /impact\.ttf$/i.test(p));
@@ -292,6 +303,96 @@ function splitHookForDisplay(hookText) {
   if (words.length === 5) return { line1: words.slice(0, 3).join(' '), line2: words.slice(3).join(' ') };
   if (words.length === 6) return { line1: words.slice(0, 4).join(' '), line2: words.slice(4).join(' ') };
   return { line1: words.slice(0, 4).join(' '), line2: words.slice(4).join(' ') };
+}
+
+/** Instagram / Reels tarzı tuval: üstte çok satırlı hook, taşmayı sınırla. */
+function wrapCaptionLinesForReels(text, maxCharsPerLine, maxLines) {
+  const raw = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return [];
+  const cap = Math.max(12, Math.min(48, Math.round(Number(maxCharsPerLine) || 34)));
+  const lim = Math.max(1, Math.min(6, Math.round(Number(maxLines) || 5)));
+  const lines = [];
+  let rest = raw;
+  while (rest && lines.length < lim) {
+    if (rest.length <= cap) {
+      lines.push(rest);
+      break;
+    }
+    let chunk = rest.slice(0, cap);
+    const sp = chunk.lastIndexOf(' ');
+    if (sp > Math.floor(cap * 0.55)) chunk = rest.slice(0, sp);
+    const line = chunk.trim();
+    if (!line) {
+      lines.push(rest.slice(0, cap));
+      rest = rest.slice(cap).trim();
+      continue;
+    }
+    lines.push(line);
+    const step = chunk.length;
+    if (!step) {
+      lines.push(rest.slice(0, cap));
+      break;
+    }
+    rest = rest.slice(step).trim();
+  }
+  return lines;
+}
+
+/**
+ * Terapi/Umut: kesin dikey tuval (outW×outH, tipik 1080×1920), düz renk arka plan.
+ * Üstte başlık bandı; videoyu bandın altındaki alanda genişliği dolduracak şekilde (increase+crop)
+ * ölçekler — yanlarda dev boşluk oluşmaz. Hafif aşağı kaydırma ile üst “kutu” kalır.
+ * Girdi [v0], çıkış [v1].
+ */
+function buildReelsInstagramCanvasFilters({
+  brandNorm,
+  outW,
+  outH,
+  fontPart,
+  hookEnable,
+  escapedLines
+}) {
+  const sy = outH / 1920;
+  const sx = outW / 1080;
+  const s = Math.min(sx, sy);
+  const titleBandH = Math.round(outH * 0.135);
+  const bottomPad = Math.round(outH * 0.02);
+  const contentH = Math.max(320, outH - titleBandH - bottomPad);
+  const captionBandTop = Math.round(44 * sy);
+  const fontSize = Math.max(20, Math.round(40 * s));
+  const lineStep = Math.max(Math.round(fontSize * 1.32), fontSize + 4);
+  const maxCapLines = Math.max(1, Math.floor((titleBandH - captionBandTop - 10) / lineStep));
+  const lines = (escapedLines || []).slice(0, maxCapLines);
+  const nudgeDown = Math.round(18 * sy);
+  const yTop = titleBandH + nudgeDown;
+  const bgHex = brandNorm === 'umut' ? '0xF5F5F5' : '0xF0F8FF';
+  const padX = Math.max(16, Math.round(22 * sx));
+
+  const parts = [
+    `color=c=${bgHex}:s=${outW}x${outH}:d=99999[bg]`,
+    `[v0]scale=${outW}:${contentH}:force_original_aspect_ratio=increase,crop=${outW}:${contentH},setsar=1[vid]`,
+    `[bg][vid]overlay=x=(W-w)/2:y=${yTop}:shortest=1[vt0]`
+  ];
+  if (!lines.length) {
+    parts.push(`[vt0]format=yuv420p[v1]`);
+    return parts;
+  }
+  let cur = 'vt0';
+  lines.forEach((line, i) => {
+    const last = i === lines.length - 1;
+    const next = last ? 'v1b' : `vth${i}`;
+    const y = captionBandTop + i * lineStep;
+    parts.push(
+      `[${cur}]drawtext=text='${line}'${fontPart}:fontsize=${fontSize}:fontcolor=0x1a1a1a:` +
+        `fix_bounds=1:text_shaping=1:` +
+        `x='max(${padX}\\,min((w-text_w)/2\\,w-text_w-${padX}))':y=${y}:enable='${hookEnable}'[${next}]`
+    );
+    cur = next;
+  });
+  parts.push(`[${cur}]format=yuv420p[v1]`);
+  return parts;
 }
 
 /** ±%2–%4 hız varyasyonu (1.0 etrafında) */
@@ -444,6 +545,10 @@ async function buildCrushRenderPlan(o) {
     useRubberband
   } = o;
 
+  const brandNorm = brandFolderKey(brand);
+  const useReelsInstagramCanvas =
+    (brandNorm === 'terapi' || brandNorm === 'umut') && o.useReelsInstagramCanvas !== false;
+
   // Watermark boyutu yarıya indir
   const wmSize = outW >= 1080 ? 55 : 48;
   // Watermark: eski basit opaklık + tek ek: DVD gibi köşelerden seken hareket + hafif rastgele eğim
@@ -491,7 +596,7 @@ async function buildCrushRenderPlan(o) {
   const cropW = Math.max(16, outW - 2 * edge);
   const cropH = Math.max(16, outH - 2 * edge);
 
-  const zoom = randRange(1.04, 1.08);
+  const zoom = useReelsInstagramCanvas ? randRange(1.02, 1.05) : randRange(1.04, 1.08);
   const contrast = randRange(1.03, 1.09);
   const saturation = randRange(1.05, 1.15);
   const brightness = randRange(-0.02, 0.04);
@@ -523,7 +628,7 @@ async function buildCrushRenderPlan(o) {
       ? hook.text.trim()
       : hookText;
   const hookTextFinal = sanitizeHookForDrawtext(stripAllEmoji(rawHook));
-  const hookTextBandStyled = titleCaseHookText(hookTextFinal);
+  const hookTextBandStyled = useReelsInstagramCanvas ? hookTextFinal : titleCaseHookText(hookTextFinal);
   const hookDisplay = splitHookForDisplay(hookTextBandStyled);
   const hookColorPool = ['#FFFFFF', '#FFD400', '#9BFF57']; // Beyaz / Sarı / Açık yeşil
   const hookColor = sanitizeHexColor(hook?.color, pickOne(hookColorPool));
@@ -622,8 +727,37 @@ async function buildCrushRenderPlan(o) {
 
   let baseLabel = cover ? 'vcover' : 'v0u';
 
-  const parts = [
-    vChain,
+  const capChars = Math.max(18, Math.round(34 * (outW / 1080)));
+  const reelsEscapedLines = useReelsInstagramCanvas
+    ? wrapCaptionLinesForReels(hookTextBandStyled, capChars, 5).map((ln) =>
+        escapeDrawtextText(String(ln || '').trim())
+      )
+    : [];
+
+  const noiseOpEff = useReelsInstagramCanvas ? 0.002 : noiseOpacity;
+  const grainOpEff = useReelsInstagramCanvas ? 0.006 : grainOpacity;
+
+  const tailWmAndGrain = [
+    `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
+      `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
+      `rotate='${tiltRotateExpr}':c=none:ow=iw:oh=ih[wm0]`,
+    // Watermark’ı tam yuvarlak “top” gibi yap: dairesel alpha mask
+    `[wm0]split=2[wmA][wmB]`,
+    `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[wmMask]`,
+    `[wmB][wmMask]alphamerge,format=rgba,colorchannelmixer=aa=${wmAlphaFinal.toFixed(4)}[wm]`,
+    `[v1][wm]overlay=x='${wmXExpr}':y='${wmYExpr}':format=auto[v1m]`,
+    `[v1m]split=2[vA][vB]`,
+    `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
+    `[vA][vN]blend=all_mode=overlay:all_opacity=${noiseOpEff},format=yuv420p[vblend]`,
+    `[vblend]split=2[vC][vD]`,
+    `[vD]noise=alls=3:allf=t+u,format=yuv420p[vGrain]`,
+    `[vC][vGrain]blend=all_mode=overlay:all_opacity=${grainOpEff},format=yuv420p[vpre]`,
+    useReelsInstagramCanvas
+      ? `[vpre]format=yuv420p[v]`
+      : `[vpre]vignette=PI/10:eval=frame,format=yuv420p[v]`
+  ];
+
+  const legacyVisualStack = [
     `color=c=#${uniqHex}@${uniqAlpha}:s=${outW}x${outH}:d=1[uniq]`,
     `[v0][uniq]overlay=0:0:enable='eq(n,0)'[v0u]`,
     ...(cover
@@ -678,22 +812,22 @@ async function buildCrushRenderPlan(o) {
                   `x='max(${noBandSidePad}\\,min((w-text_w)/2\\,w-text_w-${noBandSidePad}))':y=${noBandTextY}:` +
                   `enable='${hookEnable}'[v1]`
               ])
-        ]),
-    `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
-      `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
-      `rotate='${tiltRotateExpr}':c=none:ow=iw:oh=ih[wm0]`,
-    // Watermark’ı tam yuvarlak “top” gibi yap: dairesel alpha mask
-    `[wm0]split=2[wmA][wmB]`,
-    `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[wmMask]`,
-    `[wmB][wmMask]alphamerge,format=rgba,colorchannelmixer=aa=${wmAlphaFinal.toFixed(4)}[wm]`,
-    `[v1][wm]overlay=x='${wmXExpr}':y='${wmYExpr}':format=auto[v1m]`,
-    `[v1m]split=2[vA][vB]`,
-    `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
-    `[vA][vN]blend=all_mode=overlay:all_opacity=${noiseOpacity},format=yuv420p[vblend]`,
-    `[vblend]split=2[vC][vD]`,
-    `[vD]noise=alls=3:allf=t+u,format=yuv420p[vGrain]`,
-    `[vC][vGrain]blend=all_mode=overlay:all_opacity=${grainOpacity},format=yuv420p[vpre]`,
-    `[vpre]vignette=PI/10:eval=frame,format=yuv420p[v]`
+        ])
+  ];
+
+  const parts = [
+    vChain,
+    ...(useReelsInstagramCanvas
+      ? buildReelsInstagramCanvasFilters({
+          brandNorm,
+          outW,
+          outH,
+          fontPart,
+          hookEnable,
+          escapedLines: reelsEscapedLines
+        })
+      : legacyVisualStack),
+    ...tailWmAndGrain
   ];
 
   const semitone = -0.4;

@@ -2,8 +2,10 @@
 """
 Instagram Reels "Framing + Caption" template (Terapi / Umut).
 
-Uses FFmpeg: scaled-down clip on 1080x1920 canvas, account background, top hook text,
-optional speed + pitch via rubberband (fallback: atempo only).
+FFmpeg: fixed 1080x1920 canvas, account background, top hook text,
+video scaled with force_original_aspect_ratio=increase plus centered crop
+so the frame fills the width (no huge side gutters). Optional speed + pitch
+via rubberband (fallback: atempo only).
 
 Examples:
   python reels_framing_template.py -i clip.mp4 -o out.mp4 --account terapi \\
@@ -28,11 +30,12 @@ from pathlib import Path
 
 CANVAS_W = 1080
 CANVAS_H = 1920
-CAPTION_BAND_TOP = 52
-FONT_SIZE = 42
+TITLE_BAND_FRAC = 0.135
+BOTTOM_PAD_FRAC = 0.02
+CAPTION_BAND_TOP = 44
+FONT_SIZE = 40
 TEXT_WRAP_CHARS = 34
-VIDEO_START_Y = 480
-VIDEO_AREA_EXTRA_BIAS = 96
+NUDGE_DOWN = 18
 
 ACCOUNT_BG = {
     "terapi": "0xF0F8FF",
@@ -99,17 +102,30 @@ def build_video_filter_complex_fixed(
     video_fit_h: int,
     scale_ratio: float,
 ) -> str:
+    title_band_h = round(CANVAS_H * TITLE_BAND_FRAC)
+    bottom_pad = round(CANVAS_H * BOTTOM_PAD_FRAC)
+    content_h = max(320, CANVAS_H - title_band_h - bottom_pad)
+    if video_fit_h and video_fit_h > 0:
+        content_h = min(content_h, video_fit_h)
+    sr = float(scale_ratio) if scale_ratio and scale_ratio > 0 else 1.0
+    content_h = max(240, int(content_h * min(1.0, sr)))
+
+    nudge = round(NUDGE_DOWN * (CANVAS_H / 1920))
+    y_top = title_band_h + nudge
+    pad_x = max(16, round(22 * (CANVAS_W / 1080)))
+    line_step = max(int(FONT_SIZE * 1.32), FONT_SIZE + 4)
+    max_lines = max(1, (title_band_h - CAPTION_BAND_TOP - 10) // line_step)
+    lines = [ln for ln in lines[:max_lines] if ln.strip()]
+
     vf_vid = (
-        f"[0:v]scale={CANVAS_W}:{video_fit_h}:force_original_aspect_ratio=decrease,"
-        f"setsar=1,scale=iw*{scale_ratio}:ih*{scale_ratio}[vid]"
+        f"[0:v]scale={CANVAS_W}:{content_h}:force_original_aspect_ratio=increase,"
+        f"crop={CANVAS_W}:{content_h},setsar=1[vid]"
     )
     color = f"color=c={bg_hex}:s={CANVAS_W}x{CANVAS_H}:d=99999[bg]"
-    oy = f"{VIDEO_START_Y}+(H-{VIDEO_START_Y}-h)/2+{VIDEO_AREA_EXTRA_BIAS}"
-    base = f"{vf_vid};{color};[bg][vid]overlay=x=(W-w)/2:y={oy}:shortest=1[vt]"
+    base = f"{vf_vid};{color};[bg][vid]overlay=x=(W-w)/2:y={y_top}:shortest=1[vt]"
     if not lines:
         return f"{base};[vt]format=yuv420p[vout]"
 
-    line_h = int(FONT_SIZE * 1.35)
     chain: list[str] = [base]
     cur_label = "vt"
     out_i = 0
@@ -118,11 +134,12 @@ def build_video_filter_complex_fixed(
         if not esc:
             continue
         ff = f":fontfile='{fontfile}'" if fontfile else ""
-        y = CAPTION_BAND_TOP + i * line_h
+        y = CAPTION_BAND_TOP + i * line_step
         nxt = f"vtxt{out_i}"
         chain.append(
             f"[{cur_label}]drawtext=text='{esc}'{ff}:fontsize={FONT_SIZE}:fontcolor=0x1a1a1a"
-            f":x=(w-text_w)/2:y={y}[{nxt}]"
+            f":fix_bounds=1:text_shaping=1:"
+            f"x='max({pad_x}\\,min((w-text_w)/2\\,w-text_w-{pad_x}))':y={y}[{nxt}]"
         )
         cur_label = nxt
         out_i += 1
@@ -288,14 +305,14 @@ def main() -> None:
     ap.add_argument(
         "--scale-ratio",
         type=float,
-        default=0.8,
-        help="After fit-to-box, scale by this factor (0.8 ~ 20 percent smaller)",
+        default=1.0,
+        help="Fraction of the content band height to fill (1.0 = full; e.g. 0.96 leaves a thin inset).",
     )
     ap.add_argument(
         "--video-fit-height",
         type=int,
-        default=1350,
-        help="Max height (px) to fit source before scale-ratio",
+        default=0,
+        help="Optional max content height in px after layout (0 = use 9:16 band only).",
     )
     args = ap.parse_args()
 
