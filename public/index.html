@@ -123,14 +123,18 @@
   .section-sep{margin:32px 0 24px}
 
   /* GRID */
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  @media (min-width: 980px){
+    /* IG keşfet hissi: masaüstünde genelde 3 kolon */
+    .grid{grid-template-columns:repeat(3,1fr)}
+  }
 
   /* CARD */
   .vcard{background:linear-gradient(180deg,#161616,#121212);border:1px solid #222;border-radius:18px;overflow:hidden;transition:transform 0.25s,box-shadow 0.25s,border-color 0.25s}
   .vcard:hover{transform:translateY(-4px);box-shadow:0 14px 36px rgba(0,0,0,0.6);border-color:#383838}
   .vcard.short-card{border-color:rgba(255,193,7,0.2)}
   .vcard.short-card:hover{border-color:rgba(255,193,7,0.5)}
-  .thumb{position:relative;aspect-ratio:16/9;overflow:hidden;background:#111}
+  .thumb{position:relative;aspect-ratio:9/16;overflow:hidden;background:#111}
   .thumb img{width:100%;height:100%;object-fit:cover;transition:transform 0.3s}
   .vcard:hover .thumb img{transform:scale(1.05)}
   .rank{position:absolute;top:9px;left:9px;background:rgba(0,0,0,0.85);color:white;font-size:11px;font-weight:700;padding:3px 9px;border-radius:5px}
@@ -163,7 +167,10 @@
   .copy-btn.copied{background:rgba(0,200,83,0.1);color:var(--green);border-color:rgba(0,200,83,0.3)}
 
   /* SKELETON */
-  .skel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+  .skel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+  @media (min-width: 980px){
+    .skel-grid{grid-template-columns:repeat(3,1fr)}
+  }
   .skel-card{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
   .skel{background:linear-gradient(90deg,#1c1c1c 25%,#242424 50%,#1c1c1c 75%);background-size:200% 100%;animation:sh 1.6s infinite;border-radius:5px}
   @keyframes sh{0%{background-position:200% 0}100%{background-position:-200% 0}}
@@ -1424,7 +1431,7 @@ function showSkeleton() {
   let html = '<div class="skel-grid">';
   for (let i=0; i<6; i++) {
     html += `<div class="skel-card">
-      <div class="skel" style="height:158px"></div>
+      <div class="skel" style="aspect-ratio:9/16"></div>
       <div style="padding:14px">
         <div class="skel" style="height:11px;width:35%;margin-bottom:11px"></div>
         <div class="skel" style="height:13px;margin-bottom:5px"></div>

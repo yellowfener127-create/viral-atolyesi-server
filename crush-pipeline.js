@@ -533,7 +533,7 @@ async function buildCrushRenderPlan(o) {
       ? Math.max(0, Math.min(1, hook.boxOpacity))
       : 0.38;
 
-  const cover = coverBox && Number.isFinite(coverBox.y) && Number.isFinite(coverBox.h)
+  let cover = coverBox && Number.isFinite(coverBox.y) && Number.isFinite(coverBox.h)
     ? {
         y: Math.max(0, Math.min(outH - 2, Math.round(coverBox.y))),
         h: Math.max(2, Math.min(outH, Math.round(coverBox.h))),
@@ -543,11 +543,26 @@ async function buildCrushRenderPlan(o) {
       }
     : null;
 
+  // KAOS: üst hook için opak siyah bant (eski davranış). Terapi/Umut: yalnızca gelen coverBox ile bant.
+  if (String(brand || '').toLowerCase() === 'kaos' && !cover) {
+    const bandH = Math.max(140, Math.min(520, Math.round(outH * 0.22)));
+    cover = { y: 0, h: bandH, w: outW, opacity: 1 };
+  }
+
+  const syntheticKaosTopBand =
+    String(brand || '').toLowerCase() === 'kaos' &&
+    !!cover &&
+    !(coverBox && Number.isFinite(coverBox.y) && Number.isFinite(coverBox.h));
+
   // Force-mask hybrid:
   // - cover varsa: opak siyah bant + hook bant üzerinde
   // - cover yoksa: bantsız, konturlu + gölgeli hook
   const hasBand = !!cover;
-  const bannerYPxOverride = Number.isFinite(hook?.bannerY) ? Math.round(hook.bannerY) : null;
+  const bannerYPxOverride = syntheticKaosTopBand
+    ? cover.y
+    : Number.isFinite(hook?.bannerY)
+      ? Math.round(hook.bannerY)
+      : null;
   const bannerY = Math.max(0, Math.min(outH - 2, bannerYPxOverride != null ? bannerYPxOverride : (cover ? cover.y : 0)));
   const bannerH = cover ? cover.h : 0;
   const bandSidePad = 52;
