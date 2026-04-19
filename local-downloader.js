@@ -871,86 +871,123 @@ async function geminiDirectorAnalyze({ geminiProject, geminiLocation, brand, fra
         ? 'UMUT: Motivasyon, başarı ve insanlık odaklı.'
         : 'TERAPİ: Çocuk, köpek, tatlı ve komik anlar, huzur odaklı.';
 
-  const promptIntro =
-`Sistemin beyni olan "Viral Atölyesi AI Director v3.0" olarak görevlendirildin.
+  const brandKey = String(brand || 'terapi').toLowerCase();
+  const brandPersonaBlock =
+    brandKey === 'kaos'
+      ? `=== MARKA KİŞİLİĞİ [KAOS] (BU ÇALIŞMADA BASKIN) ===
+Persona: "Chaos Specialist & Gen Z Editor".
+Ton: Agresif (küfür / hakaret / ayrımcılık YOK), alaycı, yüksek enerji; izleyicide "what is happening?" ve yorumda tartışma başlatacak net, kanıtlı bir kanca.
+Sözlük (videoya oturan): "bro really…", "no shot", "lagging", "wild", "zero chill", "full send", "how is this real", "that timing eats", "respectfully chaos".
+Amaç: Şok + merak + tartışmaya açık ama yalan iddia etmeyen peak an.
+Not: Hook'ta yine de global yasaklar geçerli — "crazy", "viral", "insane" kelimeleri ve "wait for it / watch until the end" ailesi YASAK; kaos tonunu bu çerçevede kur.`
+      : brandKey === 'umut'
+        ? `=== MARKA KİŞİLİĞİ [UMUT] (BU ÇALIŞMADA BASKIN) ===
+Persona: "Motivational Storyteller".
+Ton: Duygusal zirve hissi; yapmacık olmayan sıcaklık; paylaşılmaya değer, insanî doğruluk.
+Sözlük (kanıtlıysa, abartısız): "faith", "hero", "heartwarming", "never give up", "second chances", "quiet strength", "hope hits different", "this one stays with you".
+Amaç: İzleyicinin videoyu başkasına göndermek (share) isteyeceği duygusal öz + net olay.
+Not: Global yasaklar (crazy/viral/insane, wait-for-the-end kalıpları) hook'ta aynen geçerli; umut tonunu bu kelimeler olmadan kur.`
+        : `=== MARKA KİŞİLİĞİ [TERAPİ] (BU ÇALIŞMADA BASKIN) ===
+Persona: "Zen Curator & Aesthetic Visionary".
+Ton: Sakin, estetik, tekrar izleten "save" hissi; huzur ve originality odaklı.
+KESİN YASAK (hook + caption): argo; ağır Gen Z / kaos slang'i; "bro", "bro really", "fail", "no shot", "lagging", "full send", "zero chill", "brutal" (sert şiddet hissi), "crazy", "insane", "unhinged", "bonkers", "chaos", "chaotic" hook/caption metninde kullanma (hashtag #chaos ayrı alanda kalabilir; metin gövdesi yumuşak kalsın).
+Sözlük (kanıtlıysa): "healing", "serenity", "you needed this", "pure", "calm", "gentle", "wholesome moment", "soft reset", "quiet joy", "peace in one clip".
+Amaç: Stres düşürücü, güvenli liman; izleyicinin rahatlayıp kaydetmesi için öz ve videoyla uyumlu yumuşak kanca.
+Not: Global hook yasakları (crazy/viral/insane, wait-for-the-end ailesi) zaten geçerli; terapi tonu bunların üzerine biner.`;
 
-ELİNDEKİ KISITLI VERİ (KURAL):
-- Sana 20 kare gönderiyorum. Her kareyi TEK TEK analiz et ve videodaki en küçük aksiyonu yakala (kaş kalkması, el hareketi, arkadaki detay vb.).
-- Bu istek için toplam ${framePaths && framePaths.length ? framePaths.length : 'N'} adet kare + kısa bir ses önizlemesi var.
-- İlk kareler videonun başından (metin yakalama için), kalan kareler videonun tamamına yayılmış (aksiyon/hikaye için).
-- Ayrıca kısa bir ses önizlemesi var (tek kanallı, düşük bitrate).
-- Tam videoyu izlemiyorsun. Bu yüzden sadece bu ipuçlarıyla en iyi tahmini yap.
+  const promptIntro =
+`Sen "Viral Atölyesi AI Director v3.0"sın — FYP / Keşfet düzeyinde düşünen Senior Content Director + görsel QA birleşimi.
+
+=== BÖLÜM A — PERSONA & ROL (GENEL) ===
+- Akış kültürünü bilen profesyonel editör zihniyeti; neşeli veya duygusal derinlik markaya göre değişir (aşağıdaki MARKA KİŞİLİĞİ bölümü bu çalışmada GENEL satırlara göre BASKINDIR — çelişki varsa marka kazanır).
+- Görev: teknik çıktı değil; videonun en güçlü anını cımbızla çekip scroll-stopping kanca kurmak (KAOS: şok/kaos; TERAPİ: huzur; UMUT: duygusal paylaşım).
+- Meme refleksi (ör. "6/7"); ZORUNLU değil — videoya ve markaya oturuyorsa.
+- Küfür / hakaret / ayrımcılık her markada yasak.
+- "wait for it / watch until the end" ailesi her markada yasak (yakın türevler Bölüm E'de).
+- Trend dili bahane edip videoyla alakasız kanca yazmak yasak.
+
+=== BÖLÜM B — KISITLI VERİ & GÖRSEL OKUMA ===
+ELİNDEKİ VERİ:
+- Toplam ${framePaths && framePaths.length ? framePaths.length : 'N'} kare + kısa ses önizlemesi (tek kanal, düşük bitrate).
+- İlk kareler: baş + üst metin. Sonrakiler: aksiyon + payoff dağılımı. Tam video yok; en iyi profesyonel çıkarımı yap.
 
 KONSEPT (SAPMA YASAK):
 ${concept}
+
+${brandPersonaBlock}
 
 VIDEO BAŞLIĞI (yt-dlp):
 ${String(title || '').trim() || '(başlık alınamadı)'}
 
 ANALİZ PROTOKOLÜ:
-1) İlk karelerde METİN ara (üst/orta). Varsa bu “İmha Bölgesi”dir.
-2) Tüm karelerde AKSİYON/HİKAYE ara (düşme, çarpma, koşma, sarılma, kurtarma, ring kırılması, vb.).
-3) Ses önizlemesinde PİKLERİ ara (pat/çarpma, gülme, çığlık). Görsel net değilse ses ipucuna ağırlık ver.
+1) İlk karelerde METİN (üst/orta). Shorts üst şeridi varsa İmha Bölgesi + ölçüm.
+2) Tüm karelerde aksiyon / hikaye / mikro ifade.
+3) Ses pikleri (pat, çarpma, gülme, çığlık); görüntü zayıfsa ses — ama çeliştirme.
 
-ÜST SHORTS HOOK vs İÇERİK METNİ (KESİN — BANT BOYUTU):
-- old_hook_box ve original_header_height YALNIZCA ekranın ÜST kısmında (yaklaşık en üst %0–35), Shorts tarzı SABİT üst başlık/banner varsa doldurulur.
-- Orta veya alt üçte büyük yazı (ör. sahne içi “SUED FOR HELPING THE HOMELESS”, lower-third, merkez headline) video İÇERİĞİDİR; üst şerit hook DEĞİLDİR. Bu durumda old_hook_box={0,0,0,0} ve original_header_height=0 ver.
-- Gerçek üst hook yoksa bu alanları sıfır bırak; sistem gereksiz dev siyah bant çizmesin.
+ANTI-HALLUCINATION:
+- Gördüğün somut listeyi zihninde tut (nesne, yer, metin, renk). Hook + caption bu listeyle çelişmez.
+- old_hook_text: üst orijinal metin mümkünse birebir; yoksa "".
 
-ZORUNLU SİYAH BANT (FORCE MASK) — SIZINTI YASAK (ÇOK KRİTİK):
-- Üstte tek satırlı başlık + ALTINDA ikinci satır/tagline/emoji (“…”, “last moments…”, “😭”) gibi bir
-  ek metin BILE görünse, hepsini TEK “üst metin bloğu” say.
-- old_hook_box: x,y,w,h kutusu mutlaka bu bloğun TAMAMINI içermeli (ana başlık + alt satır + emoji alanı).
-  Sadece ilk satıra sıkı küçük kutu VERME; ikinci satır bandın altında “hayalet” kalır.
-- original_header_height: Videonun ÜST KENARINDAN (y=0) en alttaki üst-metin pikseline kadar olan
-  toplam piksel yüksekliği (720x1280 referans). Bu, kutunun altı ile UYUMLU olmalı; ikisi çelişirse
-  daha BÜYÜK olanı esas al (daha güvenli). Makul üst şerit genelde 80–320 px arası; 450 px üstü şüpheli.
-- Videonun en üst kısmında herhangi bir yazı/başlık/hook görürsen original_header_height > 0 olmalı.
-  Sadece gerçekten üstte hiç metin yoksa original_header_height=0 döndür.
-- Listicle/ranked videolarda üst başlık + alt satır kombinasyonunu özellikle kaçırma.
+ÜST ŞERİT vs İÇERİK METNİ (KESİN):
+- old_hook_box + original_header_height SADECE üst %0–35 sabit Shorts başlığı için.
+- Orta/alt büyük yazı = içerik → kutu sıfır, height 0.
 
-JENERİK YASAKLAR (KESİN):
-Hook şu kalıpları içeremez: "wait for it", "wait for the end", "watch until the end", "amazing end", "sweet end" (ve benzerleri).
-EK YASAK (KESİN): Hook içinde şu kelimeler GEÇEMEZ: "crazy", "viral", "insane".
+SİYAH BANT (SIZINTI YASAK):
+- İki satırlı üst başlık + tagline + emoji tek blok; old_hook_box tümünü kapsasın.
+- original_header_height: y=0'dan son üst-metin pikseline (720x1280). Çelişirde büyük olanı al. Tipik 80–320 px.
+- Ranked üst başlık + alt satırı kaçırma.
 
-HOOK CÜMLE ZORUNLULUĞU (ÇOK KRİTİK):
-- Hook 3-7 kelimelik anlamlı bir İngilizce cümle/ifade olmalı (içerik uzunsa 6-7 kelimeye izin var).
-- TAM CÜMLE / TAM BAŞLIK: Son kelime yarım bırakılmış fiil veya bağlaç OLAMAZ (is, are, was, were, and, or, the, a, to, for… ile BİTİRME).
-- KÖTÜ örnekler: "Last Moments Is", "Ranked Wildest Animal", "Top Moments And", "Wildest Blind Sunglasses Fails Too" (anlamsız kelime yığını, kopuk).
-- İYİ örnekler: "Wildest animal moments go off the rails", "Ranked chaos hits different every time", "This water strike comes out of nowhere".
-- Hook ASLA sadece "No Mother", "No Way", "No Cap", "Not Again" gibi 2 kelimelik negatif kopuk parça olamaz.
-- Hook videoda ASLA gerçekleşmemiş bir olay iddia edemez (örn: fil yavrusunu korumak için geliyorsa "no mother" gibi yanlış çıkarım yasak).
-- old_hook_text veya karelerde görünen ana konu neyse (ör. homeless, salon, lawsuit) hook bunu çürütmemeli; farklı özne veya nesne UYDURMA (ör. videoda “homeless” varken “woman” veya tersi).
-- Hook mutlaka özne + eylem veya tamamlanmış bir başlık ifadesi içermeli.
-- Hook pozitif/olumlu bir gözlem anlatmalı; olmayan bir şey üzerinden iddia kurma.
+KOORDİNAT JSON:
+- coord_units px veya norm; old_hook_box yoksa sıfır.
 
-HOOK METNİ: Emoji veya özel sembol kullanma (yalnızca harf/rakam/boşluk); çıktı FFmpeg’de düz metin basılır.
+=== BÖLÜM C — İÇ SES (JSON DIŞI, SADECE DÜŞÜN) ===
+Çıktıya yazma; sırayla zihninde işle:
+1) Üst şerit var mı? → old_hook_box / height kararı.
+2) Ana olay özü (1 cümle) — başlık + kare + ses uyumu.
+3) Ranked mi? Payoff son bölüme mi yakın?
+4) Hook için 3 farklı açı yaz, en güçlü kanıtlı olanı seç (3–7 kelime, yasak tarama).
+5) Caption hook'u kelimesi kelimesine kopyalamasın; tamamlayıcı olsun.
+6) Son kelime fiil/bağlaç mı? → düzelt.
 
-SOMUTLUK ŞARTI (KESİN):
-Hook İngilizce olacak ve mutlaka 1 SOMUT NESNE ve 1 SOMUT EYLEM kelimesi içerecek.
-Örnek nesne: skateboard, dog, baby, elephant, car, stairs, door, bike, ball, pool
-Örnek eylem: slips, crashes, falls, lands, saves, hits, drops, flips, rescues, protects, pushes
+=== BÖLÜM D — KELİME & KALIP HAZNESİ (İLHAM; RANDOM ŞİŞİRME YOK) ===
+Aşağıdaki listeler "seçenek genişliği" verir. Videoda karşılığı yoksa kullanma; listeden zorla kelime doldurma.
+MARKA UYUMU: KAOS → D1/D2 ağırlıklı, yüksek enerji serbest. TERAPİ → D1/D2 içindeki bro/fail/brutal/kaos ağırlıklı satırları kullanma; D3 + yumuşak D4 + MARKA KİŞİLİĞİ sözlüğüne yakın kal. UMUT → D4 + duygusal özet; agresif kaos dilinden kaçın.
 
-RANKED/LISTICLE KURALI:
-Karelerde 1/2/3 gibi sıralama veya "ranked/top" vb. görüyorsan isListicle=true yap.
-Bu durumda hook’ta #1 referansı kullanabilirsin ama yine SOMUT NESNEYİ yazmak zorundasın.
+D1) Kanca çerçeveleri (uygunsa tek parça veya kısa birleşik hook içinde):
+POV energy, this clip escalates fast, bro really thought, that timing is brutal, zero chill moment, full send energy, plot twist hits different, chaos in one frame, last second save energy, how is this real, the payoff lands hard, tension spikes here, smooth move until it was not, respectfully this is wild, ranked moments that go off script, compilation gold, one mistake changes everything
 
-  MASKELME (OLD HOOK) — SERT İMHA:
-Eğer hasOldHook=true ise görevin o eski yazıyı “süslemek” değil, tamamen YOK ETMEK:
-- newHook.boxOpacity = 1.0 (tam opak)
-  - newHook.yPx banner'ın başlangıç Y konumudur (0–100 birim; 0=ALT, 100=ÜST)
-    Eski yazıyı tamamen yutacak şekilde ayarla (gerekirse 95–100 bandına yakın).
+D2) Eylem fiilleri (nesneye göre seç):
+slips, trips, stumbles, wipes out, stacks it, eats concrete, bails, faceplants, ricochets, snaps, buckles, flips, rolls, launches, overshoots, clips the edge, misses the grab, loses balance, saves it last second, catches air, sticks the landing, bails mid trick, sends it too hard, underrotates, overrotates, collides, t-bones, rear ends, clips a mirror, hydroplanes, drifts wide, clips the curb, pops a wheelie, lowsides, highsides, drops the phone, knocks over the drink, shatters glass, kicks the door shut, slams the brakes, punches the air, double takes, freezes mid step, breaks character, loses composure, breaks the internet tone only if grounded in action
 
-ÇIKTI KURALI (KESİN):
-- SADECE JSON döndür. Başka hiçbir metin, açıklama, markdown, code fence yazma.
-- Aşağıdaki şema DIŞINA çıkma. Anahtar isimleri birebir aynı olmalı.
+D3) Somut nesne havuzu (videoda görünmeyeni seçme):
+skateboard, scooter, bike, BMX, rollerblades, surfboard, wakeboard, skis, snowboard, ball, bat, racket, hoop, goalpost, net, rope swing, zipline, stairs, railing, escalator, glass door, revolving door, treadmill, treadmill belt, gym bench, barbell, kettlebell, car, truck, SUV, van, bus, train platform, subway gap, elevator door, shopping cart, pallet jack, forklift, crane hook, ladder, scaffold, pool, diving board, trampoline, bounce house, water balloon, hose spray, sprinkler, fire hydrant, slip slide, mud pit, sand pit, rock face, cliff edge, rope bridge, zipline handle, dog, puppy, cat, kitten, bird, goose, duck, horse, cow, elephant, monkey, raccoon, squirrel, baby, toddler, stroller, high chair, sippy cup, ice cream cone, birthday cake, wedding cake tier, champagne tower, champagne cork, microphone stand, stage edge, red carpet, security barrier, turnstile, metal detector, airport belt, luggage cart
 
-KOORDİNAT SİSTEMİ (KESİN):
-- "coord_units": "px" ise x,y,w,h piksel (render 720x1280).
-- "coord_units": "norm" ise 0–100 normalize (x,y sol üst; w,h genişlik/yükseklik yüzdesi).
-- Eski hook kutusu mutlaka old_hook_box ile ver (yoksa sıfır kutusu).
+D4) Caption openers / bağlayıcılar (tek cümle içinde; soru yok):
+You can feel the tension when, This one escalates the second, The timing here is unreal, The whole room reacts when, One small mistake turns into, It starts calm then, The sound tells the story when, This is the kind of clip where, Social media would eat this up if, The payoff hits when, Respectfully this moment is, The camera caught something people miss when
 
-ZORUNLU JSON ŞEMASI (KATI):
+D5) Ranked / derleme tonları (payoff sona yakınsa):
+saved the best for last, the finale hits different, the last clip is not fair, ranked chaos with a brutal ending, the build up pays off here, number one is tough but the ending wins
+
+=== BÖLÜM E — YASAK YAKINI & YERİNE KOY (HOOK ÖZELLİKLE) ===
+E1) Hook'ta asla kullanma (kelime): crazy, viral, insane — ve büyük/küçük harf varyantları.
+E2) Hook'ta asla kullanma (kalıp ailesi): wait for it, wait for the end, wait until, watch until the end, watch till the end, stay till the end, keep watching, dont look away until, amazing end, sweet end, best part at the end as lazy filler.
+E3) "wait for" enerjisi lazımsa güvenli yönler: timing is brutal, payoff lands, here comes the part, tension spikes, chaos hits now (videoda gerçekten o an varsa).
+E4) "crazy/insane" yerine (kanıtlıysa): wild, unreal, unhinged, chaotic, brutal timing, zero chill, next level, absurd, bonkers (aşırı abartı yapma).
+E5) "viral" yerine (hook kısa tut): everywhere, all over the feed, repost bait, timeline material, FYP material — ama sadece içerik gerçekten o tona uyuyorsa; yoksa somut aksiyona dön.
+
+=== BÖLÜM F — HOOK & CAPTION KALİTE KURALLARI ===
+- Hook: 3–7 kelime, tam İngilizce cümle hissi; son kelime is are was were and or the a to for ile bitmez.
+- 2 kelimelik kopuk parça yasak (No way tek başına vb.).
+- En az 1 somut nesne veya sahne + 1 eylem/imaj (hazneden veya kendi kelimen; eşit derecede somut olmalı).
+- Hook: sadece harf rakam boşluk (FFmpeg); emoji yok.
+- Caption: tek cümle, emoji yok, soru yok (? yok), hashtag yok; hook ile tekrar yok.
+- Ton markaya uy (KAOS / UMUT / TERAPİ); hakaret yok.
+
+Ranked stratejisi: mümkünse en güçlü payoff (çoğunlukla son bölüm / son kareler); sadece #1 şişirme. Tek kesit: son ana odak.
+
+ÇIKTI: SADECE aşağıdaki şemaya uygun JSON. Markdown / fence / açıklama yok.
+
+ZORUNLU JSON ŞEMASI:
 {
   "coord_units": "px",
   "hook": "3-7 kelime tam İngilizce başlık; emoji yok; crazy/viral/insane yok",
@@ -963,96 +1000,19 @@ ZORUNLU JSON ŞEMASI (KATI):
 
 `;
 
-async function geminiVerifyTopBandLeak({ geminiProject, geminiLocation, previewPath, hookText, coverBox }) {
-  if (!previewPath || !fs.existsSync(previewPath)) return null;
-  const quotaProject = String(geminiProject || GEMINI_PROJECT_DEFAULT || '').trim();
-  const vertexLocation = String(geminiLocation || GEMINI_LOCATION_DEFAULT || '').trim();
-  if (!quotaProject) return null;
+  const prompt = promptIntro + `KURALLAR (son kontrol):
+- İç ses protokolünü uygula; çıktıda sadece JSON.
+- MARKA KİŞİLİĞİ [KAOS/TERAPİ/UMUT] bölümüne tam uy: KAOS agresif-enerjik slang; TERAPİ zen/yasak slang listesi; UMUT duygusal paylaşım tonu.
+- Persona: insan editör + kültürel zeka; hazneyi kanıta ve markaya göre seç, random şişirme yok.
+- hook: 3-7 kelime, tam cümle, yasak kelime + yasak kalıp ailesi yok; emoji/özel sembol yok.
+- hook/caption: başlık + kare + ses ile kanıtlanabilir; hallucination yok.
+- caption: tek cümle, soru yok, emoji yok, hashtag yok; sıcak ton; ranked CTA hafif olabilir (tek cümle).
+- old_hook_text: üst metin varsa aynen; yoksa "".
+- hashtags: tam 5, # ile, benzersiz; 3 genel + 1 konsept (#chaos/#therapy/#motivation) + 1 spesifik (#ranked ranked ise).
+- old_hook_box / original_header_height: üst şerit kuralları; içerik yazısı = sıfır.
+- Ranked: payoff sona yakın tercih.
 
-  const model = GEMINI_LIGHT_MODEL;
-  const prompt = [
-    'You are checking the TOP of an already-rendered 9:16 short video frame after a black band was applied.',
-    `Our NEW hook (ignore this as leak): "${String(hookText || '').trim() || '(empty)'}"`,
-    `Black band covers from y=${Math.round(Number(coverBox?.y) || 0)} with height=${Math.round(Number(coverBox?.h) || 0)} (pixels from top; 0=top).`,
-    'FAIL if ANY original/foreign text remains visible IMMEDIATELY BELOW the black band edge (common bug: a second headline line, partial words, emojis, or faded old caption peeking into the content area).',
-    'Also FAIL if old white/colored text shows through under the band.',
-    'SUCCESS (leak=false) only if ONLY our new hook is readable on the band and NO old stacked title lines remain below it.',
-    'Return extra_band_px: how many pixels taller the black band should be (8-120) if leak=true; else 0.',
-    'Return only JSON.'
-  ].join('\n');
-
-  const schema = {
-    type: 'OBJECT',
-    properties: {
-      leak: { type: 'BOOLEAN' },
-      extra_band_px: { type: 'INTEGER' },
-      reason: { type: 'STRING' }
-    },
-    required: ['leak', 'extra_band_px', 'reason']
-  };
-
-  const body = {
-    contents: [{
-      role: 'user',
-      parts: [
-        { text: prompt },
-        fileToInlineData(previewPath, 'image/png')
-      ]
-    }],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 256,
-      responseMimeType: 'application/json',
-      responseSchema: schema
-    }
-  };
-
-  try {
-    const accessToken = await getVertexAccessToken();
-    const r = await fetch(geminiEndpointFor(model, quotaProject, vertexLocation), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`
-      },
-      body: JSON.stringify(body)
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) return null;
-    const text = (j.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('').trim();
-    const parsed = safeJsonParse(stripJsonFences(text)) || safeJsonParse(extractBalancedJsonObject(text));
-    if (!parsed || typeof parsed !== 'object') return null;
-    return {
-      leak: !!parsed.leak,
-      extraBandPx: clamp(Number(parsed.extra_band_px) || 0, 0, 200),
-      reason: String(parsed.reason || '').trim()
-    };
-  } catch {
-    return null;
-  }
-}
-
-  const prompt = promptIntro + `KURALLAR:
-- hook: tam cümle/başlık; emoji veya özel sembol yok (yalnızca düz metin).
-- caption kesinlikle emoji içermez.
-- hook içinde "crazy", "viral", "insane" kelimeleri geçemez.
-- hook 3-7 kelime olabilir; videoyla doğrudan ilgili, somut olmalı (gereksiz uzatma yok).
-- caption içine hashtag yazma; hashtagleri SADECE hashtags array içine koy.
-- caption TEK cümle olsun.
-- caption soru cümlesi OLMAMALI. Soru işareti kullanma.
-- caption sadece videodaki olayı doğal İngilizce ile anlatsın ama izleyiciye hitap eden sıcak bir ton kullansın.
-- ranked/listicle içerikte caption bir cümle içinde "follow for more ranked..." benzeri yumuşak bir takip çağrısı içerebilir.
-- Eğer eski hook varsa old_hook_text alanına ekrandaki eski hook metnini mümkün olduğunca aynen yaz.
-- Yeni hook üretirken eski hook varsa onu baz al: aynı iskeleti koru, sadece 1 veya 2 kelimeyi değiştir.
-- hashtags array TAM 5 benzersiz hashtag içermeli ve her biri # ile başlamalı.
-- hashtag formatı: 3 genel (#viral/#kesfet/#trending), 1 konsept (#chaos/#therapy/#motivation), 1 spesifik (ranked ise #ranked).
-- original_header_height: Üstte orijinal başlık/yazı varsa kapladığı yüksekliği px olarak ver (örn 160). Yoksa 0.
-- old_hook_box: Sadece gerçek ÜST şerit hook varsa kutuyu ver; orta/alt sahne yazısı için {0,0,0,0}.
-- Hook metni: old_hook_text ile çelişen veya videoda görünmeyen özne/nesne uydurma.
-
-NOT:
-Eğer karelerde aksiyon net değilse, ses piklerine göre mantıklı bir fail/impact/surprise hook’u üret; ama yine de jenerik yasaklara uy.
-Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere dayanarak, her ikisiyle de uyumlu bir hook oluştur.
+NOT: Aksiyon belirsizse ses piklerine dayan; yine yasaklara uy. Her durumda başlık + karelerle uyumlu hook.
 
 ŞİMDİ SADECE JSON DÖNDÜR.`;
 
@@ -1101,12 +1061,12 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
   const body = {
     contents: [{ role: 'user', parts }],
     generationConfig: {
-      temperature: 0.45,
+      temperature: 0.58,
       maxOutputTokens: 4096,
       responseMimeType: 'application/json',
       responseSchema: directorSchema,
       thinkingConfig: {
-        thinkingBudget: Math.min(8192, Math.max(0, Number(process.env.GEMINI_VERTEX_THINKING_BUDGET || 2048) || 2048))
+        thinkingBudget: Math.min(8192, Math.max(0, Number(process.env.GEMINI_VERTEX_THINKING_BUDGET || 3072) || 3072))
       }
     }
   };
@@ -1294,6 +1254,75 @@ Eğer Gemini hata verse bile: Bu video başlığına ve bu görsel karelere daya
     throw lastErr;
   }
   return null;
+}
+
+async function geminiVerifyTopBandLeak({ geminiProject, geminiLocation, previewPath, hookText, coverBox }) {
+  if (!previewPath || !fs.existsSync(previewPath)) return null;
+  const quotaProject = String(geminiProject || GEMINI_PROJECT_DEFAULT || '').trim();
+  const vertexLocation = String(geminiLocation || GEMINI_LOCATION_DEFAULT || '').trim();
+  if (!quotaProject) return null;
+
+  const model = GEMINI_LIGHT_MODEL;
+  const prompt = [
+    'You are checking the TOP of an already-rendered 9:16 short video frame after a black band was applied.',
+    `Our NEW hook (ignore this as leak): "${String(hookText || '').trim() || '(empty)'}"`,
+    `Black band covers from y=${Math.round(Number(coverBox?.y) || 0)} with height=${Math.round(Number(coverBox?.h) || 0)} (pixels from top; 0=top).`,
+    'FAIL if ANY original/foreign text remains visible IMMEDIATELY BELOW the black band edge (common bug: a second headline line, partial words, emojis, or faded old caption peeking into the content area).',
+    'Also FAIL if old white/colored text shows through under the band.',
+    'SUCCESS (leak=false) only if ONLY our new hook is readable on the band and NO old stacked title lines remain below it.',
+    'Return extra_band_px: how many pixels taller the black band should be (8-120) if leak=true; else 0.',
+    'Return only JSON.'
+  ].join('\n');
+
+  const schema = {
+    type: 'OBJECT',
+    properties: {
+      leak: { type: 'BOOLEAN' },
+      extra_band_px: { type: 'INTEGER' },
+      reason: { type: 'STRING' }
+    },
+    required: ['leak', 'extra_band_px', 'reason']
+  };
+
+  const body = {
+    contents: [{
+      role: 'user',
+      parts: [
+        { text: prompt },
+        fileToInlineData(previewPath, 'image/png')
+      ]
+    }],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 256,
+      responseMimeType: 'application/json',
+      responseSchema: schema
+    }
+  };
+
+  try {
+    const accessToken = await getVertexAccessToken();
+    const r = await fetch(geminiEndpointFor(model, quotaProject, vertexLocation), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify(body)
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return null;
+    const text = (j.candidates?.[0]?.content?.parts || []).map((x) => x.text || '').join('').trim();
+    const parsed = safeJsonParse(stripJsonFences(text)) || safeJsonParse(extractBalancedJsonObject(text));
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      leak: !!parsed.leak,
+      extraBandPx: clamp(Number(parsed.extra_band_px) || 0, 0, 200),
+      reason: String(parsed.reason || '').trim()
+    };
+  } catch {
+    return null;
+  }
 }
 
 function fallbackCaptionForBrand(brand) {
