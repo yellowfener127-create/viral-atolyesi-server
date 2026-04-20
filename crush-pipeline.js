@@ -414,7 +414,8 @@ function buildReelsInstagramCanvasFilters({
   fontPart,
   hookEnable,
   escapedLines,
-  frameFileExists
+  frameFileExists,
+  cropYNudgeRefPx = 0
 }) {
   const sy = outH / 1920;
   const sx = outW / 1080;
@@ -440,13 +441,18 @@ function buildReelsInstagramCanvasFilters({
   // If it's missing, fall back to a safe solid background.
   const bgHex = brandNorm === 'umut' ? '0xF5F5F5' : '0xF0F8FF';
 
+  const nudge = Number.isFinite(Number(cropYNudgeRefPx)) ? Math.round(Number(cropYNudgeRefPx)) : 0;
+  const nudgeRatio = nudge / MANUAL_BLUR_REF_H;
+  const cropYExpr =
+    `max(0\\,min(ih-oh\\,max(0\\,(ih-oh)*0.42)+ih*${nudgeRatio.toFixed(8)}))`;
+
   const parts = frameFileExists ? [
     `color=c=white:s=${outW}x${outH}:d=99999[base]`,
     `[1:v]scale=${outW}:${outH},format=rgba,setsar=1[frame]`,
     // Kaynaktaki üst hook/bantı gizlemek için crop'ı biraz aşağıdan al (üstten kırp).
     // FFmpeg filtergraph: max(0\,expr) içindeki virgül kaçırılmalı, yoksa yeni filtre sanır.
-    // Daha agresif: eski yanık hook/bant kesin kaybolsun (üstten daha çok at).
-    `[v0]scale=${ww}:${wh}:force_original_aspect_ratio=increase,crop=${ww}:${wh}:(iw-ow)/2:max(0\\,(ih-oh)*0.42),setsar=1[vid]`,
+    // Manuel nudge (720×1280 px referansı): ih*(nudge/1280) ifadesi ölçeklenmiş kare üzerinde kaydırır.
+    `[v0]scale=${ww}:${wh}:force_original_aspect_ratio=increase,crop=${ww}:${wh}:(iw-ow)/2:${cropYExpr},setsar=1[vid]`,
     `[base][vid]overlay=x=${wx}:y=${wy}:shortest=1[vb]`,
     `[vb][frame]overlay=x=0:y=0:format=auto[vt0]`
   ] : [
@@ -531,6 +537,18 @@ function clampDur(n, lo, hi) {
 
 const MANUAL_BLUR_REF_W = 720;
 const MANUAL_BLUR_REF_H = 1280;
+const MANUAL_REELS_CROP_Y_NUDGE_MIN = -500;
+const MANUAL_REELS_CROP_Y_NUDGE_MAX = 500;
+
+/** Lab frame üst kırpımına manuel ince ayar (px, 720×1280 ile aynı dikey ölçek). Negatif = daha çok üst göster; pozitif = daha çok üstü gizle. */
+function parseManualReelsCropYNudgePx(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(
+    MANUAL_REELS_CROP_Y_NUDGE_MIN,
+    Math.min(MANUAL_REELS_CROP_Y_NUDGE_MAX, Math.round(n))
+  );
+}
 
 /** İstek gövdesinden {x,y,w,h} dizisi (px, 720×1280 referansı). */
 function parseManualBlurRectsInput(raw) {
@@ -800,6 +818,9 @@ async function buildCrushRenderPlan(o) {
 
   // hflip kapalı: yakılmış (burned-in) yazı pikseldir; altyazı akışı yoksa tespit edilemez, flip metni ters çevirir.
   const rawManual = parseManualBlurRectsInput(o.manual_blur_rects ?? o.manualBlurRects ?? []);
+  const manualReelsCropYNudgePx = parseManualReelsCropYNudgePx(
+    o.manual_reels_crop_y_nudge_px ?? o.manualReelsCropYNudgePx
+  );
   const ubRects = scaleManualBlurRectsToOutputPx(rawManual, o.manualBlurRefW, o.manualBlurRefH, outW, outH);
   const ubChain = buildManualBlurDelogoChain('v0base', ubRects, outW, outH, 'v0postblur');
 
@@ -917,7 +938,8 @@ async function buildCrushRenderPlan(o) {
           fontPart,
           hookEnable,
           escapedLines: reelsEscapedLines,
-          frameFileExists: frameExists
+          frameFileExists: frameExists,
+          cropYNudgeRefPx: manualReelsCropYNudgePx
         })
       : legacyVisualStack),
     ...tailWmAndGrain
@@ -1056,6 +1078,7 @@ async function buildCrushRenderPlan(o) {
       outDurSec: Number(outDur.toFixed(3)),
       edge,
       manualBlurCount: ubRects.length,
+      manualReelsCropYNudgePx,
       musicFile: musicFile && fs.existsSync(musicFile) ? path.basename(musicFile) : null,
       hookFont: fontFile ? path.basename(fontFile) : null
     }
@@ -1122,5 +1145,6 @@ module.exports = {
   parseManualBlurRectsInput,
   scaleManualBlurRectsToOutputPx,
   MANUAL_BLUR_REF_W,
-  MANUAL_BLUR_REF_H
+  MANUAL_BLUR_REF_H,
+  parseManualReelsCropYNudgePx
 };

@@ -1326,6 +1326,9 @@ app.post('/crush', async (req, res) => {
   const manualBlurRectsBody = crush.parseManualBlurRectsInput(
     req.body?.manual_blur_rects ?? req.body?.manualBlurRects ?? []
   );
+  const manualReelsCropYNudgePx = crush.parseManualReelsCropYNudgePx(
+    req.body?.manual_reels_crop_y_nudge_px ?? req.body?.manualReelsCropYNudgePx
+  );
   if (!url) return res.status(400).json({ error: 'url gerekli' });
 
   // Aynı video için paralel/çift tıklama koruması:
@@ -1513,6 +1516,7 @@ app.post('/crush', async (req, res) => {
             hook,
             coverBox,
             manual_blur_rects: manualBlurRectsBody,
+            manual_reels_crop_y_nudge_px: manualReelsCropYNudgePx,
             manualBlurRefW: crush.MANUAL_BLUR_REF_W,
             manualBlurRefH: crush.MANUAL_BLUR_REF_H,
             hasAudio,
@@ -1538,6 +1542,7 @@ app.post('/crush', async (req, res) => {
       hook,
       coverBox,
       manual_blur_rects: manualBlurRectsBody,
+      manual_reels_crop_y_nudge_px: manualReelsCropYNudgePx,
       manualBlurRefW: crush.MANUAL_BLUR_REF_W,
       manualBlurRefH: crush.MANUAL_BLUR_REF_H,
       hasAudio,
@@ -1556,6 +1561,7 @@ app.post('/crush', async (req, res) => {
       settings: { ...plan.debug },
       verify,
       manualBlurRects: manualBlurRectsBody,
+      manualReelsCropYNudgePx,
       director: {
         ok: true,
         caption: finalCaption || '',

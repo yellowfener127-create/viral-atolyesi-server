@@ -319,6 +319,9 @@
       <div style="font-size:12px;color:var(--muted);margin:10px 0 6px">
         <strong>Manuel blur (720×1280 px):</strong> Aynı videonun yerel kopyasını yükleyin; canvas 9:16 merkez kırpımına yakın önizleme gösterir. Koordinatlar px cinsinden 720×1280 çıktı uzayına map edilir.
       </div>
+      <div style="font-size:12px;color:var(--muted);margin:6px 0 4px">
+        <strong>Dikey kaydırma (Lab çerçeve):</strong> videoyu önizlemede yukarı/aşağı oynatırsınız; değer indirme ile FFmpeg üst kırpımına eklenir (−500…+500 px, 720×1280 referans).
+      </div>
       <input class="tool-input" type="file" id="crushPreviewFile" accept="video/*" />
       <div id="crushBlurPreviewWrap" style="display:none;margin-top:10px;">
         <video id="crushPreviewVideo" muted playsinline preload="metadata" style="display:none;width:0;height:0;position:absolute;visibility:hidden"></video>
@@ -330,6 +333,10 @@
           </label>
           <button type="button" class="tool-btn" id="crushRectDeleteBtn" onclick="deleteSelectedCrushRect()" style="display:none">Seçili kutuyu sil</button>
         </div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Video dikey kaydır
+          <input type="range" id="crushVideoNudgeY" min="-500" max="500" step="1" value="0" style="width:min(100%,280px);vertical-align:middle;margin-left:6px" />
+          <span id="crushVideoNudgeYVal" style="font-variant-numeric:tabular-nums">0</span> px
+        </label>
         <div id="crushBlurRectList" style="font-size:11px;color:var(--muted);margin-top:6px;max-height:100px;overflow:auto"></div>
       </div>
       <button class="tool-btn" type="button" id="crushBtn" onclick="crushVideo()">⚡ İndir + Telif Ez (9:16)</button>
@@ -649,8 +656,8 @@ function copyToolText(resultId, btnId) {
   });
 }
 
-/** Manuel blur: 720×1280 px dikdörtgenler (canvas iç çözünürlük sabit). */
-var __crushManual = { rects: [], selectedId: null, drawMode: false, drag: null, nextId: 1, REF_W: 720, REF_H: 1280 };
+/** Manuel blur: 720×1280 px dikdörtgenler (canvas iç çözünürlük sabit). videoCropYNudgePx: Lab frame üst kırpımına ek (px). */
+var __crushManual = { rects: [], selectedId: null, drawMode: false, drag: null, nextId: 1, REF_W: 720, REF_H: 1280, videoCropYNudgePx: 0 };
 
 function crushCanvasCoords(ev, canvas) {
   const r = canvas.getBoundingClientRect();
@@ -679,7 +686,9 @@ function crushDrawVideoFrameOntoCanvas() {
   const vw = v.videoWidth, vh = v.videoHeight;
   const scale = Math.max(cw / vw, ch / vh);
   const dw = vw * scale, dh = vh * scale;
-  const ox = (cw - dw) / 2, oy = (ch - dh) / 2;
+  const ox = (cw - dw) / 2;
+  const nudge = Number(__crushManual.videoCropYNudgePx) || 0;
+  const oy = (ch - dh) / 2 + nudge;
   ctx.drawImage(v, ox, oy, dw, dh);
 }
 
@@ -853,6 +862,11 @@ function wireCrushManualBlurUi() {
   file.addEventListener("change", () => {
     __crushManual.rects = [];
     __crushManual.selectedId = null;
+    __crushManual.videoCropYNudgePx = 0;
+    const ny = document.getElementById("crushVideoNudgeY");
+    const nyv = document.getElementById("crushVideoNudgeYVal");
+    if (ny) ny.value = "0";
+    if (nyv) nyv.textContent = "0";
     const f = file.files && file.files[0];
     if (!f) {
       wrap.style.display = "none";
@@ -876,6 +890,16 @@ function wireCrushManualBlurUi() {
     v.currentTime = Number(seek.value) || 0;
   });
   v.addEventListener("seeked", () => { crushDrawRectsOverlay(); });
+  const nudgeEl = document.getElementById("crushVideoNudgeY");
+  const nudgeValEl = document.getElementById("crushVideoNudgeYVal");
+  if (nudgeEl) {
+    nudgeEl.addEventListener("input", () => {
+      const n = Number(nudgeEl.value);
+      __crushManual.videoCropYNudgePx = Number.isFinite(n) ? n : 0;
+      if (nudgeValEl) nudgeValEl.textContent = String(__crushManual.videoCropYNudgePx);
+      crushDrawRectsOverlay();
+    });
+  }
   cv.addEventListener("mousedown", onCrushCanvasMouseDown);
   window.addEventListener("mousemove", onCrushCanvasMouseMove);
   window.addEventListener("mouseup", onCrushCanvasMouseUp);
@@ -904,6 +928,7 @@ async function crushVideo() {
   if (!url) { alert("Link gir."); return; }
 
   const manual_blur_rects = (__crushManual.rects || []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
+  const manual_reels_crop_y_nudge_px = Number(__crushManual.videoCropYNudgePx) || 0;
 
   btn.disabled = true;
   btn.textContent = "⏳ Hazırlanıyor...";
@@ -915,7 +940,7 @@ async function crushVideo() {
     const localRes = await fetch("http://127.0.0.1:8787/crush", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, brand, manual_blur_rects })
+      body: JSON.stringify({ url, brand, manual_blur_rects, manual_reels_crop_y_nudge_px })
     });
     const localData = await localRes.json().catch(() => ({}));
     if (!localRes.ok || !localData.ok) {
@@ -923,7 +948,8 @@ async function crushVideo() {
     }
     msg.style.display = "block";
     msg.textContent = "✅ PC'ye kaydedildi: " + (localData.savedTo || "") + "\\" + (localData.file || "") +
-      (manual_blur_rects.length ? " · " + manual_blur_rects.length + " blur kutusu" : "");
+      (manual_blur_rects.length ? " · " + manual_blur_rects.length + " blur kutusu" : "") +
+      (manual_reels_crop_y_nudge_px ? " · dikey kaydırma " + manual_reels_crop_y_nudge_px + " px" : "");
 
     const capBox = document.getElementById("crushCaptionBox");
     const capCopy = document.getElementById("crushCaptionCopy");
