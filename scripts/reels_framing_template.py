@@ -30,7 +30,7 @@ from pathlib import Path
 
 CANVAS_W = 1080
 CANVAS_H = 1920
-TITLE_BAND_FRAC = 0.135
+TITLE_BAND_FRAC = 0.24
 BOTTOM_PAD_FRAC = 0.02
 GAP_ABOVE_VIDEO = 12
 MIN_CAPTION_Y = 18
@@ -73,14 +73,22 @@ def has_audio_stream(ffprobe: str, path: Path) -> bool:
 
 def default_fontfile() -> str | None:
     windir = Path(os.environ.get("WINDIR", "C:\\Windows"))
-    for name in (
-        "arialbd.ttf",
-        "Montserrat-Bold.ttf",
-        "montserrat-bold.ttf",
-        "calibrib.ttf",
-        "segoeuib.ttf",
+    if windir.is_dir():
+        for name in (
+            "seguiemj.ttf",
+            "arialbd.ttf",
+            "Montserrat-Bold.ttf",
+            "montserrat-bold.ttf",
+            "calibrib.ttf",
+            "segoeuib.ttf",
+        ):
+            p = windir / "Fonts" / name
+            if p.is_file():
+                return str(p).replace("\\", "/")
+    for p in (
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+        Path("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"),
     ):
-        p = windir / "Fonts" / name
         if p.is_file():
             return str(p).replace("\\", "/")
     return None
@@ -122,16 +130,23 @@ def build_video_filter_complex_fixed(
     cap_lines = min(5, max(1, room // line_step))
     kept = [ln for ln in lines[:cap_lines] if ln.strip()]
     text_tail = int(FONT_SIZE * 1.08)
+    preferred_top = int(title_band_h * 0.38)
+    max_first = (
+        y_top - gap - (len(kept) - 1) * line_step - text_tail if kept else y_top
+    )
     first_y = (
-        max(min_cy, y_top - gap - (len(kept) - 1) * line_step - text_tail) if kept else min_cy
+        max(min_cy, min(preferred_top, max_first)) if kept else min_cy
     )
 
     vf_vid = (
         f"[0:v]scale={CANVAS_W}:{content_h}:force_original_aspect_ratio=increase,"
         f"crop={CANVAS_W}:{content_h},setsar=1[vid]"
     )
-    color = f"color=c={bg_hex}:s={CANVAS_W}x{CANVAS_H}:d=99999[bg]"
-    base = f"{vf_vid};{color};[bg][vid]overlay=x=(W-w)/2:y={y_top}:shortest=1[vt]"
+    color = f"color=c={bg_hex}:s={CANVAS_W}x{CANVAS_H}:d=99999[bg0]"
+    white_band = (
+        f"[bg0]drawbox=x=0:y=0:w={CANVAS_W}:h={title_band_h}:color=white@1.0:t=fill[bg]"
+    )
+    base = f"{vf_vid};{color};{white_band};[bg][vid]overlay=x=(W-w)/2:y={y_top}:shortest=1[vt]"
     if not kept:
         return f"{base};[vt]format=yuv420p[vout]"
 

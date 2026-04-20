@@ -418,9 +418,66 @@ function stripAllEmoji(s) {
     .trim();
 }
 
-/** Hook metninde emoji yok (FFmpeg drawtext çoğu yazı tipinde emoji kutusu gösterir). */
+/** Kaos / meta için: emoji ayrı tutulmaz. Terapi/Umut Reels’te emoji font ile videoda kalır. */
 function normalizeHookEmoji(s) {
   return { text: stripAllEmoji(String(s || '')), emoji: '' };
+}
+
+const CRUSH_EMOJI_POOL_FILE = path.join(__dirname, 'public', 'crush-emoji-pool.txt');
+
+function loadCrushEmojiPool() {
+  const fallback = ['😮', '🔥', '❤️', '✨', '👀', '🙌', '💯', '😊', '🥹', '💪', '😅', '👏', '🫶', '💫', '🤯'];
+  try {
+    if (!fs.existsSync(CRUSH_EMOJI_POOL_FILE)) return fallback;
+    const raw = fs.readFileSync(CRUSH_EMOJI_POOL_FILE, 'utf8');
+    const seen = new Set();
+    const out = [];
+    const re = /\p{Extended_Pictographic}(\uFE0F)?/gu;
+    for (const line of raw.split(/\n/)) {
+      const ln = line.trim();
+      if (!ln || ln.startsWith('#')) continue;
+      let m;
+      const iter = ln.matchAll(re);
+      for (m of iter) {
+        const tok = m[0];
+        if (tok && !seen.has(tok)) {
+          seen.add(tok);
+          out.push(tok);
+        }
+      }
+    }
+    return out.length ? out : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function stripTrailingEmojiRun(s) {
+  const arr = [...String(s || '').trim()];
+  while (arr.length) {
+    const c = arr[arr.length - 1];
+    if (/\s/.test(c) || /[\p{Extended_Pictographic}]/u.test(c) || c === '\uFE0F' || c === '\u200D') {
+      arr.pop();
+      continue;
+    }
+    break;
+  }
+  return arr.join('').trim();
+}
+
+/** Sonda tam olarak havuzdan bir emoji olsun (Gemini kaçarsa veya kutu emoji ise düzelt). */
+function ensureHookUsesPoolEmoji(text, pool) {
+  if (!pool || !pool.length) return String(text || '').trim();
+  let s = String(text || '').trim();
+  if (!s) return s;
+  const uniq = [...new Set(pool)];
+  const sorted = uniq.sort((a, b) => b.length - a.length);
+  for (const e of sorted) {
+    if (e && s.endsWith(e)) return s;
+  }
+  // Gemini havuz dışı emoji eklediyse veya hiç eklemediyse: sondaki emoji/boşlukları temizle.
+  s = stripTrailingEmojiRun(s);
+  return `${s} ${pickOne(uniq)}`.trim();
 }
 
 /** Yarım kalmış başlık: son kelime yardımcı fiil/bağlaç ile bitmesin */
@@ -602,22 +659,39 @@ function remixHookFromOldHook(oldHookText, title, isListicle) {
 }
 
 function splitHookTwoLines(hookText, opts) {
-  const t = stripAllEmoji(String(hookText || '')).replace(/\s+/g, ' ').trim();
-  if (!t) return '';
-  let words = t
+  const forReels = !!(opts && opts.forReels);
+  let raw = String(hookText || '')
     .replace(/\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return '';
+  if (forReels) {
+    raw = raw.replace(/(\p{Extended_Pictographic}\uFE0F?)/gu, ' $1 ').replace(/\s+/g, ' ').trim();
+  }
+  const t = forReels ? raw : stripAllEmoji(raw);
+  if (!t) return '';
+  const maxLen = forReels ? 78 : 52;
+  let words = t
     .split(' ')
     .filter(Boolean)
     .slice(0, 7);
   words = words.map((w) => (w.length > 14 ? w.slice(0, 14) : w));
-  while (words.join(' ').length > 52 && words.length > 1) {
+  while (words.join(' ').length > maxLen && words.length > 1) {
     words.pop();
   }
   let out = words.join(' ').trim();
-  if (out.length > 52) {
-    out = out.slice(0, 52);
-    const sp = out.lastIndexOf(' ');
-    if (sp > 24) out = out.slice(0, sp).trim();
+  if (out.length > maxLen) {
+    if (forReels) {
+      const g = [...out];
+      while (g.length > maxLen) g.pop();
+      out = g.join('').trim();
+      const sp = out.lastIndexOf(' ');
+      if (sp > 28) out = out.slice(0, sp).trim();
+    } else {
+      out = out.slice(0, maxLen);
+      const sp = out.lastIndexOf(' ');
+      if (sp > 24) out = out.slice(0, sp).trim();
+    }
   }
   return out;
 }
@@ -731,18 +805,26 @@ function normBrand(brand) {
  * Gemini (Google AI Studio key): tek satır İngilizce hook. Başarısız olursa reject.
  * Ortam: GEMINI_API_KEY ve isteğe bağlı GEMINI_MODEL (örn. gemini-2.0-flash).
  */
-function fetchGeminiHookEnglish(apiKey, title, brand) {
+function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool) {
   const n = normBrand(brand);
   const tone =
     n === 'umut'
       ? 'hopeful, emotional, inspiring, sincere (no graphic injury topics)'
       : 'wholesome, gentle, uplifting, family-friendly';
+  const pool = Array.isArray(emojiPool) ? emojiPool.filter(Boolean) : [];
+  const emojiRules =
+    pool.length > 0
+      ? `\nAdd exactly ONE emoji at the very end of the sentence (single space before it). ` +
+        `Choose that emoji ONLY from this pool: ${pool.slice(0, 100).join(' ')}\n` +
+        `No other emoji, and no emoji in the middle of the sentence.`
+      : '';
   const prompt =
-    `Write ONE English hook line for a vertical Shorts/Reels/TikTok video.\n` +
+    `Write a curiosity-inducing English hook sentence for a vertical Shorts/Reels/TikTok video.\n` +
     `Rules: max 88 characters. No quotation marks. No hashtags. English only.\n` +
     `Tone: ${tone}.\n` +
     `Video title (may be vague): ${String(title || '').slice(0, 220)}\n` +
-    `Return only the hook line, nothing else.`;
+    emojiRules +
+    `\nReturn only the hook sentence, nothing else.`;
   const model = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
   const body = JSON.stringify({
     contents: [{ parts: [{ text: prompt }] }],
@@ -1351,20 +1433,24 @@ app.post('/crush', async (req, res) => {
     const musicFile = crush.pickRandomMusicFile(PUBLIC_DIR, brand);
     const cache = loadDirectorCache();
     const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: titleIsListicle });
+    const emojiPool = loadCrushEmojiPool();
+    const reelsEmojiBrand = normBrand(brand) === 'terapi' || normBrand(brand) === 'umut';
     let gemHook = '';
     const gemKey = String(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
-    if (gemKey && metaTitle && (normBrand(brand) === 'terapi' || normBrand(brand) === 'umut')) {
+    if (gemKey && metaTitle && reelsEmojiBrand) {
       try {
-        gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand);
+        gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool);
       } catch (e) {
         console.warn('[gemini hook]', (e && e.message) || e);
       }
     }
     const seed =
       gemHook && gemHook.length > 8 ? gemHook : titleHook || fallbackHookTextForBrand(brand);
-    const hookText = splitHookTwoLines(makeUniqueHook(brand, seed, cache, titleIsListicle), {
-      titleHint: metaTitle || ''
+    const hookCore = splitHookTwoLines(makeUniqueHook(brand, seed, cache, titleIsListicle), {
+      titleHint: metaTitle || '',
+      forReels: reelsEmojiBrand
     });
+    const hookText = reelsEmojiBrand ? ensureHookUsesPoolEmoji(hookCore, emojiPool) : hookCore;
     const hook = { text: hookText, bannerY: 0, y: 95, boxOpacity: 1, color: null };
     const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand), titleIsListicle));
     const finalCaption = toSingleSentenceCaption(fallbackCaptionBits.caption || fallbackCaptionForBrand(brand));

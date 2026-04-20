@@ -272,6 +272,26 @@ function pickExistingFontForDrawtext() {
   return pickOne(prefer);
 }
 
+/** Terapi/Umut Reels üst yazısı: renkli emoji + Latin (Windows’ta Segoe UI Emoji). */
+function pickFontForReelsHookDrawtext() {
+  if (process.platform === 'win32') {
+    const emojiFirst = [
+      'C:\\Windows\\Fonts\\seguiemj.ttf',
+      'C:\\Windows\\Fonts\\SegoeUIEmoji.ttf'
+    ];
+    for (const p of emojiFirst) {
+      try {
+        if (p && fs.existsSync(p)) return p;
+      } catch {}
+    }
+  }
+  const linuxEmoji = '/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf';
+  try {
+    if (fs.existsSync(linuxEmoji)) return linuxEmoji;
+  } catch {}
+  return pickExistingFontForDrawtext();
+}
+
 function sanitizeHexColor(c, fallback) {
   const s = String(c || '').trim();
   if (/^#[0-9a-fA-F]{6}$/.test(s)) return s;
@@ -341,10 +361,9 @@ function wrapCaptionLinesForReels(text, maxCharsPerLine, maxLines) {
 }
 
 /**
- * Terapi/Umut: kesin dikey tuval (outW×outH, tipik 1080×1920), düz renk arka plan.
- * Üstte başlık bandı; videoyu bandın altındaki alanda genişliği dolduracak şekilde (increase+crop)
- * ölçekler — yanlarda dev boşluk oluşmaz. Hook metni tuval tepesine yapışık değil;
- * videonun başladığı çizginin hemen üstüne hizalanır.
+ * Terapi/Umut: kesin dikey tuval (outW×outH, tipik 1080×1920).
+ * Üstte 120px beyaz başlık şeridi + emojili hook, altta pastel tuval üzerinde video.
+ * Arka planda 45° çapraz marka pattern sadece boşluklarda görünür (video üstüne binmez).
  * Girdi [v0], çıkış [v1].
  */
 function buildReelsInstagramCanvasFilters({
@@ -358,32 +377,53 @@ function buildReelsInstagramCanvasFilters({
   const sy = outH / 1920;
   const sx = outW / 1080;
   const s = Math.min(sx, sy);
-  const titleBandH = Math.round(outH * 0.135);
+  // İstenen: en üstte kesin 120px beyaz şerit (1080×1920 bazında ölçekli)
+  const titleBandH = Math.max(84, Math.round(120 * sy));
   const bottomPad = Math.round(outH * 0.02);
   const contentH = Math.max(320, outH - titleBandH - bottomPad);
-  const nudgeDown = Math.round(18 * sy);
-  const yTop = titleBandH + nudgeDown;
+  // Video: içerik bandının %80 yüksekliği, şeridin hemen altına ortala
+  const videoH = Math.max(240, Math.round(contentH * 0.8));
+  const yTop = Math.round(titleBandH + (contentH - videoH) / 2);
   const gapAboveVideo = Math.round(12 * sy);
   const minCaptionY = Math.round(18 * sy);
-  const fontSize = Math.max(20, Math.round(40 * s));
+  // Üst şerit 120px olduğundan 1–2 satır okunaklı boyut
+  const fontSize = Math.max(20, Math.round(44 * s));
   const lineStep = Math.max(Math.round(fontSize * 1.32), fontSize + 4);
   const roomForLines = yTop - gapAboveVideo - minCaptionY;
-  const maxCapLines = Math.min(5, Math.max(1, Math.floor(roomForLines / lineStep)));
+  const maxCapLines = Math.min(2, Math.max(1, Math.floor(roomForLines / lineStep)));
   const lines = (escapedLines || []).slice(0, maxCapLines);
   const textTail = Math.round(fontSize * 1.08);
+  const preferredTop = Math.round(titleBandH * 0.22);
+  const maxFirstLine = yTop - gapAboveVideo - (lines.length > 0 ? (lines.length - 1) * lineStep + textTail : 0);
   const captionBandTop =
     lines.length > 0
-      ? Math.max(
-          minCaptionY,
-          yTop - gapAboveVideo - (lines.length - 1) * lineStep - textTail
-        )
+      ? Math.max(minCaptionY, Math.min(preferredTop, maxFirstLine))
       : minCaptionY;
   const bgHex = brandNorm === 'umut' ? '0xF5F5F5' : '0xF0F8FF';
+  const patternText = brandNorm === 'umut' ? '@umutatolyesiii' : '@terapiatolyesii';
+  const patternColor = brandNorm === 'umut' ? '0xDADADA' : '0xD6EAF8';
   const padX = Math.max(16, Math.round(22 * sx));
+  const patSize = Math.max(56, Math.round(120 * s));
+  const rowGap = Math.max(160, Math.round(patSize * 1.45));
+  const x0 = Math.round(-outW * 0.55);
+  const xStep = Math.round(outW * 0.24);
+  const y0 = Math.round(outH - rowGap * 0.65);
 
   const parts = [
-    `color=c=${bgHex}:s=${outW}x${outH}:d=99999[bg]`,
-    `[v0]scale=${outW}:${contentH}:force_original_aspect_ratio=increase,crop=${outW}:${contentH},setsar=1[vid]`,
+    `color=c=${bgHex}:s=${outW}x${outH}:d=99999[bg0]`,
+    // Arka plan: 45° çapraz watermark pattern (sadece boşluklarda görünür; video üstüne binmez)
+    `[bg0]` +
+      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:angle=PI/4:x=${x0 + xStep * 0}:y=${y0 - rowGap * 0},` +
+      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:angle=PI/4:x=${x0 + xStep * 1}:y=${y0 - rowGap * 1},` +
+      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:angle=PI/4:x=${x0 + xStep * 2}:y=${y0 - rowGap * 2},` +
+      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:angle=PI/4:x=${x0 + xStep * 3}:y=${y0 - rowGap * 3},` +
+      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:angle=PI/4:x=${x0 + xStep * 4}:y=${y0 - rowGap * 4},` +
+      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:angle=PI/4:x=${x0 + xStep * 5}:y=${y0 - rowGap * 5}` +
+      `[bgp]`,
+    // Üst şerit: her zaman düz beyaz
+    `[bgp]drawbox=x=0:y=0:w=${outW}:h=${titleBandH}:color=white@1.0:t=fill[bg]`,
+    // Video: içerik bandında %80 yükseklik, genişliği doldur (kırpma ile)
+    `[v0]scale=${outW}:${videoH}:force_original_aspect_ratio=increase,crop=${outW}:${videoH},setsar=1[vid]`,
     `[bg][vid]overlay=x=(W-w)/2:y=${yTop}:shortest=1[vt0]`
   ];
   if (!lines.length) {
@@ -638,7 +678,9 @@ async function buildCrushRenderPlan(o) {
     (hook && typeof hook.text === 'string' && hook.text.trim())
       ? hook.text.trim()
       : hookText;
-  const hookTextFinal = sanitizeHookForDrawtext(stripAllEmoji(rawHook));
+  const hookTextFinal = sanitizeHookForDrawtext(
+    useReelsInstagramCanvas ? String(rawHook || '') : stripAllEmoji(rawHook)
+  );
   const hookTextBandStyled = useReelsInstagramCanvas ? hookTextFinal : titleCaseHookText(hookTextFinal);
   const hookDisplay = splitHookForDisplay(hookTextBandStyled);
   const hookColorPool = ['#FFFFFF', '#FFD400', '#9BFF57']; // Beyaz / Sarı / Açık yeşil
@@ -705,7 +747,7 @@ async function buildCrushRenderPlan(o) {
   const noBandTextTopY = Math.max(18, Math.round(outH * 0.055));
   const noBandTextBottomY = noBandTextTopY + noBandFontSize + noBandLineGap;
 
-  const fontFile = pickExistingFontForDrawtext();
+  const fontFile = useReelsInstagramCanvas ? pickFontForReelsHookDrawtext() : pickExistingFontForDrawtext();
   const fontPart = fontFile
     ? `:fontfile='${escapeDrawtextText(fontFile.replace(/\\/g, '/'))}'`
     : '';
