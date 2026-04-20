@@ -581,7 +581,7 @@ async function buildCrushRenderPlan(o) {
   const useReelsInstagramCanvas =
     (brandNorm === 'terapi' || brandNorm === 'umut') && o.useReelsInstagramCanvas !== false;
   const framePng = useReelsInstagramCanvas
-    ? path.join(__dirname, 'public', 'terapi_zrh_arka_plan.png')
+    ? path.join(__dirname, 'public', brandNorm === 'umut' ? 'umut_zrh_arka_plan.png' : 'terapi_zrh_arka_plan.png')
     : null;
   const frameExists = !!(framePng && fs.existsSync(framePng));
 
