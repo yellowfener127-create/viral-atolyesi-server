@@ -383,6 +383,8 @@ function buildReelsInstagramCanvasFilters({
   const contentH = Math.max(320, outH - titleBandH - bottomPad);
   // Video: içerik bandının %80 yüksekliği, şeridin hemen altına ortala
   const videoH = Math.max(240, Math.round(contentH * 0.8));
+  // Videoyu biraz inset yap ki sağ/sol çerçeve de görünsün.
+  const videoW = Math.max(320, Math.round(outW * 0.90));
   const yTop = Math.round(titleBandH + (contentH - videoH) / 2);
   const gapAboveVideo = Math.round(12 * sy);
   const minCaptionY = Math.round(18 * sy);
@@ -428,8 +430,8 @@ function buildReelsInstagramCanvasFilters({
       `[pat1]`,
     `[pat1]rotate=PI/4:c=none:ow=rotw(iw):oh=roth(ih),crop=${outW}:${outH}:(iw-ow)/2:(ih-oh)/2[patR]`,
     `[bgw][patR]overlay=x=0:y=0:format=auto[bg]`,
-    // Video: içerik bandında %80 yükseklik, genişliği doldur (kırpma ile)
-    `[v0]scale=${outW}:${videoH}:force_original_aspect_ratio=increase,crop=${outW}:${videoH},setsar=1[vid]`,
+    // Video: içerik bandında %80 yükseklik + yatayda inset (çerçeve sağ/sol da kalsın)
+    `[v0]scale=${videoW}:${videoH}:force_original_aspect_ratio=increase,crop=${videoW}:${videoH},setsar=1[vid]`,
     `[bg][vid]overlay=x=(W-w)/2:y=${yTop}:shortest=1[vt0]`
   ];
   if (!lines.length) {
