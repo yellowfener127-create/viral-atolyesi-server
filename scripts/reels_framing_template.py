@@ -24,6 +24,7 @@ import random
 import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
 from pathlib import Path
 from typing import Iterable
@@ -38,6 +39,7 @@ VIDEO_Y_PX = 120
 DEFAULT_FRAME_PNG = Path("public") / "terapi_zrh_arka_plan.png"
 FONT_SIZE = 44
 TEXT_WRAP_CHARS = 34
+DEFAULT_OLD_HOOK_END_FRAC = 0.15
 
 ACCOUNT_BG = {
     "terapi": "0xF0F8FF",
@@ -70,6 +72,96 @@ def has_audio_stream(ffprobe: str, path: Path) -> bool:
         text=True,
     )
     return bool((r.stdout or "").strip())
+
+def probe_video_size(ffprobe: str, path: Path) -> tuple[int, int] | None:
+    r = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0:s=x",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    s = (r.stdout or "").strip()
+    if "x" not in s:
+        return None
+    try:
+        w, h = s.split("x", 1)
+        return int(float(w)), int(float(h))
+    except Exception:
+        return None
+
+def extract_frame_png(ffmpeg: str, inp: Path, out_png: Path, t_sec: float = 0.8) -> None:
+    args = [
+        ffmpeg,
+        "-y",
+        "-hide_banner",
+        "-ss",
+        f"{max(0.0, float(t_sec)):.3f}",
+        "-i",
+        str(inp),
+        "-frames:v",
+        "1",
+        "-vf",
+        "scale=720:-2",
+        "-an",
+        str(out_png),
+    ]
+    subprocess.run(args, capture_output=True, text=True, check=False)
+
+def detect_old_hook_end_y(frame_png: Path) -> float:
+    """
+    Heuristic: detect where the original burned-in top hook ends (in a single frame).
+    Returns fraction of frame height (0..1). 0 means “no hook detected”.
+    Works for both black-band and no-band text by looking at edge density + dark band.
+    """
+    try:
+        from PIL import Image
+        import numpy as np
+
+        im = Image.open(frame_png).convert("RGB")
+        a = np.asarray(im).astype("float32")
+        h, w = a.shape[0], a.shape[1]
+        if h < 64 or w < 64:
+            return 0.0
+        # Luma
+        y = 0.2126 * a[:, :, 0] + 0.7152 * a[:, :, 1] + 0.0722 * a[:, :, 2]
+        # Edge density by row (abs diff)
+        gx = np.abs(np.diff(y, axis=1))
+        gy = np.abs(np.diff(y, axis=0))
+        edge = 0.65 * gx[:, :-1] + 0.35 * gy[:-1, :]
+        row_edge = edge.mean(axis=1)
+        row_luma = y.mean(axis=1)
+
+        topN = int(h * 0.38)
+        topN = max(48, min(topN, h - 2))
+        re = row_edge[:topN]
+        rl = row_luma[:topN]
+
+        # Detect dark band (black bar) region
+        dark = rl < 55
+        # Text tends to create high edges; pick rows above a percentile
+        thr = float(np.percentile(re, 82))
+        active = re > thr
+        # Combine: either dark band with edges OR just edges (no band)
+        signal = active | (dark & (re > float(np.percentile(re, 70))))
+        idx = np.where(signal)[0]
+        if idx.size < 6:
+            return 0.0
+        end = int(idx.max())
+        # Pad a bit downward to fully clear descenders/shadows
+        end = min(topN - 1, end + int(h * 0.012))
+        return max(0.0, min(1.0, end / float(h)))
+    except Exception:
+        return 0.0
 
 
 def default_fontfile() -> str | None:
@@ -196,6 +288,7 @@ def build_filter_complex_zirh(
     account: str,
     hook_text: str,
     fontfile: str | None,
+    crop_y_offset_px: int = 0,
 ) -> str:
     """
     White canvas -> video placed into frame "window" -> frame PNG overlaid -> hook text above window.
@@ -218,13 +311,17 @@ def build_filter_complex_zirh(
         else:
             wx, wy, ww, wh = 113, 412, 853, 1229
 
-        hook_y = max(16, int(wy - (FONT_SIZE * 1.2)))
+        # White hook area = top region above the video window. Center text inside it.
+        hook_area_top = 18
+        hook_area_bottom = max(hook_area_top + 1, int(wy - 10))
+        hook_y = f"({hook_area_top}+{hook_area_bottom}-text_h)/2"
 
         base = f"color=c=white:s={CANVAS_W}x{CANVAS_H}:d=99999[base]"
         frame = f"[0:v]scale={CANVAS_W}:{CANVAS_H},format=rgba,setsar=1[frame]"
+        cy = max(0, int(crop_y_offset_px))
         vid = (
             f"[1:v]scale={ww}:{wh}:force_original_aspect_ratio=increase,"
-            f"crop={ww}:{wh},setsar=1[vid]"
+            f"crop={ww}:{wh}:(iw-ow)/2:{cy},setsar=1[vid]"
         )
         over_vid = f"[base][vid]overlay=x={wx}:y={wy}:shortest=1[v0]"
         over_frame = f"[v0][frame]overlay=x=0:y=0:format=auto[v1]"
@@ -289,7 +386,30 @@ def run_ffmpeg(
         "".join(list(hook_final)[:96]).strip() if len(hook_final) > 96 else hook_final
     )
 
-    vfc = build_filter_complex_zirh(bg_png, account, hook_final, fontfile)
+    crop_y_px = 0
+    if bg_png and bg_png.is_file():
+        # Determine how much to shift the crop window down to fully hide burned-in old hooks.
+        sz = probe_video_size(ffprobe, inp) or (0, 0)
+        with tempfile.TemporaryDirectory(prefix="va_hook_") as td:
+            fp = Path(td) / "frame.png"
+            extract_frame_png(ffmpeg, inp, fp, t_sec=0.8)
+            frac = detect_old_hook_end_y(fp)
+        # Fallback: if detection fails or returns nonsense, keep system stable.
+        if not isinstance(frac, (int, float)) or not (0.0 <= float(frac) <= 0.8):
+            frac = DEFAULT_OLD_HOOK_END_FRAC
+        if sz[0] > 0 and sz[1] > 0 and frac > 0:
+            # Compute scaled size when covering ww×wh
+            win = detect_transparent_window(bg_png) or (113, 412, 853, 1229)
+            ww, wh = int(win[2]), int(win[3])
+            in_w, in_h = int(sz[0]), int(sz[1])
+            r = max(ww / max(1, in_w), wh / max(1, in_h))
+            scaled_h = in_h * r
+            excess = max(0.0, scaled_h - wh)
+            desired = scaled_h * frac
+            crop_y_px = int(max(0.0, min(excess, desired)))
+        print(f"[hook-crop] {inp.name} frac={float(frac):.3f} crop_y_offset_px={crop_y_px}")
+
+    vfc = build_filter_complex_zirh(bg_png, account, hook_final, fontfile, crop_y_offset_px=crop_y_px)
     audio_ok = has_audio_stream(ffprobe, inp)
 
     if audio_ok:
