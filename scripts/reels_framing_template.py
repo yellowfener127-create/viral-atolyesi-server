@@ -34,6 +34,8 @@ CANVAS_H = 1920
 TITLE_BAND_PX = 120
 VIDEO_H_PX = 1800
 VIDEO_Y_PX = 120
+# Premium frame overlay PNG (with transparent video window)
+DEFAULT_FRAME_PNG = Path("public") / "terapi_zrh_arka_plan.png"
 FONT_SIZE = 44
 TEXT_WRAP_CHARS = 34
 
@@ -163,41 +165,76 @@ def ensure_hook_ends_with_pool_emoji(hook: str, pool: Iterable[str]) -> str:
         return s
     return f"{s} {random.choice(pool_list)}".strip()
 
+
+def detect_transparent_window(frame_png: Path) -> tuple[int, int, int, int] | None:
+    """
+    Returns (x, y, w, h) bbox for the transparent “video window” inside the frame PNG.
+    The frame PNG should be 1080×1920 with alpha=0 in the window area.
+    """
+    try:
+        from PIL import Image
+
+        im = Image.open(frame_png).convert("RGBA")
+        if im.size != (CANVAS_W, CANVAS_H):
+            im = im.resize((CANVAS_W, CANVAS_H), Image.LANCZOS)
+        a = im.getchannel("A")
+        # Mask very-transparent pixels (<=8)
+        bbox = a.point(lambda x: 255 if x <= 8 else 0, mode="1").getbbox()
+        if not bbox:
+            return None
+        x0, y0, x1, y1 = bbox
+        w = max(1, x1 - x0)
+        h = max(1, y1 - y0)
+        if w < 200 or h < 400:
+            return None
+        return int(x0), int(y0), int(w), int(h)
+    except Exception:
+        return None
+
 def build_filter_complex_zirh(
-    bg_png: Path | None,
+    frame_png: Path | None,
     account: str,
     hook_text: str,
     fontfile: str | None,
 ) -> str:
     """
-    PNG Background (or solid color fallback) -> video overlay -> hook text in top 120px band.
-    Uses one filter_complex chain.
+    White canvas -> video placed into frame "window" -> frame PNG overlaid -> hook text above window.
+    Single filter_complex chain.
+
     Inputs:
-      - if bg_png exists: [0:v] is bg, [1:v] is video
-      - else: [0:v] is video only
-    Outputs: [vout]
+      - if frame_png exists: [0:v] is frame (RGBA), [1:v] is video
+      - else: [0:v] is video only (solid bg fallback)
+    Output: [vout]
     """
     ff = f":fontfile='{fontfile}'" if fontfile else ""
-    pad_x = 44
-    hook_y = f"({TITLE_BAND_PX}-text_h)/2"
+    pad_x = 56
     hook_x = f"max({pad_x},min((w-text_w)/2,w-text_w-{pad_x}))"
     hook_esc = escape_drawtext(hook_text)
 
-    if bg_png and bg_png.is_file():
-        bg = f"[0:v]scale={CANVAS_W}:{CANVAS_H},setsar=1[bg]"
-        # Fit video into 1080x1800 WITHOUT cropping (preserve full frame)
+    if frame_png and frame_png.is_file():
+        win = detect_transparent_window(frame_png)
+        if win:
+            wx, wy, ww, wh = win
+        else:
+            wx, wy, ww, wh = 113, 412, 853, 1229
+
+        hook_y = max(16, int(wy - (FONT_SIZE * 1.2)))
+
+        base = f"color=c=white:s={CANVAS_W}x{CANVAS_H}:d=99999[base]"
+        frame = f"[0:v]scale={CANVAS_W}:{CANVAS_H},format=rgba,setsar=1[frame]"
         vid = (
-            f"[1:v]scale={CANVAS_W}:{VIDEO_H_PX}:force_original_aspect_ratio=decrease,"
-            f"pad={CANVAS_W}:{VIDEO_H_PX}:(ow-iw)/2:(oh-ih)/2:color=black@0,setsar=1[vid]"
+            f"[1:v]scale={ww}:{wh}:force_original_aspect_ratio=increase,"
+            f"crop={ww}:{wh},setsar=1[vid]"
         )
-        over = f"[bg][vid]overlay=x=(W-w)/2:y={VIDEO_Y_PX}:shortest=1[v0]"
+        over_vid = f"[base][vid]overlay=x={wx}:y={wy}:shortest=1[v0]"
+        over_frame = f"[v0][frame]overlay=x=0:y=0:format=auto[v1]"
         text = (
-            f"[v0]drawtext=text='{hook_esc}'{ff}:fontsize={FONT_SIZE}:"
+            f"[v1]drawtext=text='{hook_esc}'{ff}:fontsize={FONT_SIZE}:"
             f"fontcolor=0x111111:fix_bounds=1:text_shaping=1:x='{hook_x}':y={hook_y}[vout]"
         )
-        return ";".join([bg, vid, over, text])
+        return ";".join([base, frame, vid, over_vid, over_frame, text])
 
-    # Solid color fallback if PNG not found
+    # Solid color fallback if frame PNG not found
     bg_hex = ACCOUNT_BG.get(account.lower(), ACCOUNT_BG["terapi"])
     bg = f"color=c={bg_hex}:s={CANVAS_W}x{CANVAS_H}:d=99999[bg]"
     vid = (
@@ -205,6 +242,7 @@ def build_filter_complex_zirh(
         f"pad={CANVAS_W}:{VIDEO_H_PX}:(ow-iw)/2:(oh-ih)/2:color=black@0,setsar=1[vid]"
     )
     over = f"[bg][vid]overlay=x=(W-w)/2:y={VIDEO_Y_PX}:shortest=1[v0]"
+    hook_y = f"({VIDEO_Y_PX}-text_h)/2"
     text = (
         f"[v0]drawtext=text='{hook_esc}'{ff}:fontsize={FONT_SIZE}:"
         f"fontcolor=0x111111:fix_bounds=1:text_shaping=1:x='{hook_x}':y={hook_y}[vout]"
@@ -365,8 +403,8 @@ def main() -> None:
     ap.add_argument(
         "--background-png",
         type=Path,
-        default=Path("terapi_zrh_arka_plan.png"),
-        help="Premium zırh background PNG (1080x1920 recommended).",
+        default=DEFAULT_FRAME_PNG,
+        help="Premium zırh frame PNG (1080x1920, with transparent video window).",
     )
     ap.add_argument(
         "--emoji-pool-file",

@@ -372,67 +372,40 @@ function buildReelsInstagramCanvasFilters({
   outH,
   fontPart,
   hookEnable,
-  escapedLines
+  escapedLines,
+  frameFileExists
 }) {
   const sy = outH / 1920;
   const sx = outW / 1080;
   const s = Math.min(sx, sy);
-  // İstenen: en üstte kesin 120px beyaz şerit (1080×1920 bazında ölçekli)
-  const titleBandH = Math.max(84, Math.round(120 * sy));
-  const bottomPad = Math.round(outH * 0.02);
-  const contentH = Math.max(320, outH - titleBandH - bottomPad);
-  // Video: içerik bandının %80 yüksekliği, şeridin hemen altına ortala
-  const videoH = Math.max(240, Math.round(contentH * 0.8));
-  // Videoyu biraz inset yap ki sağ/sol çerçeve de görünsün.
-  const videoW = Math.max(320, Math.round(outW * 0.90));
-  const yTop = Math.round(titleBandH + (contentH - videoH) / 2);
-  const gapAboveVideo = Math.round(12 * sy);
-  const minCaptionY = Math.round(18 * sy);
-  // Üst şerit 120px olduğundan 1–2 satır okunaklı boyut
+  // Premium frame PNG window geometry (matches public/terapi_zrh_arka_plan.png)
+  // window: x=113,y=412,w=853,h=1229 on 1080×1920
+  const wx = Math.round(113 * sx);
+  const wy = Math.round(412 * sy);
+  const ww = Math.round(853 * sx);
+  const wh = Math.round(1229 * sy);
   const fontSize = Math.max(20, Math.round(44 * s));
-  const lineStep = Math.max(Math.round(fontSize * 1.32), fontSize + 4);
-  const roomForLines = yTop - gapAboveVideo - minCaptionY;
-  const maxCapLines = Math.min(2, Math.max(1, Math.floor(roomForLines / lineStep)));
+  const lineStep = Math.max(Math.round(fontSize * 1.30), fontSize + 4);
+  const maxCapLines = 2;
   const lines = (escapedLines || []).slice(0, maxCapLines);
-  const textTail = Math.round(fontSize * 1.08);
-  // Hook çok yukarıda kalmasın: şeridin altına, videonun biraz üstüne hizala.
-  const blockH = (lines.length > 0 ? ((lines.length - 1) * lineStep + textTail) : textTail);
-  const preferredTop = Math.round(yTop - gapAboveVideo - blockH - Math.max(6, Math.round(8 * sy)));
-  const maxFirstLine = yTop - gapAboveVideo - (lines.length > 0 ? (lines.length - 1) * lineStep + textTail : 0);
-  const captionBandTop =
-    lines.length > 0
-      ? Math.max(minCaptionY, Math.min(preferredTop, maxFirstLine))
-      : minCaptionY;
-  const bgHex = brandNorm === 'umut' ? '0xF5F5F5' : '0xF0F8FF';
-  const patternText = brandNorm === 'umut' ? '@umutatolyesiii' : '@terapiatolyesii';
-  const patternColor = brandNorm === 'umut' ? '0xDADADA' : '0xD6EAF8';
-  const padX = Math.max(16, Math.round(22 * sx));
-  const patSize = Math.max(56, Math.round(120 * s));
-  const rowGap = Math.max(160, Math.round(patSize * 1.45));
-  const x0 = Math.round(-outW * 0.55);
-  const xStep = Math.round(outW * 0.24);
-  const y0 = Math.round(outH - rowGap * 0.65);
+  const padX = Math.max(18, Math.round(52 * sx));
+  const blockH = lines.length ? ((lines.length - 1) * lineStep + Math.round(fontSize * 1.08)) : Math.round(fontSize * 1.08);
+  const hookYTop = Math.max(Math.round(18 * sy), Math.round(wy - Math.round(14 * sy) - blockH));
 
-  const parts = [
-    `color=c=${bgHex}:s=${outW}x${outH}:d=99999[bg0]`,
-    // Üst şerit: her zaman düz beyaz (pattern bu şeridin üstüne de çok hafif düşsün diye şerit önce çiziliyor)
-    `[bg0]drawbox=x=0:y=0:w=${outW}:h=${titleBandH}:color=white@1.0:t=fill[bgw]`,
-    // Arka plan: 45° çapraz watermark pattern (sadece çerçeve alanları; video en sonda overlay olduğu için video üstüne binmez)
-    // Not: Bazı FFmpeg build'larında drawtext:angle yok. Bu yüzden pattern'ı şeffaf katmanda çizip rotate ile döndürüyoruz.
-    `color=c=black@0.0:s=${outW}x${outH}:d=99999[pat0]`,
-    `[pat0]` +
-      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:x=${x0 + xStep * 0}:y=${y0 - rowGap * 0},` +
-      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:x=${x0 + xStep * 1}:y=${y0 - rowGap * 1},` +
-      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:x=${x0 + xStep * 2}:y=${y0 - rowGap * 2},` +
-      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:x=${x0 + xStep * 3}:y=${y0 - rowGap * 3},` +
-      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:x=${x0 + xStep * 4}:y=${y0 - rowGap * 4},` +
-      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:x=${x0 + xStep * 5}:y=${y0 - rowGap * 5}` +
-      `[pat1]`,
-    `[pat1]rotate=PI/4:c=none:ow=rotw(iw):oh=roth(ih),crop=${outW}:${outH}:(iw-ow)/2:(ih-oh)/2[patR]`,
-    `[bgw][patR]overlay=x=0:y=0:format=auto[bg]`,
-    // Video: içerik bandında %80 yükseklik + yatayda inset (çerçeve sağ/sol da kalsın)
-    `[v0]scale=${videoW}:${videoH}:force_original_aspect_ratio=increase,crop=${videoW}:${videoH},setsar=1[vid]`,
-    `[bg][vid]overlay=x=(W-w)/2:y=${yTop}:shortest=1[vt0]`
+  // Reels frame mode requires the 2nd video input [1:v] (frame).
+  // If it's missing, fall back to a safe solid background.
+  const bgHex = brandNorm === 'umut' ? '0xF5F5F5' : '0xF0F8FF';
+
+  const parts = frameFileExists ? [
+    `color=c=white:s=${outW}x${outH}:d=99999[base]`,
+    `[1:v]scale=${outW}:${outH},format=rgba,setsar=1[frame]`,
+    `[v0]scale=${ww}:${wh}:force_original_aspect_ratio=increase,crop=${ww}:${wh},setsar=1[vid]`,
+    `[base][vid]overlay=x=${wx}:y=${wy}:shortest=1[vb]`,
+    `[vb][frame]overlay=x=0:y=0:format=auto[vt0]`
+  ] : [
+    `color=c=${bgHex}:s=${outW}x${outH}:d=99999[bg]`,
+    `[v0]scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},setsar=1[vid]`,
+    `[bg][vid]overlay=x=(W-w)/2:y=(H-h)/2:shortest=1[vt0]`
   ];
   if (!lines.length) {
     parts.push(`[vt0]format=yuv420p[v1]`);
@@ -442,7 +415,7 @@ function buildReelsInstagramCanvasFilters({
   lines.forEach((line, i) => {
     const last = i === lines.length - 1;
     const next = last ? 'v1b' : `vth${i}`;
-    const y = captionBandTop + i * lineStep;
+    const y = hookYTop + i * lineStep;
     parts.push(
       `[${cur}]drawtext=text='${line}'${fontPart}:fontsize=${fontSize}:fontcolor=0x1a1a1a:` +
         `fix_bounds=1:text_shaping=1:` +
@@ -607,6 +580,10 @@ async function buildCrushRenderPlan(o) {
   const brandNorm = brandFolderKey(brand);
   const useReelsInstagramCanvas =
     (brandNorm === 'terapi' || brandNorm === 'umut') && o.useReelsInstagramCanvas !== false;
+  const framePng = useReelsInstagramCanvas
+    ? path.join(__dirname, 'public', 'terapi_zrh_arka_plan.png')
+    : null;
+  const frameExists = !!(framePng && fs.existsSync(framePng));
 
   // Watermark boyutu yarıya indir
   const wmSize = outW >= 1080 ? 55 : 48;
@@ -798,8 +775,9 @@ async function buildCrushRenderPlan(o) {
   const noiseOpEff = useReelsInstagramCanvas ? 0.002 : noiseOpacity;
   const grainOpEff = useReelsInstagramCanvas ? 0.006 : grainOpacity;
 
+  const wmInputIdx = frameExists ? 2 : 1;
   const tailWmAndGrain = [
-    `[1:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
+    `[${wmInputIdx}:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
       `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
       `rotate='${tiltRotateExpr}':c=none:ow=iw:oh=ih[wm0]`,
     // Watermark’ı tam yuvarlak “top” gibi yap: dairesel alpha mask
@@ -885,7 +863,8 @@ async function buildCrushRenderPlan(o) {
           outH,
           fontPart,
           hookEnable,
-          escapedLines: reelsEscapedLines
+          escapedLines: reelsEscapedLines,
+          frameFileExists: frameExists
         })
       : legacyVisualStack),
     ...tailWmAndGrain
@@ -908,6 +887,7 @@ async function buildCrushRenderPlan(o) {
       const musicStart = Math.random() * maxStart;
       const bgVol = randRange(0.07, 0.1);
 
+      const musicInputIdx = frameExists ? 3 : 2;
       if (useRubberband) {
         audioFilter =
           `[0:a]asetpts=PTS-STARTPTS,` +
@@ -916,7 +896,7 @@ async function buildCrushRenderPlan(o) {
           `aformat=sample_fmts=fltp:channel_layouts=stereo,` +
           `apad=pad_dur=${(outDur + 0.5).toFixed(3)},` +
           `atrim=0:${outDur.toFixed(3)},asetpts=PTS-STARTPTS[a0];` +
-          `[2:a]atrim=start=${musicStart.toFixed(3)}:duration=${outDur.toFixed(3)},asetpts=PTS-STARTPTS,` +
+          `[${musicInputIdx}:a]atrim=start=${musicStart.toFixed(3)}:duration=${outDur.toFixed(3)},asetpts=PTS-STARTPTS,` +
           `aformat=sample_fmts=fltp:channel_layouts=stereo,` +
           `volume=${bgVol.toFixed(4)}[bg];` +
           `[a0][bg]amix=inputs=2:duration=first:normalize=0[a]`;
@@ -928,7 +908,7 @@ async function buildCrushRenderPlan(o) {
           `aformat=sample_fmts=fltp:channel_layouts=stereo,` +
           `apad=pad_dur=${(outDur + 0.5).toFixed(3)},` +
           `atrim=0:${outDur.toFixed(3)},asetpts=PTS-STARTPTS[a0];` +
-          `[2:a]atrim=start=${musicStart.toFixed(3)}:duration=${outDur.toFixed(3)},asetpts=PTS-STARTPTS,` +
+          `[${musicInputIdx}:a]atrim=start=${musicStart.toFixed(3)}:duration=${outDur.toFixed(3)},asetpts=PTS-STARTPTS,` +
           `aformat=sample_fmts=fltp:channel_layouts=stereo,` +
           `volume=${bgVol.toFixed(4)}[bg];` +
           `[a0][bg]amix=inputs=2:duration=first:normalize=0[a]`;
@@ -958,8 +938,9 @@ async function buildCrushRenderPlan(o) {
     const maxStart = Math.max(0, musicDur - 0.25);
     const musicStart = Math.random() * maxStart;
     const bgVol = randRange(0.07, 0.1);
+    const musicInputIdx = frameExists ? 3 : 2;
     parts.push(
-      `[2:a]atrim=start=${musicStart.toFixed(3)}:duration=${outDur.toFixed(3)},asetpts=PTS-STARTPTS,` +
+      `[${musicInputIdx}:a]atrim=start=${musicStart.toFixed(3)}:duration=${outDur.toFixed(3)},asetpts=PTS-STARTPTS,` +
         `aformat=sample_fmts=fltp:channel_layouts=stereo,` +
         `volume=${bgVol.toFixed(4)}[a]`
     );
@@ -968,7 +949,9 @@ async function buildCrushRenderPlan(o) {
 
   const filterComplex = parts.join(';');
 
-  const inputs = ['-y', '-i', inFile, '-loop', '1', '-i', wmFile];
+  const inputs = ['-y', '-i', inFile];
+  if (frameExists) inputs.push('-loop', '1', '-i', framePng);
+  inputs.push('-loop', '1', '-i', wmFile);
   if (musicFile && fs.existsSync(musicFile)) {
     inputs.push('-stream_loop', '-1', '-i', musicFile);
   }
