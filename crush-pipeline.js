@@ -393,7 +393,9 @@ function buildReelsInstagramCanvasFilters({
   const maxCapLines = Math.min(2, Math.max(1, Math.floor(roomForLines / lineStep)));
   const lines = (escapedLines || []).slice(0, maxCapLines);
   const textTail = Math.round(fontSize * 1.08);
-  const preferredTop = Math.round(titleBandH * 0.22);
+  // Hook çok yukarıda kalmasın: şeridin altına, videonun biraz üstüne hizala.
+  const blockH = (lines.length > 0 ? ((lines.length - 1) * lineStep + textTail) : textTail);
+  const preferredTop = Math.round(yTop - gapAboveVideo - blockH - Math.max(6, Math.round(8 * sy)));
   const maxFirstLine = yTop - gapAboveVideo - (lines.length > 0 ? (lines.length - 1) * lineStep + textTail : 0);
   const captionBandTop =
     lines.length > 0
@@ -411,7 +413,9 @@ function buildReelsInstagramCanvasFilters({
 
   const parts = [
     `color=c=${bgHex}:s=${outW}x${outH}:d=99999[bg0]`,
-    // Arka plan: 45° çapraz watermark pattern.
+    // Üst şerit: her zaman düz beyaz (pattern bu şeridin üstüne de çok hafif düşsün diye şerit önce çiziliyor)
+    `[bg0]drawbox=x=0:y=0:w=${outW}:h=${titleBandH}:color=white@1.0:t=fill[bgw]`,
+    // Arka plan: 45° çapraz watermark pattern (sadece çerçeve alanları; video en sonda overlay olduğu için video üstüne binmez)
     // Not: Bazı FFmpeg build'larında drawtext:angle yok. Bu yüzden pattern'ı şeffaf katmanda çizip rotate ile döndürüyoruz.
     `color=c=black@0.0:s=${outW}x${outH}:d=99999[pat0]`,
     `[pat0]` +
@@ -423,9 +427,7 @@ function buildReelsInstagramCanvasFilters({
       `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:x=${x0 + xStep * 5}:y=${y0 - rowGap * 5}` +
       `[pat1]`,
     `[pat1]rotate=PI/4:c=none:ow=rotw(iw):oh=roth(ih),crop=${outW}:${outH}:(iw-ow)/2:(ih-oh)/2[patR]`,
-    `[bg0][patR]overlay=x=0:y=0:format=auto[bgp]`,
-    // Üst şerit: her zaman düz beyaz
-    `[bgp]drawbox=x=0:y=0:w=${outW}:h=${titleBandH}:color=white@1.0:t=fill[bg]`,
+    `[bgw][patR]overlay=x=0:y=0:format=auto[bg]`,
     // Video: içerik bandında %80 yükseklik, genişliği doldur (kırpma ile)
     `[v0]scale=${outW}:${videoH}:force_original_aspect_ratio=increase,crop=${outW}:${videoH},setsar=1[vid]`,
     `[bg][vid]overlay=x=(W-w)/2:y=${yTop}:shortest=1[vt0]`
