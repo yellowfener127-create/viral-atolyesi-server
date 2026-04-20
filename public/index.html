@@ -245,7 +245,7 @@
     <div class="selector-row">
       <button class="sel-btn active" id="cat-animal" onclick="setCat('animal')">🐾 Hayvan & Bebek</button>
       <button class="sel-btn" id="cat-comedy" onclick="setCat('comedy')">😂 Komedi</button>
-      <button class="sel-btn" id="cat-hope" onclick="setCat('hope')">🕊️ Umut Atölyesi</button>
+      <button class="sel-btn" id="cat-hope" onclick="setCat('hope')">🕊️ Hope Lab</button>
     </div>
   </div>
 
@@ -1183,7 +1183,7 @@ const BLOCKED_KEYWORDS = [
   "bts","blackpink","twice","exo","nct","stray kids","aespa","newjeans"
 ];
 
-// Umut Atölyesi: kaza/yaralanma vb. içerikleri tamamen kapat
+// Hope Lab: kaza/yaralanma vb. içerikleri tamamen kapat
 const HOPE_BLOCKED_KEYWORDS = [
   // injury/accident
   "accident","car crash","crash","injury","injured","wounded","blood","bleeding","gore","graphic",
@@ -1529,7 +1529,7 @@ function buildCard(v, i) {
   const safeLink = watchLink.replace(/'/g, "\\'");
   const safeDlLink = dlLink.replace(/'/g, "\\'");
   const tagClass = cat === "animal" ? "tag-animal" : (cat === "hope" ? "tag-hope" : "tag-comedy");
-  const tagText = cat === "animal" ? "🐾 Hayvan & Bebek" : (cat === "hope" ? "🕊️ Umut Atölyesi" : "😂 Komedi");
+  const tagText = cat === "animal" ? "🐾 Hayvan & Bebek" : (cat === "hope" ? "🕊️ Hope Lab" : "😂 Komedi");
   const rankClass = i === 0 ? "top" : "";
 
   return `<div class="vcard">

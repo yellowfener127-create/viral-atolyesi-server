@@ -1,4 +1,4 @@
-# Kaos Atölyesi — BGM
+# Chaos Lab — BGM
 
 Bu klasöre **en az 15** adet lisanslı kısa fon müziği ekleyin (ör. `track01.mp3` … `track15.m4a`).
 

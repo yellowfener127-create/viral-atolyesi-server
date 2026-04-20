@@ -892,9 +892,9 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool) {
 
 function getBrandFolderName(brand) {
   const n = normBrand(brand);
-  if (n === 'kaos') return 'Kaos Atölyesi';
-  if (n === 'umut') return 'Umut Atölyesi';
-  return 'Terapi Atölyesi';
+  if (n === 'kaos') return 'Chaos Lab';
+  if (n === 'umut') return 'Hope Lab';
+  return 'Therapy Lab';
 }
 
 function getBrandDir(brand) {
