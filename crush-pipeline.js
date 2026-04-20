@@ -411,15 +411,19 @@ function buildReelsInstagramCanvasFilters({
 
   const parts = [
     `color=c=${bgHex}:s=${outW}x${outH}:d=99999[bg0]`,
-    // Arka plan: 45° çapraz watermark pattern (sadece boşluklarda görünür; video üstüne binmez)
-    `[bg0]` +
-      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:angle=PI/4:x=${x0 + xStep * 0}:y=${y0 - rowGap * 0},` +
-      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:angle=PI/4:x=${x0 + xStep * 1}:y=${y0 - rowGap * 1},` +
-      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:angle=PI/4:x=${x0 + xStep * 2}:y=${y0 - rowGap * 2},` +
-      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:angle=PI/4:x=${x0 + xStep * 3}:y=${y0 - rowGap * 3},` +
-      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:angle=PI/4:x=${x0 + xStep * 4}:y=${y0 - rowGap * 4},` +
-      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:angle=PI/4:x=${x0 + xStep * 5}:y=${y0 - rowGap * 5}` +
-      `[bgp]`,
+    // Arka plan: 45° çapraz watermark pattern.
+    // Not: Bazı FFmpeg build'larında drawtext:angle yok. Bu yüzden pattern'ı şeffaf katmanda çizip rotate ile döndürüyoruz.
+    `color=c=black@0.0:s=${outW}x${outH}:d=99999[pat0]`,
+    `[pat0]` +
+      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:x=${x0 + xStep * 0}:y=${y0 - rowGap * 0},` +
+      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:x=${x0 + xStep * 1}:y=${y0 - rowGap * 1},` +
+      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:x=${x0 + xStep * 2}:y=${y0 - rowGap * 2},` +
+      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:x=${x0 + xStep * 3}:y=${y0 - rowGap * 3},` +
+      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:x=${x0 + xStep * 4}:y=${y0 - rowGap * 4},` +
+      `drawtext=text='${escapeDrawtextText(patternText)}'${fontPart}:fontsize=${patSize}:fontcolor=${patternColor}@0.15:x=${x0 + xStep * 5}:y=${y0 - rowGap * 5}` +
+      `[pat1]`,
+    `[pat1]rotate=PI/4:c=none:ow=rotw(iw):oh=roth(ih),crop=${outW}:${outH}:(iw-ow)/2:(ih-oh)/2[patR]`,
+    `[bg0][patR]overlay=x=0:y=0:format=auto[bgp]`,
     // Üst şerit: her zaman düz beyaz
     `[bgp]drawbox=x=0:y=0:w=${outW}:h=${titleBandH}:color=white@1.0:t=fill[bg]`,
     // Video: içerik bandında %80 yükseklik, genişliği doldur (kırpma ile)
