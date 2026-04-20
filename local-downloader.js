@@ -367,11 +367,7 @@ function ensureHashtagPack(brand, hookText, hashtags) {
 function makeUniqueHook(brand, base, cache, isListicle) {
   const b = String(brand || 'terapi').toLowerCase();
   const core = String(base || '').trim();
-  const listicleHints = [
-    'Best one is #1',
-    'Wait for #1',
-    '#1 is unreal'
-  ];
+  // Ranked/#1 gibi listicle hook'ları istemiyoruz.
   const kaos = [
     'That crash was brutal',
     'Instant regret moment',
@@ -396,7 +392,6 @@ function makeUniqueHook(brand, base, cache, isListicle) {
   if (core) candidates.push(core);
   // small structured variations to avoid repeats
   for (const p of pool) candidates.push(p);
-  if (isListicle) for (const p of listicleHints) candidates.push(p);
 
   // pick first that is not recently used; else fall back to random
   for (const c of candidates) {
@@ -1480,7 +1475,8 @@ app.post('/crush', async (req, res) => {
     }
     const seed =
       gemHook && gemHook.length > 8 ? gemHook : titleHook || fallbackHookTextForBrand(brand);
-    const hookCore = splitHookTwoLines(makeUniqueHook(brand, seed, cache, titleIsListicle), {
+    // Hook için listicle/ranked sinyalini tamamen yok say (Best one is #1 vb. istemiyoruz)
+    const hookCore = splitHookTwoLines(makeUniqueHook(brand, seed, cache, false), {
       titleHint: metaTitle || '',
       forReels: reelsEmojiBrand
     });

@@ -431,7 +431,10 @@ function buildReelsInstagramCanvasFilters({
   const lines = (escapedLines || []).slice(0, maxCapLines);
   const padX = Math.max(18, Math.round(52 * sx));
   const blockH = lines.length ? ((lines.length - 1) * lineStep + Math.round(fontSize * 1.08)) : Math.round(fontSize * 1.08);
-  const hookYTop = Math.max(Math.round(18 * sy), Math.round(wy - Math.round(14 * sy) - blockH));
+  // Hook'u video penceresinin üstündeki boşlukta ortala
+  const hookAreaTop = Math.round(24 * sy);
+  const hookAreaBottom = Math.max(hookAreaTop + 1, Math.round(wy - 18 * sy));
+  const hookYTop = Math.max(hookAreaTop, Math.round(((hookAreaTop + hookAreaBottom) / 2) - (blockH / 2)));
 
   // Reels frame mode requires the 2nd video input [1:v] (frame).
   // If it's missing, fall back to a safe solid background.
@@ -442,7 +445,8 @@ function buildReelsInstagramCanvasFilters({
     `[1:v]scale=${outW}:${outH},format=rgba,setsar=1[frame]`,
     // Kaynaktaki üst hook/bantı gizlemek için crop'ı biraz aşağıdan al (üstten kırp).
     // FFmpeg filtergraph: max(0\,expr) içindeki virgül kaçırılmalı, yoksa yeni filtre sanır.
-    `[v0]scale=${ww}:${wh}:force_original_aspect_ratio=increase,crop=${ww}:${wh}:(iw-ow)/2:max(0\\,(ih-oh)*0.18),setsar=1[vid]`,
+    // Daha agresif: eski yanık hook/bant kesin kaybolsun (üstten daha çok at).
+    `[v0]scale=${ww}:${wh}:force_original_aspect_ratio=increase,crop=${ww}:${wh}:(iw-ow)/2:max(0\\,(ih-oh)*0.42),setsar=1[vid]`,
     `[base][vid]overlay=x=${wx}:y=${wy}:shortest=1[vb]`,
     `[vb][frame]overlay=x=0:y=0:format=auto[vt0]`
   ] : [
