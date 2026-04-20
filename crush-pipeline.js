@@ -619,10 +619,18 @@ async function buildCrushRenderPlan(o) {
   } = o;
 
   const brandNorm = brandFolderKey(brand);
+  const useLabFrame =
+    (brandNorm === 'terapi' || brandNorm === 'umut' || brandNorm === 'kaos') && o.useReelsInstagramCanvas !== false;
   const useReelsInstagramCanvas =
     (brandNorm === 'terapi' || brandNorm === 'umut') && o.useReelsInstagramCanvas !== false;
-  const framePng = useReelsInstagramCanvas
-    ? path.join(__dirname, 'public', brandNorm === 'umut' ? 'umut_zrh_arka_plan.png' : 'terapi_zrh_arka_plan.png')
+  const framePng = useLabFrame
+    ? path.join(
+        __dirname,
+        'public',
+        brandNorm === 'kaos'
+          ? 'kaos_zrh_arka_plan.png'
+          : (brandNorm === 'umut' ? 'umut_zrh_arka_plan.png' : 'terapi_zrh_arka_plan.png')
+      )
     : null;
   const frameExists = !!(framePng && fs.existsSync(framePng));
 
@@ -707,7 +715,7 @@ async function buildCrushRenderPlan(o) {
   const hookTextFinal = sanitizeHookForDrawtext(
     useReelsInstagramCanvas ? String(rawHook || '') : stripAllEmoji(rawHook)
   );
-  const hookTextBandStyled = useReelsInstagramCanvas ? hookTextFinal : titleCaseHookText(hookTextFinal);
+  const hookTextBandStyled = useLabFrame ? hookTextFinal : titleCaseHookText(hookTextFinal);
   const hookDisplay = splitHookForDisplay(hookTextBandStyled);
   const hookColorPool = ['#FFFFFF', '#FFD400', '#9BFF57']; // Beyaz / Sarı / Açık yeşil
   const hookColor = sanitizeHexColor(hook?.color, pickOne(hookColorPool));
@@ -773,7 +781,7 @@ async function buildCrushRenderPlan(o) {
   const noBandTextTopY = Math.max(18, Math.round(outH * 0.055));
   const noBandTextBottomY = noBandTextTopY + noBandFontSize + noBandLineGap;
 
-  const fontFile = useReelsInstagramCanvas ? pickFontForReelsHookDrawtext() : pickExistingFontForDrawtext();
+  const fontFile = useLabFrame ? pickFontForReelsHookDrawtext() : pickExistingFontForDrawtext();
   const fontPart = fontFile
     ? `:fontfile='${escapeDrawtextText(fontFile.replace(/\\/g, '/'))}'`
     : '';
@@ -807,7 +815,7 @@ async function buildCrushRenderPlan(o) {
   let baseLabel = cover ? 'vcover' : 'v0u';
 
   const capChars = Math.max(18, Math.round(34 * (outW / 1080)));
-  const reelsEscapedLines = useReelsInstagramCanvas
+  const reelsEscapedLines = useLabFrame
     ? splitHookIntoLines55(hookTextBandStyled).map((ln) => escapeDrawtextText(String(ln || '').trim()))
     : [];
 
@@ -895,7 +903,7 @@ async function buildCrushRenderPlan(o) {
 
   const parts = [
     vChain,
-    ...(useReelsInstagramCanvas
+    ...(useLabFrame
       ? buildReelsInstagramCanvasFilters({
           brandNorm,
           outW,
