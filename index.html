@@ -337,6 +337,19 @@
           <input type="range" id="crushVideoNudgeY" min="-500" max="500" step="1" value="0" style="width:min(100%,280px);vertical-align:middle;margin-left:6px" />
           <span id="crushVideoNudgeYVal" style="font-variant-numeric:tabular-nums">0</span> px
         </label>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-top:6px">Hook (boş = otomatik/Gemini)
+          <textarea id="crushHookManual" rows="2" class="tool-input" style="margin-top:4px;resize:vertical;min-height:44px;font-size:12px" placeholder="İngilizce kanca + emoji…"></textarea>
+        </label>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;align-items:center;font-size:11px;color:var(--muted)">
+          <label>Hook X
+            <input type="range" id="crushHookOffX" min="-400" max="400" step="1" value="0" style="width:120px;vertical-align:middle" />
+            <span id="crushHookOffXVal">0</span>
+          </label>
+          <label>Hook Y
+            <input type="range" id="crushHookOffY" min="-400" max="400" step="1" value="0" style="width:120px;vertical-align:middle" />
+            <span id="crushHookOffYVal">0</span>
+          </label>
+        </div>
         <div id="crushBlurRectList" style="font-size:11px;color:var(--muted);margin-top:6px;max-height:100px;overflow:auto"></div>
       </div>
       <button class="tool-btn" type="button" id="crushBtn" onclick="crushVideo()">⚡ İndir + Telif Ez (9:16)</button>
@@ -656,8 +669,11 @@ function copyToolText(resultId, btnId) {
   });
 }
 
-/** Manuel blur: 720×1280 px dikdörtgenler (canvas iç çözünürlük sabit). videoCropYNudgePx: Lab frame üst kırpımına ek (px). */
-var __crushManual = { rects: [], selectedId: null, drawMode: false, drag: null, nextId: 1, REF_W: 720, REF_H: 1280, videoCropYNudgePx: 0 };
+/** Manuel blur: 720×1280 px. videoCropYNudgePx: Lab üst kırpım. frameImg: marka zırh PNG. */
+var __crushManual = {
+  rects: [], selectedId: null, drawMode: false, drag: null, nextId: 1, REF_W: 720, REF_H: 1280,
+  videoCropYNudgePx: 0, hookXOffsetPx: 0, hookYOffsetPx: 0, frameImg: null
+};
 
 function crushCanvasCoords(ev, canvas) {
   const r = canvas.getBoundingClientRect();
@@ -687,9 +703,88 @@ function crushComputeLabWindowPx(outW, outH) {
   };
 }
 
+function crushZirhFileForBrand(brand) {
+  const b = String(brand || "terapi").toLowerCase();
+  if (b === "kaos") return "kaos_zrh_arka_plan.png";
+  if (b === "umut") return "umut_zrh_arka_plan.png";
+  return "terapi_zrh_arka_plan.png";
+}
+
+function crushLoadZirhFramePng() {
+  const brandEl = document.getElementById("crushBrand");
+  const brand = brandEl ? brandEl.value : "terapi";
+  const url = backendUrl("/" + crushZirhFileForBrand(brand));
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = function () {
+    __crushManual.frameImg = img;
+    try { crushDrawRectsOverlay(); } catch (e1) {}
+  };
+  img.onerror = function () {
+    __crushManual.frameImg = null;
+    try { crushDrawRectsOverlay(); } catch (e2) {}
+  };
+  img.src = url;
+}
+
+/** Sunucudaki splitHookIntoLines55 ile uyumlu (önizleme). */
+function crushSplitHookLines55(text) {
+  let s0 = String(text || "").replace(/\s+/g, " ").trim();
+  if (!s0.length) return [];
+  const cps = [...s0];
+  if (cps.length > 55) {
+    s0 = cps.slice(0, 55).join("").trim();
+  }
+  const s = s0;
+  const cps2 = [...s];
+  if (cps2.length <= 29) return [s];
+  if (!/\s/.test(s)) return ["", s];
+  const limit = 29;
+  const left = cps2.slice(0, limit + 1).join("");
+  let br = left.lastIndexOf(" ");
+  if (br < 6) br = s.indexOf(" ", limit);
+  if (br < 0) return ["", s];
+  const l1 = s.slice(0, br).trim();
+  const l2 = s.slice(br + 1).trim();
+  if (!l1) return ["", l2];
+  return l2 ? [l1, l2] : [l1];
+}
+
+function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
+  const ta = document.getElementById("crushHookManual");
+  const raw = ta ? String(ta.value || "").trim() : "";
+  if (!raw) return;
+  const lines = crushSplitHookLines55(raw).filter(function (ln) {
+    return String(ln || "").trim().length;
+  });
+  if (!lines.length) return;
+  const sy = PREVIEW_H / 1920;
+  const sx = PREVIEW_W / 1080;
+  const sc = Math.min(sx, sy);
+  const wyWin = crushComputeLabWindowPx(PREVIEW_W, PREVIEW_H).wy;
+  const fontSize = Math.max(12, Math.round(44 * sc));
+  const lineStep = Math.max(Math.round(fontSize * 1.30), fontSize + 4);
+  const hookAreaTop = Math.round(24 * sy);
+  const hookAreaBottom = Math.max(hookAreaTop + 1, Math.round(wyWin - 18 * sy));
+  const blockH = (lines.length - 1) * lineStep + Math.round(fontSize * 1.08);
+  let hookYTop = Math.max(hookAreaTop, Math.round(((hookAreaTop + hookAreaBottom) / 2) - (blockH / 2)));
+  const hxOff = (Number(__crushManual.hookXOffsetPx) || 0) * (PREVIEW_W / 720);
+  const hyOff = (Number(__crushManual.hookYOffsetPx) || 0) * (PREVIEW_H / 1280);
+  hookYTop += hyOff;
+  ctx.save();
+  ctx.font = "600 " + fontSize + 'px "Segoe UI","Segoe UI Emoji","Segoe UI Historic",sans-serif';
+  ctx.fillStyle = "#1a1a1a";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  lines.forEach(function (ln, i) {
+    const y = hookYTop + i * lineStep + fontSize * 0.52;
+    ctx.fillText(ln, PREVIEW_W / 2 + hxOff, y);
+  });
+  ctx.restore();
+}
+
 /**
- * Önizleme = sunucudaki [v0] (9:16 merkez kırpım) + Lab adımı scale=increase + üst kırpım + nudge.
- * Ham videoyu kaydırmak yanlış sonuç verirdi; burada iki aşama taklit edilir.
+ * Önizleme = sunucudaki [v0] + Lab penceresi + zırh PNG üstte + hook. Ham videoyu kaydırmaz.
  */
 function crushDrawVideoFrameOntoCanvas() {
   const v = document.getElementById("crushPreviewVideo");
@@ -738,12 +833,17 @@ function crushDrawVideoFrameOntoCanvas() {
   const sctx = tmpSc.getContext("2d");
   sctx.drawImage(tmpV0, 0, 0, PREVIEW_W, PREVIEW_H, 0, 0, iw2, ih2);
 
-  ctx.fillStyle = "#000";
+  ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
-  // Önce tam 9:16 (v0) — manuel blur kutuları bu uzaya göre 720×1280 map edilir.
+  // Tam 9:16 (blur kutuları bu tam kareye göre)
   ctx.drawImage(tmpV0, 0, 0);
-  // Çerçeve videosunun gerçek kırpımı üstte (nudge burada görünür).
+  // Lab penceresinde gerçek üst kırpım + nudge
   ctx.drawImage(tmpSc, cropX, cropY, ww, wh, wx, wy, ww, wh);
+  const frm = __crushManual.frameImg;
+  if (frm && frm.complete && frm.naturalWidth) {
+    ctx.drawImage(frm, 0, 0, PREVIEW_W, PREVIEW_H);
+  }
+  crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H);
 }
 
 function crushDrawRectsOverlay() {
@@ -917,10 +1017,20 @@ function wireCrushManualBlurUi() {
     __crushManual.rects = [];
     __crushManual.selectedId = null;
     __crushManual.videoCropYNudgePx = 0;
+    __crushManual.hookXOffsetPx = 0;
+    __crushManual.hookYOffsetPx = 0;
     const ny = document.getElementById("crushVideoNudgeY");
     const nyv = document.getElementById("crushVideoNudgeYVal");
     if (ny) ny.value = "0";
     if (nyv) nyv.textContent = "0";
+    const hx0 = document.getElementById("crushHookOffX");
+    const hy0 = document.getElementById("crushHookOffY");
+    const hxv0 = document.getElementById("crushHookOffXVal");
+    const hyv0 = document.getElementById("crushHookOffYVal");
+    if (hx0) hx0.value = "0";
+    if (hy0) hy0.value = "0";
+    if (hxv0) hxv0.textContent = "0";
+    if (hyv0) hyv0.textContent = "0";
     const f = file.files && file.files[0];
     if (!f) {
       wrap.style.display = "none";
@@ -932,7 +1042,14 @@ function wireCrushManualBlurUi() {
       return;
     }
     wrap.style.display = "block";
+    crushLoadZirhFramePng();
   });
+  const brandSel = document.getElementById("crushBrand");
+  if (brandSel) {
+    brandSel.addEventListener("change", function () {
+      crushLoadZirhFramePng();
+    });
+  }
   v.addEventListener("loadeddata", () => {
     const dur = Math.max(0.05, v.duration || 0.1);
     seek.max = String(dur);
@@ -951,6 +1068,32 @@ function wireCrushManualBlurUi() {
       const n = Number(nudgeEl.value);
       __crushManual.videoCropYNudgePx = Number.isFinite(n) ? n : 0;
       if (nudgeValEl) nudgeValEl.textContent = String(__crushManual.videoCropYNudgePx);
+      crushDrawRectsOverlay();
+    });
+  }
+  const hookTx = document.getElementById("crushHookManual");
+  if (hookTx) {
+    hookTx.addEventListener("input", function () {
+      crushDrawRectsOverlay();
+    });
+  }
+  const hx = document.getElementById("crushHookOffX");
+  const hxv = document.getElementById("crushHookOffXVal");
+  if (hx) {
+    hx.addEventListener("input", function () {
+      const n = Number(hx.value);
+      __crushManual.hookXOffsetPx = Number.isFinite(n) ? n : 0;
+      if (hxv) hxv.textContent = String(__crushManual.hookXOffsetPx);
+      crushDrawRectsOverlay();
+    });
+  }
+  const hy = document.getElementById("crushHookOffY");
+  const hyv = document.getElementById("crushHookOffYVal");
+  if (hy) {
+    hy.addEventListener("input", function () {
+      const n = Number(hy.value);
+      __crushManual.hookYOffsetPx = Number.isFinite(n) ? n : 0;
+      if (hyv) hyv.textContent = String(__crushManual.hookYOffsetPx);
       crushDrawRectsOverlay();
     });
   }
@@ -983,6 +1126,9 @@ async function crushVideo() {
 
   const manual_blur_rects = (__crushManual.rects || []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
   const manual_reels_crop_y_nudge_px = Number(__crushManual.videoCropYNudgePx) || 0;
+  const hook_text = (document.getElementById("crushHookManual") && String(document.getElementById("crushHookManual").value || "").trim()) || "";
+  const manual_reels_hook_x_offset_px = Number(__crushManual.hookXOffsetPx) || 0;
+  const manual_reels_hook_y_offset_px = Number(__crushManual.hookYOffsetPx) || 0;
 
   btn.disabled = true;
   btn.textContent = "⏳ Hazırlanıyor...";
@@ -994,7 +1140,15 @@ async function crushVideo() {
     const localRes = await fetch("http://127.0.0.1:8787/crush", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, brand, manual_blur_rects, manual_reels_crop_y_nudge_px })
+      body: JSON.stringify({
+        url,
+        brand,
+        manual_blur_rects,
+        manual_reels_crop_y_nudge_px,
+        hook_text,
+        manual_reels_hook_x_offset_px,
+        manual_reels_hook_y_offset_px
+      })
     });
     const localData = await localRes.json().catch(() => ({}));
     if (!localRes.ok || !localData.ok) {
@@ -1003,7 +1157,11 @@ async function crushVideo() {
     msg.style.display = "block";
     msg.textContent = "✅ PC'ye kaydedildi: " + (localData.savedTo || "") + "\\" + (localData.file || "") +
       (manual_blur_rects.length ? " · " + manual_blur_rects.length + " blur kutusu" : "") +
-      (manual_reels_crop_y_nudge_px ? " · dikey kaydırma " + manual_reels_crop_y_nudge_px + " px" : "");
+      (manual_reels_crop_y_nudge_px ? " · dikey kaydırma " + manual_reels_crop_y_nudge_px + " px" : "") +
+      (hook_text ? " · manuel hook" : "") +
+      (manual_reels_hook_x_offset_px || manual_reels_hook_y_offset_px
+        ? " · hook Δ " + manual_reels_hook_x_offset_px + "," + manual_reels_hook_y_offset_px
+        : "");
 
     const capBox = document.getElementById("crushCaptionBox");
     const capCopy = document.getElementById("crushCaptionCopy");

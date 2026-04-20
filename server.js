@@ -533,6 +533,12 @@ app.post('/tools/crush', async (req, res) => {
     const manualReelsCropYNudgePx = crush.parseManualReelsCropYNudgePx(
       req.body?.manual_reels_crop_y_nudge_px ?? req.body?.manualReelsCropYNudgePx
     );
+    const manualReelsHookXOff = crush.parseManualReelsHookOffsetPx(
+      req.body?.manual_reels_hook_x_offset_px ?? req.body?.manualReelsHookXOffsetPx
+    );
+    const manualReelsHookYOff = crush.parseManualReelsHookOffsetPx(
+      req.body?.manual_reels_hook_y_offset_px ?? req.body?.manualReelsHookYOffsetPx
+    );
 
     const plan = await crush.buildCrushRenderPlan({
       inFile,
@@ -546,6 +552,8 @@ app.post('/tools/crush', async (req, res) => {
       coverBox: null,
       manual_blur_rects: manualBlurRects,
       manual_reels_crop_y_nudge_px: manualReelsCropYNudgePx,
+      manual_reels_hook_x_offset_px: manualReelsHookXOff,
+      manual_reels_hook_y_offset_px: manualReelsHookYOff,
       manualBlurRefW: crush.MANUAL_BLUR_REF_W,
       manualBlurRefH: crush.MANUAL_BLUR_REF_H,
       hasAudio,

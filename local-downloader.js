@@ -1329,6 +1329,13 @@ app.post('/crush', async (req, res) => {
   const manualReelsCropYNudgePx = crush.parseManualReelsCropYNudgePx(
     req.body?.manual_reels_crop_y_nudge_px ?? req.body?.manualReelsCropYNudgePx
   );
+  const manualReelsHookXOff = crush.parseManualReelsHookOffsetPx(
+    req.body?.manual_reels_hook_x_offset_px ?? req.body?.manualReelsHookXOffsetPx
+  );
+  const manualReelsHookYOff = crush.parseManualReelsHookOffsetPx(
+    req.body?.manual_reels_hook_y_offset_px ?? req.body?.manualReelsHookYOffsetPx
+  );
+  const manualHookTextRaw = String(req.body?.hook_text ?? req.body?.manual_hook_text ?? '').trim();
   if (!url) return res.status(400).json({ error: 'url gerekli' });
 
   // Aynı video için paralel/çift tıklama koruması:
@@ -1461,7 +1468,7 @@ app.post('/crush', async (req, res) => {
     const reelsEmojiBrand = normBrand(brand) === 'terapi' || normBrand(brand) === 'umut';
     let gemHook = '';
     const gemKey = String(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
-    if (gemKey && metaTitle && reelsEmojiBrand) {
+    if (!manualHookTextRaw && gemKey && metaTitle && reelsEmojiBrand) {
       try {
         const frameFile = path.join(tmpDir, 'gem_frame.png');
         const audioFile = path.join(tmpDir, 'gem_audio.wav');
@@ -1477,13 +1484,24 @@ app.post('/crush', async (req, res) => {
       }
     }
     const seed =
-      gemHook && gemHook.length > 8 ? gemHook : titleHook || fallbackHookTextForBrand(brand);
+      manualHookTextRaw
+        ? manualHookTextRaw
+        : gemHook && gemHook.length > 8
+          ? gemHook
+          : titleHook || fallbackHookTextForBrand(brand);
     // Hook için listicle/ranked sinyalini tamamen yok say (Best one is #1 vb. istemiyoruz)
-    const hookCore = splitHookTwoLines(makeUniqueHook(brand, seed, cache, false), {
-      titleHint: metaTitle || '',
-      forReels: reelsEmojiBrand
-    });
-    const hookText = reelsEmojiBrand ? ensureHookUsesPoolEmoji(hookCore, emojiPool) : hookCore;
+    const hookCore = manualHookTextRaw
+      ? manualHookTextRaw.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)
+      : splitHookTwoLines(makeUniqueHook(brand, seed, cache, false), {
+          titleHint: metaTitle || '',
+          forReels: reelsEmojiBrand
+        });
+    const hookText =
+      manualHookTextRaw
+        ? hookCore
+        : reelsEmojiBrand
+          ? ensureHookUsesPoolEmoji(hookCore, emojiPool)
+          : hookCore;
     const hook = { text: hookText, bannerY: 0, y: 95, boxOpacity: 1, color: null };
     const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand), titleIsListicle));
     const finalCaption = toSingleSentenceCaption(fallbackCaptionBits.caption || fallbackCaptionForBrand(brand));
@@ -1517,6 +1535,8 @@ app.post('/crush', async (req, res) => {
             coverBox,
             manual_blur_rects: manualBlurRectsBody,
             manual_reels_crop_y_nudge_px: manualReelsCropYNudgePx,
+            manual_reels_hook_x_offset_px: manualReelsHookXOff,
+            manual_reels_hook_y_offset_px: manualReelsHookYOff,
             manualBlurRefW: crush.MANUAL_BLUR_REF_W,
             manualBlurRefH: crush.MANUAL_BLUR_REF_H,
             hasAudio,
@@ -1543,6 +1563,8 @@ app.post('/crush', async (req, res) => {
       coverBox,
       manual_blur_rects: manualBlurRectsBody,
       manual_reels_crop_y_nudge_px: manualReelsCropYNudgePx,
+      manual_reels_hook_x_offset_px: manualReelsHookXOff,
+      manual_reels_hook_y_offset_px: manualReelsHookYOff,
       manualBlurRefW: crush.MANUAL_BLUR_REF_W,
       manualBlurRefH: crush.MANUAL_BLUR_REF_H,
       hasAudio,

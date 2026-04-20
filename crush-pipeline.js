@@ -415,7 +415,9 @@ function buildReelsInstagramCanvasFilters({
   hookEnable,
   escapedLines,
   frameFileExists,
-  cropYNudgeRefPx = 0
+  cropYNudgeRefPx = 0,
+  hookXOffsetRefPx = 0,
+  hookYOffsetRefPx = 0
 }) {
   const sy = outH / 1920;
   const sx = outW / 1080;
@@ -435,7 +437,14 @@ function buildReelsInstagramCanvasFilters({
   // Hook'u video penceresinin üstündeki boşlukta ortala
   const hookAreaTop = Math.round(24 * sy);
   const hookAreaBottom = Math.max(hookAreaTop + 1, Math.round(wy - 18 * sy));
-  const hookYTop = Math.max(hookAreaTop, Math.round(((hookAreaTop + hookAreaBottom) / 2) - (blockH / 2)));
+  const hxOff = Math.round(
+    parseManualReelsHookOffsetPx(hookXOffsetRefPx) * (outW / MANUAL_BLUR_REF_W)
+  );
+  const hyOff = Math.round(
+    parseManualReelsHookOffsetPx(hookYOffsetRefPx) * (outH / MANUAL_BLUR_REF_H)
+  );
+  const hookYTop =
+    Math.max(hookAreaTop, Math.round(((hookAreaTop + hookAreaBottom) / 2) - (blockH / 2))) + hyOff;
 
   // Reels frame mode requires the 2nd video input [1:v] (frame).
   // If it's missing, fall back to a safe solid background.
@@ -472,7 +481,7 @@ function buildReelsInstagramCanvasFilters({
     parts.push(
       `[${cur}]drawtext=text='${line}'${fontPart}:fontsize=${fontSize}:fontcolor=0x1a1a1a:` +
         `fix_bounds=1:text_shaping=1:` +
-        `x='max(${padX}\\,min((w-text_w)/2\\,w-text_w-${padX}))':y=${y}:enable='${hookEnable}'[${next}]`
+        `x='max(${padX}\\,min((w-text_w)/2+${hxOff}\\,w-text_w-${padX}))':y=${y}:enable='${hookEnable}'[${next}]`
     );
     cur = next;
   });
@@ -539,6 +548,8 @@ const MANUAL_BLUR_REF_W = 720;
 const MANUAL_BLUR_REF_H = 1280;
 const MANUAL_REELS_CROP_Y_NUDGE_MIN = -500;
 const MANUAL_REELS_CROP_Y_NUDGE_MAX = 500;
+const MANUAL_REELS_HOOK_OFF_MIN = -400;
+const MANUAL_REELS_HOOK_OFF_MAX = 400;
 
 /** Lab frame üst kırpımına manuel ince ayar (px, 720×1280 ile aynı dikey ölçek). Negatif = daha çok üst göster; pozitif = daha çok üstü gizle. */
 function parseManualReelsCropYNudgePx(raw) {
@@ -547,6 +558,16 @@ function parseManualReelsCropYNudgePx(raw) {
   return Math.max(
     MANUAL_REELS_CROP_Y_NUDGE_MIN,
     Math.min(MANUAL_REELS_CROP_Y_NUDGE_MAX, Math.round(n))
+  );
+}
+
+/** drawtext konumu (720×1280 referans); sunucuda outW/outH ile ölçeklenir. */
+function parseManualReelsHookOffsetPx(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(
+    MANUAL_REELS_HOOK_OFF_MIN,
+    Math.min(MANUAL_REELS_HOOK_OFF_MAX, Math.round(n))
   );
 }
 
@@ -821,6 +842,12 @@ async function buildCrushRenderPlan(o) {
   const manualReelsCropYNudgePx = parseManualReelsCropYNudgePx(
     o.manual_reels_crop_y_nudge_px ?? o.manualReelsCropYNudgePx
   );
+  const manualReelsHookXOff = parseManualReelsHookOffsetPx(
+    o.manual_reels_hook_x_offset_px ?? o.manualReelsHookXOffsetPx
+  );
+  const manualReelsHookYOff = parseManualReelsHookOffsetPx(
+    o.manual_reels_hook_y_offset_px ?? o.manualReelsHookYOffsetPx
+  );
   const ubRects = scaleManualBlurRectsToOutputPx(rawManual, o.manualBlurRefW, o.manualBlurRefH, outW, outH);
   const ubChain = buildManualBlurDelogoChain('v0base', ubRects, outW, outH, 'v0postblur');
 
@@ -939,7 +966,9 @@ async function buildCrushRenderPlan(o) {
           hookEnable,
           escapedLines: reelsEscapedLines,
           frameFileExists: frameExists,
-          cropYNudgeRefPx: manualReelsCropYNudgePx
+          cropYNudgeRefPx: manualReelsCropYNudgePx,
+          hookXOffsetRefPx: manualReelsHookXOff,
+          hookYOffsetRefPx: manualReelsHookYOff
         })
       : legacyVisualStack),
     ...tailWmAndGrain
@@ -1079,6 +1108,8 @@ async function buildCrushRenderPlan(o) {
       edge,
       manualBlurCount: ubRects.length,
       manualReelsCropYNudgePx,
+      manualReelsHookXOff,
+      manualReelsHookYOff,
       musicFile: musicFile && fs.existsSync(musicFile) ? path.basename(musicFile) : null,
       hookFont: fontFile ? path.basename(fontFile) : null
     }
@@ -1146,5 +1177,6 @@ module.exports = {
   scaleManualBlurRectsToOutputPx,
   MANUAL_BLUR_REF_W,
   MANUAL_BLUR_REF_H,
-  parseManualReelsCropYNudgePx
+  parseManualReelsCropYNudgePx,
+  parseManualReelsHookOffsetPx
 };
