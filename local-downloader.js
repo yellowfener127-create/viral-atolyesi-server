@@ -811,6 +811,11 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool) {
     n === 'umut'
       ? 'hopeful, emotional, inspiring, sincere (no graphic injury topics)'
       : 'wholesome, gentle, uplifting, family-friendly';
+  const style = pickOne([
+    'first-person vibe (perspective shift) WITHOUT literally saying "POV"',
+    'a specific, story-like hook that hints what will happen (no generic templates)',
+    'a subtle perspective twist (what you notice changes the whole moment)'
+  ]);
   const pool = Array.isArray(emojiPool) ? emojiPool.filter(Boolean) : [];
   const emojiRules =
     pool.length > 0
@@ -819,8 +824,12 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool) {
         `No other emoji, and no emoji in the middle of the sentence.`
       : '';
   const prompt =
-    `Write a curiosity-inducing English hook sentence for a vertical Shorts/Reels/TikTok video.\n` +
-    `Rules: max 88 characters. No quotation marks. No hashtags. English only.\n` +
+    `Write a video-specific English hook for a vertical Shorts/Reels/TikTok video.\n` +
+    `It must feel like it matches THIS video (avoid generic templates like "watch till the end").\n` +
+    `Style: ${style}.\n` +
+    `Important: Do NOT start with "POV:" and do NOT use the word "POV" unless it is truly necessary.\n` +
+    `Rules: max 55 characters total (including spaces + the final emoji). ` +
+    `No quotation marks. No hashtags. English only.\n` +
     `Tone: ${tone}.\n` +
     `Video title (may be vague): ${String(title || '').slice(0, 220)}\n` +
     emojiRules +

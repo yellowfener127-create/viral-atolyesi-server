@@ -360,6 +360,47 @@ function wrapCaptionLinesForReels(text, maxCharsPerLine, maxLines) {
   return lines;
 }
 
+function trimToMaxCodepointsKeepFinalEmoji(text, maxLen) {
+  const s = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  const cps = [...s];
+  if (cps.length <= maxLen) return s;
+  // Try to keep a final emoji if present at end.
+  const last = cps[cps.length - 1];
+  const hasEmojiEnd = /[\p{Extended_Pictographic}\uFE0F]/u.test(last);
+  const keepEmoji = hasEmojiEnd ? last : '';
+  const budget = Math.max(1, maxLen - (keepEmoji ? 2 : 0)); // keep space + emoji
+  const head = cps.slice(0, budget).join('').trimEnd();
+  return keepEmoji ? `${head} ${keepEmoji}`.trim() : head.trim();
+}
+
+/**
+ * Yeni hook kuralı:
+ * - Toplam max 55 karakter (codepoint)
+ * - 29'u geçince (30. karakter) kelime bölmeden alt satıra geçir.
+ * - Eğer tek kelimeyse, kelimenin tamamı alt satıra insin.
+ */
+function splitHookIntoLines55(text) {
+  const s0 = trimToMaxCodepointsKeepFinalEmoji(text, 55);
+  if (!s0) return [];
+  const cps = [...s0];
+  if (cps.length <= 29) return [s0];
+  if (!/\s/.test(s0)) return ['', s0]; // tek kelime: komple yeni satıra
+  // break near 30 without splitting a word
+  const limit = 29;
+  const left = cps.slice(0, limit + 1).join('');
+  let br = left.lastIndexOf(' ');
+  if (br < 6) {
+    // fallback: first space after limit
+    br = s0.indexOf(' ', limit);
+  }
+  if (br < 0) return ['', s0];
+  const l1 = s0.slice(0, br).trim();
+  const l2 = s0.slice(br + 1).trim();
+  if (!l1) return ['', l2];
+  return l2 ? [l1, l2] : [l1];
+}
+
 /**
  * Terapi/Umut: kesin dikey tuval (outW×outH, tipik 1080×1920).
  * Üstte 120px beyaz başlık şeridi + emojili hook, altta pastel tuval üzerinde video.
@@ -767,9 +808,7 @@ async function buildCrushRenderPlan(o) {
 
   const capChars = Math.max(18, Math.round(34 * (outW / 1080)));
   const reelsEscapedLines = useReelsInstagramCanvas
-    ? wrapCaptionLinesForReels(hookTextBandStyled, capChars, 5).map((ln) =>
-        escapeDrawtextText(String(ln || '').trim())
-      )
+    ? splitHookIntoLines55(hookTextBandStyled).map((ln) => escapeDrawtextText(String(ln || '').trim()))
     : [];
 
   const noiseOpEff = useReelsInstagramCanvas ? 0.002 : noiseOpacity;
