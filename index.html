@@ -320,7 +320,7 @@
         <strong>Manuel blur (720×1280 px):</strong> Aynı videonun yerel kopyasını yükleyin; canvas 9:16 merkez kırpımına yakın önizleme gösterir. Koordinatlar px cinsinden 720×1280 çıktı uzayına map edilir.
       </div>
       <div style="font-size:12px;color:var(--muted);margin:6px 0 4px">
-        <strong>Dikey kaydırma (Lab çerçeve):</strong> videoyu önizlemede yukarı/aşağı oynatırsınız; değer indirme ile FFmpeg üst kırpımına eklenir (−500…+500 px, 720×1280 referans).
+        <strong>Dikey kaydırma (Lab çerçeve):</strong> önizleme, önce 9:16 tam kırpım sonra çerçeve penceresine aynı üst-oran + nudge sırasını taklit eder (−500…+500 px, 720×1280 ile FFmpeg’deki 1280 referansı). Ham videoyu kaydırmaz.
       </div>
       <input class="tool-input" type="file" id="crushPreviewFile" accept="video/*" />
       <div id="crushBlurPreviewWrap" style="display:none;margin-top:10px;">
@@ -675,21 +675,75 @@ function crushClampRect(x, y, w, h) {
   return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
 }
 
+/** crush-pipeline buildReelsInstagramCanvasFilters ile aynı pencere (1080×1920 şablonu). */
+function crushComputeLabWindowPx(outW, outH) {
+  const sx = outW / 1080;
+  const sy = outH / 1920;
+  return {
+    wx: Math.round(113 * sx),
+    wy: Math.round(412 * sy),
+    ww: Math.round(853 * sx),
+    wh: Math.round(1229 * sy)
+  };
+}
+
+/**
+ * Önizleme = sunucudaki [v0] (9:16 merkez kırpım) + Lab adımı scale=increase + üst kırpım + nudge.
+ * Ham videoyu kaydırmak yanlış sonuç verirdi; burada iki aşama taklit edilir.
+ */
 function crushDrawVideoFrameOntoCanvas() {
   const v = document.getElementById("crushPreviewVideo");
   const cv = document.getElementById("crushBlurCanvas");
   if (!v || !cv || !v.videoWidth) return;
   const ctx = cv.getContext("2d");
-  const cw = cv.width, ch = cv.height;
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, cw, ch);
-  const vw = v.videoWidth, vh = v.videoHeight;
-  const scale = Math.max(cw / vw, ch / vh);
-  const dw = vw * scale, dh = vh * scale;
-  const ox = (cw - dw) / 2;
+  const PREVIEW_W = cv.width;
+  const PREVIEW_H = cv.height;
+  const vw = v.videoWidth;
+  const vh = v.videoHeight;
   const nudge = Number(__crushManual.videoCropYNudgePx) || 0;
-  const oy = (ch - dh) / 2 + nudge;
-  ctx.drawImage(v, ox, oy, dw, dh);
+
+  if (!__crushManual._tmpV0) {
+    __crushManual._tmpV0 = document.createElement("canvas");
+    __crushManual._tmpScaled = document.createElement("canvas");
+  }
+  const tmpV0 = __crushManual._tmpV0;
+  const tmpSc = __crushManual._tmpScaled;
+  if (tmpV0.width !== PREVIEW_W || tmpV0.height !== PREVIEW_H) {
+    tmpV0.width = PREVIEW_W;
+    tmpV0.height = PREVIEW_H;
+  }
+
+  const tctx = tmpV0.getContext("2d");
+  tctx.fillStyle = "#000";
+  tctx.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
+  const s1 = Math.max(PREVIEW_W / vw, PREVIEW_H / vh);
+  const sw1 = vw * s1;
+  const sh1 = vh * s1;
+  const ox1 = (PREVIEW_W - sw1) / 2;
+  const oy1 = (PREVIEW_H - sh1) / 2;
+  tctx.drawImage(v, ox1, oy1, sw1, sh1);
+
+  const { wx, wy, ww, wh } = crushComputeLabWindowPx(PREVIEW_W, PREVIEW_H);
+  const s2 = Math.max(ww / PREVIEW_W, wh / PREVIEW_H);
+  const iw2 = PREVIEW_W * s2;
+  const ih2 = PREVIEW_H * s2;
+  const excessH = ih2 - wh;
+  const baseY = Math.max(0, excessH * 0.42);
+  const nudgeY = ih2 * (nudge / 1280);
+  const cropY = Math.max(0, Math.min(excessH, baseY + nudgeY));
+  const cropX = Math.max(0, (iw2 - ww) / 2);
+
+  tmpSc.width = Math.max(1, Math.ceil(iw2));
+  tmpSc.height = Math.max(1, Math.ceil(ih2));
+  const sctx = tmpSc.getContext("2d");
+  sctx.drawImage(tmpV0, 0, 0, PREVIEW_W, PREVIEW_H, 0, 0, iw2, ih2);
+
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
+  // Önce tam 9:16 (v0) — manuel blur kutuları bu uzaya göre 720×1280 map edilir.
+  ctx.drawImage(tmpV0, 0, 0);
+  // Çerçeve videosunun gerçek kırpımı üstte (nudge burada görünür).
+  ctx.drawImage(tmpSc, cropX, cropY, ww, wh, wx, wy, ww, wh);
 }
 
 function crushDrawRectsOverlay() {
