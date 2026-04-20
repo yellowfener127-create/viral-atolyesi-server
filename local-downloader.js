@@ -774,7 +774,9 @@ async function ffmpegExtractAudioPreview(inFile, outFile, durSec = 10, ffmpegBin
     '-vn',
     '-ac', '1',
     '-ar', '16000',
-    '-b:a', '32k',
+    // WAV: küçük ve inlineData için güvenli (PCM 16-bit mono)
+    '-c:a', 'pcm_s16le',
+    '-f', 'wav',
     outFile
   ];
   await run(ffmpegBin, args, { timeoutMs: 45_000 });
@@ -805,7 +807,7 @@ function normBrand(brand) {
  * Gemini (Google AI Studio key): tek satır İngilizce hook. Başarısız olursa reject.
  * Ortam: GEMINI_API_KEY ve isteğe bağlı GEMINI_MODEL (örn. gemini-2.0-flash).
  */
-function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool) {
+function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media) {
   const n = normBrand(brand);
   const tone =
     n === 'umut'
@@ -832,11 +834,26 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool) {
     `No quotation marks. No hashtags. English only.\n` +
     `Tone: ${tone}.\n` +
     `Video title (may be vague): ${String(title || '').slice(0, 220)}\n` +
+    `Use the provided screenshot(s) + audio preview to make it specific.\n` +
     emojiRules +
     `\nReturn only the hook sentence, nothing else.`;
   const model = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
+  const parts = [{ text: prompt }];
+  try {
+    const fs = require('fs');
+    if (media && media.framePng && fs.existsSync(media.framePng)) {
+      const b = fs.readFileSync(media.framePng);
+      parts.push({ inlineData: { mimeType: 'image/png', data: b.toString('base64') } });
+    }
+    if (media && media.audioWav && fs.existsSync(media.audioWav)) {
+      const b = fs.readFileSync(media.audioWav);
+      // Keep it small: Gemini accepts short audio previews.
+      parts.push({ inlineData: { mimeType: 'audio/wav', data: b.toString('base64') } });
+    }
+  } catch {}
+
   const body = JSON.stringify({
-    contents: [{ parts: [{ text: prompt }] }],
+    contents: [{ parts }],
     generationConfig: { temperature: 0.85, maxOutputTokens: 96 }
   });
   return new Promise((resolve, reject) => {
@@ -1448,7 +1465,15 @@ app.post('/crush', async (req, res) => {
     const gemKey = String(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
     if (gemKey && metaTitle && reelsEmojiBrand) {
       try {
-        gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool);
+        const frameFile = path.join(tmpDir, 'gem_frame.png');
+        const audioFile = path.join(tmpDir, 'gem_audio.wav');
+        const tSec = Math.min(2.0, Math.max(0.35, inDur * 0.25));
+        await ffmpegExtractFrame(inFile, frameFile, tSec, 'ffmpeg').catch(() => {});
+        await ffmpegExtractAudioPreview(inFile, audioFile, 6, 'ffmpeg').catch(() => {});
+        gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, {
+          framePng: frameFile,
+          audioWav: audioFile
+        });
       } catch (e) {
         console.warn('[gemini hook]', (e && e.message) || e);
       }
