@@ -441,7 +441,8 @@ function buildReelsInstagramCanvasFilters({
     `color=c=white:s=${outW}x${outH}:d=99999[base]`,
     `[1:v]scale=${outW}:${outH},format=rgba,setsar=1[frame]`,
     // Kaynaktaki üst hook/bantı gizlemek için crop'ı biraz aşağıdan al (üstten kırp).
-    `[v0]scale=${ww}:${wh}:force_original_aspect_ratio=increase,crop=${ww}:${wh}:(iw-ow)/2:max(0\\\\,(ih-oh)*0.18),setsar=1[vid]`,
+    // FFmpeg filtergraph: max(0\,expr) içindeki virgül kaçırılmalı, yoksa yeni filtre sanır.
+    `[v0]scale=${ww}:${wh}:force_original_aspect_ratio=increase,crop=${ww}:${wh}:(iw-ow)/2:max(0\\,(ih-oh)*0.18),setsar=1[vid]`,
     `[base][vid]overlay=x=${wx}:y=${wy}:shortest=1[vb]`,
     `[vb][frame]overlay=x=0:y=0:format=auto[vt0]`
   ] : [
