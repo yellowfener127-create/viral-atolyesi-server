@@ -1087,6 +1087,14 @@ function extractVertexModelId(nameOrId) {
   return s;
 }
 
+function normalizeGeminiModelName(raw) {
+  // User requirement: ensure requests use "gemini-2.0-flash" (no "-001").
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (/^gemini-2\.0-flash(-\d+)?$/i.test(s)) return 'gemini-2.0-flash';
+  return s;
+}
+
 async function listVertexPublisherModels({ saPath, location, pageSize = 100 }) {
   const sa = readServiceAccountJson(saPath);
   if (!sa || !sa.project_id) {
@@ -1159,7 +1167,7 @@ async function fetchVertexHookEnglish({ saPath, location, model, title, brand, e
 
   // Vertex models are versioned (often needs suffix like -001 / -002).
   const loc = String(location || 'us-central1').trim() || 'us-central1';
-  const mdl = String(model || 'gemini-2.0-flash-001').trim() || 'gemini-2.0-flash-001';
+  const mdl = normalizeGeminiModelName(model || 'gemini-2.0-flash') || 'gemini-2.0-flash';
 
   // Reuse the same prompt style as AI Studio flow.
   const n = normBrand(brand);
@@ -1879,9 +1887,9 @@ app.post('/crush', async (req, res) => {
     const gemKeyFp = gemKey
       ? crypto.createHash('sha256').update(gemKey).digest('hex').slice(0, 10)
       : null;
-    const gemModelFromReq = String(req.body?.gemini_model ?? req.body?.geminiModel ?? '').trim();
-    const gemModelDefault = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
-    let gemModel = gemModelFromReq || gemModelDefault;
+    const gemModelFromReq = normalizeGeminiModelName(req.body?.gemini_model ?? req.body?.geminiModel ?? '');
+    const gemModelDefault = normalizeGeminiModelName(process.env.GEMINI_MODEL || 'gemini-2.0-flash');
+    let gemModel = gemModelFromReq || gemModelDefault || 'gemini-2.0-flash';
     const mustUseGeminiHook = !manualHookTextRaw && isLabBrand;
     let geminiErr = null;
     const vertexSaPath = resolveVertexServiceAccountPath();
@@ -1929,10 +1937,10 @@ app.post('/crush', async (req, res) => {
           }
           const vertexModelCandidates = [
             String(gemModel || '').trim(),
-            'gemini-2.0-flash-001',
-            'gemini-1.5-flash-002',
-            'gemini-1.5-pro-002'
-          ].filter(Boolean);
+            'gemini-2.0-flash',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro'
+          ].filter(Boolean).map(normalizeGeminiModelName);
           const uniqModels = [];
           const seenModels = new Set();
           for (const m of vertexModelCandidates) {
