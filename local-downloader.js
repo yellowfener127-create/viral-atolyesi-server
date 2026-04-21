@@ -475,6 +475,14 @@ function ensureHookUsesPoolEmoji(text, pool) {
   return `${s} ${pickOne(uniq)}`.trim();
 }
 
+function stripBannedHookWords(text) {
+  // Hard-ban "ignore" everywhere (any casing, standalone).
+  return String(text || '')
+    .replace(/\bignore\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** Yarım kalmış başlık: son kelime yardımcı fiil/bağlaç ile bitmesin */
 function hookFeelsComplete(textNoEmoji) {
   const w = normTextKey(textNoEmoji).split(/\s+/).filter(Boolean);
@@ -570,7 +578,7 @@ function buildHookFromTitle({ title, isListicle }) {
   if (isListicle) {
     return `Best ${subject} moment — #1`;
   }
-  return `${subject} moment you can't ignore`;
+  return `${subject} moment you can't look away from`;
 }
 
 function buildFallbackCaptionFromTitle(title, isListicle = false) {
@@ -874,7 +882,11 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media) {
             const j = JSON.parse(raw);
             const errMsg = j && (j.error && (j.error.message || j.error.status)) ? String(j.error.message || j.error.status) : '';
             if (res.statusCode && res.statusCode >= 400) {
-              return reject(new Error(errMsg || `Gemini HTTP ${res.statusCode}`));
+              const e = new Error(errMsg || `Gemini HTTP ${res.statusCode}`);
+              e.statusCode = res.statusCode;
+              e.raw = raw;
+              e.model = model;
+              return reject(e);
             }
             const t =
               (j &&
@@ -892,8 +904,19 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media) {
               .replace(/\s+/g, ' ')
               .slice(0, 120);
             if (line.length >= 6) return resolve(line);
-            return reject(new Error('Gemini empty hook'));
+            {
+              const e = new Error('Gemini empty hook');
+              e.statusCode = res.statusCode || 200;
+              e.raw = raw;
+              e.model = model;
+              return reject(e);
+            }
           } catch (e) {
+            try {
+              e.raw = raw;
+              e.statusCode = res.statusCode;
+              e.model = model;
+            } catch {}
             return reject(e);
           }
         });
@@ -1475,9 +1498,12 @@ app.post('/crush', async (req, res) => {
     const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: titleIsListicle });
     const emojiPool = loadCrushEmojiPool();
     const reelsEmojiBrand = normBrand(brand) === 'terapi' || normBrand(brand) === 'umut';
+    const isLabBrand = normBrand(brand) === 'terapi' || normBrand(brand) === 'umut' || normBrand(brand) === 'kaos';
     let gemHook = '';
     const gemKey = String(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
-    if (!manualHookTextRaw && gemKey && metaTitle && reelsEmojiBrand) {
+    const mustUseGeminiHook = !manualHookTextRaw && isLabBrand;
+    let geminiErr = null;
+    if (!manualHookTextRaw && gemKey && metaTitle && isLabBrand) {
       try {
         const frameFile = path.join(tmpDir, 'gem_frame.png');
         const audioFile = path.join(tmpDir, 'gem_audio.wav');
@@ -1489,8 +1515,27 @@ app.post('/crush', async (req, res) => {
           audioWav: audioFile
         });
       } catch (e) {
-        console.warn('[gemini hook]', (e && e.message) || e);
+        geminiErr = {
+          message: (e && e.message) ? String(e.message) : String(e),
+          statusCode: (e && (e.statusCode || e.code)) ? (e.statusCode || e.code) : null,
+          model: (e && e.model) ? String(e.model) : String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim()
+        };
+        console.warn('[gemini hook]', geminiErr);
       }
+    }
+    // If Gemini is required but didn't produce a hook, fail fast (do not render video).
+    if (mustUseGeminiHook && (!gemKey || !metaTitle || !gemHook || gemHook.length < 6)) {
+      return res.status(502).json({
+        ok: false,
+        error: !gemKey
+          ? 'Gemini API key yok (GEMINI_API_KEY). Hook üretilemedi.'
+          : (!metaTitle ? 'Video title alınamadı; Gemini hook üretimi yapılamadı.' : 'Gemini hook üretimi başarısız oldu. Video render edilmedi.'),
+        gemini: geminiErr || {
+          message: 'Gemini hook empty',
+          statusCode: null,
+          model: String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim()
+        }
+      });
     }
     const seed =
       manualHookTextRaw
@@ -1505,12 +1550,19 @@ app.post('/crush', async (req, res) => {
           titleHint: metaTitle || '',
           forReels: reelsEmojiBrand
         });
-    const hookText =
+    let hookText =
       manualHookTextRaw
         ? hookCore
         : reelsEmojiBrand
           ? ensureHookUsesPoolEmoji(hookCore, emojiPool)
           : hookCore;
+    hookText = stripBannedHookWords(hookText);
+    // If stripping "ignore" makes it too short, fall back to a safe brand hook.
+    if (!hookText || hookText.length < 6) {
+      const fb = fallbackHookTextForBrand(brand);
+      hookText = reelsEmojiBrand ? ensureHookUsesPoolEmoji(fb, emojiPool) : fb;
+      hookText = stripBannedHookWords(hookText) || fb;
+    }
     const hook = { text: hookText, bannerY: 0, y: 95, boxOpacity: 1, color: null };
     const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand), titleIsListicle));
     const finalCaption = toSingleSentenceCaption(fallbackCaptionBits.caption || fallbackCaptionForBrand(brand));
