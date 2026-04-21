@@ -422,12 +422,20 @@ function buildReelsInstagramCanvasFilters({
   const sy = outH / 1920;
   const sx = outW / 1080;
   const s = Math.min(sx, sy);
-  // Premium frame PNG window geometry (matches public/terapi_zrh_arka_plan.png)
-  // window: x=113,y=412,w=853,h=1229 on 1080×1920
-  const wx = Math.round(113 * sx);
-  const wy = Math.round(412 * sy);
-  const ww = Math.round(853 * sx);
-  const wh = Math.round(1229 * sy);
+  // Premium frame PNG window geometry (measured from transparent bbox, 1080×1920)
+  // terapi: x=92,y=236,w=895,h=1524
+  // kaos:   x=94,y=353,w=890,h=1366
+  // umut:   x=60,y=390,w=959,h=1331
+  const win =
+    brandNorm === 'kaos'
+      ? { x: 94, y: 353, w: 890, h: 1366 }
+      : brandNorm === 'umut'
+        ? { x: 60, y: 390, w: 959, h: 1331 }
+        : { x: 92, y: 236, w: 895, h: 1524 };
+  const wx = Math.round(win.x * sx);
+  const wy = Math.round(win.y * sy);
+  const ww = Math.round(win.w * sx);
+  const wh = Math.round(win.h * sy);
   const fontSize = Math.max(20, Math.round(44 * s));
   const lineStep = Math.max(Math.round(fontSize * 1.30), fontSize + 4);
   const maxCapLines = 2;
@@ -438,7 +446,12 @@ function buildReelsInstagramCanvasFilters({
   // Hook alanını çok az yukarı genişlet (kenarlara değil, sadece üstten).
   // (Therapy/Hope/Chaos hepsinde aynı davranış.)
   const hookAreaTop = Math.round(16 * sy);
-  const hookAreaBottom = Math.max(hookAreaTop + 1, Math.round(wy - 18 * sy));
+  const topStripH =
+    (brandNorm === 'kaos' || brandNorm === 'umut') ? Math.round(132 * sy) : null; // çok az daha yüksek şerit
+  const hookAreaBottom = Math.max(
+    hookAreaTop + 1,
+    topStripH != null ? topStripH : Math.round(wy - 18 * sy)
+  );
   const hxOff = Math.round(
     parseManualReelsHookOffsetPx(hookXOffsetRefPx) * (outW / MANUAL_BLUR_REF_W)
   );
@@ -465,7 +478,10 @@ function buildReelsInstagramCanvasFilters({
     // Manuel nudge (720×1280 px referansı): ih*(nudge/1280) ifadesi ölçeklenmiş kare üzerinde kaydırır.
     `[v0]scale=${ww}:${wh}:force_original_aspect_ratio=increase,crop=${ww}:${wh}:(iw-ow)/2:${cropYExpr},setsar=1[vid]`,
     `[base][vid]overlay=x=${wx}:y=${wy}:shortest=1[vb]`,
-    `[vb][frame]overlay=x=0:y=0:format=auto[vt0]`
+    `[vb][frame]overlay=x=0:y=0:format=auto[vt0]`,
+    ...(brandNorm === 'kaos' || brandNorm === 'umut'
+      ? [`[vt0]drawbox=x=0:y=0:w=${outW}:h=${Math.max(1, Math.round(132 * sy))}:color=white@1.0:t=fill[vt0s]`]
+      : [])
   ] : [
     `color=c=${bgHex}:s=${outW}x${outH}:d=99999[bg]`,
     `[v0]scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},setsar=1[vid]`,
@@ -475,7 +491,7 @@ function buildReelsInstagramCanvasFilters({
     parts.push(`[vt0]format=yuv420p[v1]`);
     return parts;
   }
-  let cur = 'vt0';
+  let cur = (frameFileExists && (brandNorm === 'kaos' || brandNorm === 'umut')) ? 'vt0s' : 'vt0';
   lines.forEach((line, i) => {
     const last = i === lines.length - 1;
     const next = last ? 'v1b' : `vth${i}`;

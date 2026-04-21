@@ -699,11 +699,19 @@ function crushClampRect(x, y, w, h) {
 function crushComputeLabWindowPx(outW, outH) {
   const sx = outW / 1080;
   const sy = outH / 1920;
+  const brandEl = document.getElementById("crushBrand");
+  const b = brandEl ? String(brandEl.value || "terapi").toLowerCase() : "terapi";
+  const win =
+    b === "kaos"
+      ? { x: 94, y: 353, w: 890, h: 1366 }
+      : b === "umut"
+        ? { x: 60, y: 390, w: 959, h: 1331 }
+        : { x: 92, y: 236, w: 895, h: 1524 };
   return {
-    wx: Math.round(113 * sx),
-    wy: Math.round(412 * sy),
-    ww: Math.round(853 * sx),
-    wh: Math.round(1229 * sy)
+    wx: Math.round(win.x * sx),
+    wy: Math.round(win.y * sy),
+    ww: Math.round(win.w * sx),
+    wh: Math.round(win.h * sy)
   };
 }
 
@@ -801,7 +809,9 @@ function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
   // Hook alanını çok az yukarı genişlet (kenarlara değil, sadece üstten).
   // (Therapy/Hope/Chaos hepsinde aynı davranış.)
   const hookAreaTop = Math.round(16 * sy);
-  const hookAreaBottom = Math.max(hookAreaTop + 1, Math.round(wyWin - 18 * sy));
+  const b = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
+  const topStripH = (b === "kaos" || b === "umut") ? Math.round(132 * sy) : null;
+  const hookAreaBottom = Math.max(hookAreaTop + 1, topStripH != null ? topStripH : Math.round(wyWin - 18 * sy));
   const blockH = (lines.length - 1) * lineStep + Math.round(fontSize * 1.08);
   let hookYTop = Math.max(hookAreaTop, Math.round(((hookAreaTop + hookAreaBottom) / 2) - (blockH / 2)));
   const hxOff = (Number(__crushManual.hookXOffsetPx) || 0) * (PREVIEW_W / 720);
@@ -871,6 +881,12 @@ function crushDrawVideoFrameOntoCanvas(cv) {
         48
       );
     }
+    // Chaos/Hope: hook beyaz şeridi çok az daha yüksek görünsün
+    const b = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
+    if (b === "kaos" || b === "umut") {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, PREVIEW_W, Math.max(1, Math.round(132 * (PREVIEW_H / 1920))));
+    }
     crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H);
     return;
   }
@@ -922,6 +938,12 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   const frm = __crushManual.frameImg;
   if (frm && frm.complete && frm.naturalWidth) {
     ctx.drawImage(frm, 0, 0, PREVIEW_W, PREVIEW_H);
+  }
+  // Chaos/Hope: hook beyaz şeridi çok az daha yüksek görünsün
+  const b2 = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
+  if (b2 === "kaos" || b2 === "umut") {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, PREVIEW_W, Math.max(1, Math.round(132 * (PREVIEW_H / 1920))));
   }
   crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H);
 }
