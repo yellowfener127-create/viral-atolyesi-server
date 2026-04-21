@@ -417,6 +417,7 @@ function buildReelsInstagramCanvasFilters({
   frameFileExists,
   cropYNudgeRefPx = 0,
   windowShiftYRefPx = 0,
+  videoScale = 1.0,
   hookXOffsetRefPx = 0,
   hookYOffsetRefPx = 0
 }) {
@@ -465,8 +466,6 @@ function buildReelsInstagramCanvasFilters({
   const winShift = parseManualReelsWindowShiftYPx(windowShiftYRefPx);
   const winShiftPx = Math.round(winShift * (outH / MANUAL_BLUR_REF_H));
   const nudgeRatio = nudge / MANUAL_BLUR_REF_H;
-  // Pan alanı yetmezse otomatik zoom: abs(nudge) büyüdükçe 1.00 → 1.60 arası
-  const panZoom = 1 + Math.min(0.60, Math.abs(nudgeRatio) * 1.15);
   const cropYExpr =
     `max(0\\,min(ih-oh\\,max(0\\,(ih-oh)*0.42)+ih*${nudgeRatio.toFixed(8)}))`;
 
@@ -479,15 +478,18 @@ function buildReelsInstagramCanvasFilters({
     // Chaos/Hope: videoyu pencere içinde %5–%6 küçült (kenar payı kalsın)
     ...(() => {
       const shrinkBrand = (brandNorm === 'kaos' || brandNorm === 'umut') ? 0.94 : 1.0;
-      const shrink = shrinkBrand;
+      const vs = parseManualReelsVideoScale(videoScale);
+      const shrink = shrinkBrand * vs;
       const vww = Math.max(2, Math.round(ww * shrink));
       const vwh = Math.max(2, Math.round(wh * shrink));
       const vx = Math.round(wx + (ww - vww) / 2);
       const vy = Math.round(wy + (wh - vwh) / 2) + winShiftPx;
       return [
-        `[v0]scale=${vww}:${vwh}:force_original_aspect_ratio=increase,` +
-          `scale=iw*${panZoom.toFixed(6)}:ih*${panZoom.toFixed(6)},` +
-          `crop=${vww}:${vwh}:(iw-ow)/2:${cropYExpr},setsar=1[vid]`,
+        // videoScale<1: “contain” (pad) ile küçült; videoScale=1: eski davranış
+        (vs < 0.999
+          ? `[v0]scale=${vww}:${vwh}:force_original_aspect_ratio=decrease,` +
+            `pad=${vww}:${vwh}:(ow-iw)/2:(oh-ih)/2:color=black@0,setsar=1[vid]`
+          : `[v0]scale=${vww}:${vwh}:force_original_aspect_ratio=increase,crop=${vww}:${vwh}:(iw-ow)/2:${cropYExpr},setsar=1[vid]`),
         `[base][vid]overlay=x=${vx}:y=${vy}:shortest=1[vb]`
       ];
     })(),
@@ -574,10 +576,12 @@ function clampDur(n, lo, hi) {
 
 const MANUAL_BLUR_REF_W = 720;
 const MANUAL_BLUR_REF_H = 1280;
-const MANUAL_REELS_CROP_Y_NUDGE_MIN = -1500;
-const MANUAL_REELS_CROP_Y_NUDGE_MAX = 1500;
+const MANUAL_REELS_CROP_Y_NUDGE_MIN = -500;
+const MANUAL_REELS_CROP_Y_NUDGE_MAX = 500;
 const MANUAL_REELS_WINDOW_SHIFT_Y_MIN = -250;
 const MANUAL_REELS_WINDOW_SHIFT_Y_MAX = 250;
+const MANUAL_REELS_VIDEO_SCALE_MIN = 0.60;
+const MANUAL_REELS_VIDEO_SCALE_MAX = 1.00;
 const MANUAL_REELS_HOOK_OFF_MIN = -400;
 const MANUAL_REELS_HOOK_OFF_MAX = 400;
 
@@ -599,6 +603,13 @@ function parseManualReelsWindowShiftYPx(raw) {
     MANUAL_REELS_WINDOW_SHIFT_Y_MIN,
     Math.min(MANUAL_REELS_WINDOW_SHIFT_Y_MAX, Math.round(n))
   );
+}
+
+/** Video boyutu (0.60..1.00). 1.00 = eski “tam doldur”. */
+function parseManualReelsVideoScale(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 1.0;
+  return Math.max(MANUAL_REELS_VIDEO_SCALE_MIN, Math.min(MANUAL_REELS_VIDEO_SCALE_MAX, n));
 }
 
 /** drawtext konumu (720×1280 referans); sunucuda outW/outH ile ölçeklenir. */
@@ -885,6 +896,9 @@ async function buildCrushRenderPlan(o) {
   const manualReelsWindowShiftYPx = parseManualReelsWindowShiftYPx(
     o.manual_reels_window_shift_y_px ?? o.manualReelsWindowShiftYPx
   );
+  const manualReelsVideoScale = parseManualReelsVideoScale(
+    o.manual_reels_video_scale ?? o.manualReelsVideoScale
+  );
   const manualReelsHookXOff = parseManualReelsHookOffsetPx(
     o.manual_reels_hook_x_offset_px ?? o.manualReelsHookXOffsetPx
   );
@@ -895,7 +909,14 @@ async function buildCrushRenderPlan(o) {
   const ubChain = buildManualBlurDelogoChain('v0base', ubRects, outW, outH, 'v0postblur');
 
   let vChain = `[0:v]setpts=PTS-STARTPTS,fps=${targetFps}`;
-  vChain += `,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}[v0base]`;
+  // “9:16 zorunlu kırpma”yı kaldırmak için: kullanıcı videoScale < 1 seçtiğinde contain+pad kullan.
+  if (manualReelsVideoScale < 0.999) {
+    vChain +=
+      `,scale=${outW}:${outH}:force_original_aspect_ratio=decrease,` +
+      `pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2:color=black@0[v0base]`;
+  } else {
+    vChain += `,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}[v0base]`;
+  }
   if (ubChain.chain) {
     vChain += `;${ubChain.chain}`;
   } else {
@@ -1011,6 +1032,7 @@ async function buildCrushRenderPlan(o) {
           frameFileExists: frameExists,
           cropYNudgeRefPx: manualReelsCropYNudgePx,
           windowShiftYRefPx: manualReelsWindowShiftYPx,
+          videoScale: manualReelsVideoScale,
           hookXOffsetRefPx: manualReelsHookXOff,
           hookYOffsetRefPx: manualReelsHookYOff
         })
@@ -1224,5 +1246,6 @@ module.exports = {
   MANUAL_BLUR_REF_H,
   parseManualReelsCropYNudgePx,
   parseManualReelsWindowShiftYPx,
+  parseManualReelsVideoScale,
   parseManualReelsHookOffsetPx
 };
