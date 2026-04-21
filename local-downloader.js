@@ -842,7 +842,7 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media, modelOve
     `Use the provided screenshot(s) + audio preview to make it specific.\n` +
     emojiRules +
     `\nReturn only the hook sentence, nothing else.`;
-  const model = String(modelOverride || process.env.GEMINI_MODEL || 'gemini-2.5-pro').trim();
+  const model = String(modelOverride || process.env.GEMINI_MODEL || 'gemini-1.5-flash').trim();
   const parts = [{ text: prompt }];
   try {
     const fs = require('fs');
@@ -1510,7 +1510,7 @@ app.post('/crush', async (req, res) => {
       ? crypto.createHash('sha256').update(gemKey).digest('hex').slice(0, 10)
       : null;
     const gemModelFromReq = String(req.body?.gemini_model ?? req.body?.geminiModel ?? '').trim();
-    const gemModel = gemModelFromReq || String(process.env.GEMINI_MODEL || 'gemini-2.5-pro').trim();
+    const gemModel = gemModelFromReq || String(process.env.GEMINI_MODEL || 'gemini-1.5-flash').trim();
     const mustUseGeminiHook = !manualHookTextRaw && isLabBrand;
     let geminiErr = null;
     if (!manualHookTextRaw && gemKey && metaTitle && isLabBrand) {
