@@ -817,6 +817,32 @@ function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
   ctx.restore();
 }
 
+/** Manuel blur için: sadece tam 9:16 (v0base) önizlemesi. */
+function crushDrawBlurBaseOnly(cv) {
+  const v = document.getElementById("crushPreviewVideo");
+  if (!cv) return;
+  const ctx = cv.getContext("2d");
+  const W = cv.width;
+  const H = cv.height;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+  if (!v || !v.videoWidth) {
+    ctx.fillStyle = "#b8c5d6";
+    ctx.font = '14px "Segoe UI",sans-serif';
+    ctx.fillText("Blur için video seçin (Dosya Seç)…", 20, 48);
+    return;
+  }
+  // v0base = outW×outH: scale=increase + center crop
+  const vw = v.videoWidth;
+  const vh = v.videoHeight;
+  const s1 = Math.max(W / vw, H / vh);
+  const sw1 = vw * s1;
+  const sh1 = vh * s1;
+  const ox1 = (W - sw1) / 2;
+  const oy1 = (H - sh1) / 2;
+  ctx.drawImage(v, ox1, oy1, sw1, sh1);
+}
+
 /**
  * Önizleme = sunucudaki [v0] + Lab penceresi + zırh PNG üstte + hook. Video yokken sadece zırh + hook.
  */
@@ -900,8 +926,14 @@ function crushDrawVideoFrameOntoCanvas(cv) {
 
 function crushDrawRectsOverlay(cv) {
   if (!cv) return;
+  // Blur dikdörtgenleri 720×1280 tam kare (v0base) uzayına map edilir.
+  // Bu yüzden blur canvas'ta sadece tek video (arka) gösterilir; pencere/çerçeve/hook bindirmeyiz.
+  if (cv.id === "crushBlurCanvas") {
+    crushDrawBlurBaseOnly(cv);
+  } else {
+    crushDrawVideoFrameOntoCanvas(cv);
+  }
   const ctx = cv.getContext("2d");
-  crushDrawVideoFrameOntoCanvas(cv);
   for (const rec of __crushManual.rects) {
     const sel = rec.id === __crushManual.selectedId;
     ctx.strokeStyle = sel ? "#6ae" : "#e8b84a";
@@ -1010,7 +1042,11 @@ function onCrushCanvasMouseMove(ev) {
   if (d.type === "new") {
     const x = Math.min(d.sx, mx), y = Math.min(d.sy, my);
     const w = Math.abs(mx - d.sx), h = Math.abs(my - d.sy);
-    crushDrawVideoFrameOntoCanvas(cv);
+    if (cv && cv.id === "crushBlurCanvas") {
+      crushDrawBlurBaseOnly(cv);
+    } else {
+      crushDrawVideoFrameOntoCanvas(cv);
+    }
     const ctx = cv.getContext("2d");
     const c = crushClampRect(x, y, w, h);
     ctx.strokeStyle = "#8f8";
