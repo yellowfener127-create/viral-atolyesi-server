@@ -1081,9 +1081,9 @@ async function fetchVertexHookEnglish({ saPath, location, model, title, brand, e
   }
   const token = await getVertexAccessToken(saPath);
 
-  // Vertex models are typically "gemini-2.0-flash", "gemini-2.5-pro", etc.
+  // Vertex models are versioned (often needs suffix like -001 / -002).
   const loc = String(location || 'us-central1').trim() || 'us-central1';
-  const mdl = String(model || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
+  const mdl = String(model || 'gemini-2.0-flash-001').trim() || 'gemini-2.0-flash-001';
 
   // Reuse the same prompt style as AI Studio flow.
   const n = normBrand(brand);
@@ -1805,16 +1805,41 @@ app.post('/crush', async (req, res) => {
         const media = { framePng: frameFile, audioWav: audioFile };
 
         if (preferVertex && vertexSaPath) {
-          const vr = await fetchVertexHookEnglish({
-            saPath: vertexSaPath,
-            location: vertexLocation,
-            model: gemModel,
-            title: metaTitle,
-            brand,
-            emojiPool,
-            media
-          });
-          gemHook = vr.hook;
+          const isVertexModelNotFound = (err) => {
+            const sc = Number(err && err.statusCode);
+            const m = String((err && err.message) || '');
+            return sc === 404 && /publisher model.*was not found|does not have access|model versions/i.test(m.toLowerCase());
+          };
+          const vertexModelCandidates = [
+            String(gemModel || '').trim(),
+            'gemini-2.0-flash-001',
+            'gemini-1.5-flash-002',
+            'gemini-1.5-pro-002'
+          ].filter(Boolean);
+          let lastErr = null;
+          let usedModel = '';
+          for (const cand of vertexModelCandidates) {
+            usedModel = cand;
+            try {
+              const vr = await fetchVertexHookEnglish({
+                saPath: vertexSaPath,
+                location: vertexLocation,
+                model: cand,
+                title: metaTitle,
+                brand,
+                emojiPool,
+                media
+              });
+              gemHook = vr.hook;
+              gemModel = vr.model || cand;
+              lastErr = null;
+              break;
+            } catch (ex) {
+              lastErr = ex;
+              if (!isVertexModelNotFound(ex)) break; // non-model error: stop
+            }
+          }
+          if (lastErr) throw Object.assign(lastErr, { triedModels: vertexModelCandidates, model: usedModel });
         } else {
           if (!gemKey) throw Object.assign(new Error('Gemini API key yok (GEMINI_API_KEY).'), { statusCode: 401, model: gemModel });
           gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, media, gemModel);
@@ -1844,7 +1869,8 @@ app.post('/crush', async (req, res) => {
           keyFp: gemKeyFp,
             apiError: (e && e.geminiError) ? e.geminiError : (e && e.parsed) ? e.parsed : null,
             provider: (preferVertex && vertexSaPath) ? 'vertex' : 'ai_studio',
-            vertex: vertexSaPath ? { location: vertexLocation, sa: path.basename(vertexSaPath) } : null
+            vertex: vertexSaPath ? { location: vertexLocation, sa: path.basename(vertexSaPath) } : null,
+            triedModels: (e && e.triedModels) ? e.triedModels : null
         };
         console.warn('[gemini hook]', geminiErr);
         }

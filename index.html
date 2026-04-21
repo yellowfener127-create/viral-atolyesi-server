@@ -1449,7 +1449,7 @@ async function crushVideo() {
     try { gemini_api_key = String(localStorage.getItem("gemini_api_key") || "").trim(); } catch(eKey) {}
     let gemini_model = "";
     try { gemini_model = String(localStorage.getItem("gemini_model") || "").trim(); } catch(eModel) {}
-    if (!gemini_model) gemini_model = "gemini-2.0-flash";
+    if (!gemini_model) gemini_model = "gemini-2.0-flash-001";
     const localRes = await fetch("http://127.0.0.1:8787/crush", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
