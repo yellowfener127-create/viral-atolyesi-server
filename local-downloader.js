@@ -825,6 +825,7 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media) {
     `It must feel like it matches THIS video (avoid generic templates like "watch till the end").\n` +
     `Style: ${style}.\n` +
     `Important: Do NOT start with "POV:" and do NOT use the word "POV" unless it is truly necessary.\n` +
+    `Banned words: do NOT use the word "ignore" in any form.\n` +
     `Rules: max 55 characters total (including spaces + the final emoji). ` +
     `No quotation marks. No hashtags. English only.\n` +
     `Tone: ${tone}.\n` +
@@ -887,6 +888,8 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media) {
               .replace(/\s+/g, ' ')
               .replace(/^["']|["']$/g, '')
               .trim()
+              .replace(/\bignore\b/gi, '')
+              .replace(/\s+/g, ' ')
               .slice(0, 120);
             if (line.length >= 6) return resolve(line);
             return reject(new Error('Gemini empty hook'));
