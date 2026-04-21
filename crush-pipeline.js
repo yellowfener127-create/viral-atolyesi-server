@@ -436,8 +436,10 @@ function buildReelsInstagramCanvasFilters({
   const blockH = lines.length ? ((lines.length - 1) * lineStep + Math.round(fontSize * 1.08)) : Math.round(fontSize * 1.08);
   // Hook'u video penceresinin üstündeki boşlukta ortala
   const hookAreaTop = Math.round(24 * sy);
-  // Üst beyaz bandı bir tık büyüt (caption/hook rahat sığsın)
-  const extraTopBand = Math.round(46 * sy);
+  // Üst beyaz bandı çok az büyüt (eskisine göre ~%5 civarı)
+  // (hookAreaTop..wy) aralığı “üst band” kabul edilir; bunun %5'i kadar ekle.
+  const baseTopBandH = Math.max(1, (Math.round(wy) - hookAreaTop));
+  const extraTopBand = Math.max(1, Math.round(baseTopBandH * 0.05));
   const hookAreaBottom = Math.max(hookAreaTop + 1, Math.round(wy - 18 * sy) + extraTopBand);
   const hxOff = Math.round(
     parseManualReelsHookOffsetPx(hookXOffsetRefPx) * (outW / MANUAL_BLUR_REF_W)
