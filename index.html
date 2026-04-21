@@ -918,7 +918,14 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
   ctx.drawImage(tmpV0, 0, 0);
-  ctx.drawImage(tmpSc, cropX, cropY, ww, wh, wx, wy, ww, wh);
+  // Chaos/Hope: video pencere içinde biraz daha küçük görünsün (%5–%6)
+  const br = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
+  const shrink = (br === "kaos" || br === "umut") ? 0.94 : 1.0;
+  const vww = Math.max(2, Math.round(ww * shrink));
+  const vwh = Math.max(2, Math.round(wh * shrink));
+  const vx = Math.round(wx + (ww - vww) / 2);
+  const vy = Math.round(wy + (wh - vwh) / 2);
+  ctx.drawImage(tmpSc, cropX, cropY, vww, vwh, vx, vy, vww, vwh);
   const frm = __crushManual.frameImg;
   if (frm && frm.complete && frm.naturalWidth) {
     ctx.drawImage(frm, 0, 0, PREVIEW_W, PREVIEW_H);

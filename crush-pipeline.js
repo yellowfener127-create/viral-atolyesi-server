@@ -463,8 +463,18 @@ function buildReelsInstagramCanvasFilters({
     // Kaynaktaki üst hook/bantı gizlemek için crop'ı biraz aşağıdan al (üstten kırp).
     // FFmpeg filtergraph: max(0\,expr) içindeki virgül kaçırılmalı, yoksa yeni filtre sanır.
     // Manuel nudge (720×1280 px referansı): ih*(nudge/1280) ifadesi ölçeklenmiş kare üzerinde kaydırır.
-    `[v0]scale=${ww}:${wh}:force_original_aspect_ratio=increase,crop=${ww}:${wh}:(iw-ow)/2:${cropYExpr},setsar=1[vid]`,
-    `[base][vid]overlay=x=${wx}:y=${wy}:shortest=1[vb]`,
+    // Chaos/Hope: videoyu pencere içinde %5–%6 küçült (kenar payı kalsın)
+    ...(() => {
+      const shrink = (brandNorm === 'kaos' || brandNorm === 'umut') ? 0.94 : 1.0;
+      const vww = Math.max(2, Math.round(ww * shrink));
+      const vwh = Math.max(2, Math.round(wh * shrink));
+      const vx = Math.round(wx + (ww - vww) / 2);
+      const vy = Math.round(wy + (wh - vwh) / 2);
+      return [
+        `[v0]scale=${vww}:${vwh}:force_original_aspect_ratio=increase,crop=${vww}:${vwh}:(iw-ow)/2:${cropYExpr},setsar=1[vid]`,
+        `[base][vid]overlay=x=${vx}:y=${vy}:shortest=1[vb]`
+      ];
+    })(),
     `[vb][frame]overlay=x=0:y=0:format=auto[vt0]`
   ] : [
     `color=c=${bgHex}:s=${outW}x${outH}:d=99999[bg]`,
