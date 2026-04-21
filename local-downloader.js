@@ -1329,6 +1329,9 @@ app.post('/crush', async (req, res) => {
   const manualBlurRectsBody = crush.parseManualBlurRectsInput(
     req.body?.manual_blur_rects ?? req.body?.manualBlurRects ?? []
   );
+  const manualCropRect720 = crush.parseManualCropRectInput(
+    req.body?.manual_crop_rect_720 ?? req.body?.manualCropRect720 ?? req.body?.manual_crop_rect ?? req.body?.manualCropRect ?? null
+  );
   const manualReelsCropYNudgePx = crush.parseManualReelsCropYNudgePx(
     req.body?.manual_reels_crop_y_nudge_px ?? req.body?.manualReelsCropYNudgePx
   );
@@ -1540,6 +1543,7 @@ app.post('/crush', async (req, res) => {
             hook,
             coverBox,
             manual_blur_rects: manualBlurRectsBody,
+          manual_crop_rect_720: manualCropRect720,
             manual_reels_crop_y_nudge_px: manualReelsCropYNudgePx,
             manual_reels_window_shift_y_px: manualReelsWindowShiftYPx,
             manual_reels_hook_x_offset_px: manualReelsHookXOff,
@@ -1569,6 +1573,7 @@ app.post('/crush', async (req, res) => {
       hook,
       coverBox,
       manual_blur_rects: manualBlurRectsBody,
+      manual_crop_rect_720: manualCropRect720,
       manual_reels_crop_y_nudge_px: manualReelsCropYNudgePx,
       manual_reels_window_shift_y_px: manualReelsWindowShiftYPx,
       manual_reels_hook_x_offset_px: manualReelsHookXOff,

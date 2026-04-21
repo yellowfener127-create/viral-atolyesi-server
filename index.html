@@ -356,6 +356,14 @@
         <input type="range" id="crushPreviewWindowShiftY" min="-250" max="250" step="1" value="0" style="width:min(100%,320px);vertical-align:middle;margin-left:6px" />
         <span id="crushPreviewWindowShiftYVal" style="font-variant-numeric:tabular-nums">0</span> px
       </label>
+      <div style="font-size:12px;color:var(--muted);margin-top:10px">
+        <strong>Manuel kırpma:</strong> Aşağıdaki tuvalde kutunun kenarlarından tutup küçült. İndirilen videoya da aynı kırpma uygulanır.
+      </div>
+      <canvas id="crushCropCanvas" width="720" height="1280" tabindex="0" style="max-width:100%;max-height:42vh;width:auto;height:auto;border:1px solid #333;border-radius:6px;background:#0a0a0a;display:block;touch-action:none;margin-top:8px"></canvas>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center">
+        <button type="button" class="tool-btn" id="crushCropModeBtn" onclick="toggleCrushCropMode()">Kırpma: KAPALI</button>
+        <button type="button" class="tool-btn" onclick="resetCrushCrop()">Kırpma sıfırla</button>
+      </div>
     </div>
 
     <!-- Telif Ezici — Manuel Hook & Caption -->
@@ -682,10 +690,36 @@ var __crushManual = {
   rects: [], selectedId: null, drawMode: false, hookDragMode: false, drag: null, nextId: 1, REF_W: 720, REF_H: 1280,
   videoCropYNudgePx: 0,
   previewWindowShiftYPx: 0,
+  cropMode: false,
+  cropRect: { x: 0, y: 0, w: 720, h: 1280 },
   hookXOffsetPx: 0,
   hookYOffsetPx: 0,
   frameImg: null
 };
+
+function crushClampCropRect(r) {
+  const RW = __crushManual.REF_W, RH = __crushManual.REF_H;
+  const x = Math.max(0, Math.min(RW - 16, Math.round(Number(r.x) || 0)));
+  const y = Math.max(0, Math.min(RH - 16, Math.round(Number(r.y) || 0)));
+  const w = Math.max(16, Math.min(RW - x, Math.round(Number(r.w) || 0)));
+  const h = Math.max(16, Math.min(RH - y, Math.round(Number(r.h) || 0)));
+  return { x, y, w, h };
+}
+
+function toggleCrushCropMode() {
+  __crushManual.cropMode = !__crushManual.cropMode;
+  const b = document.getElementById("crushCropModeBtn");
+  if (b) {
+    b.textContent = __crushManual.cropMode ? "Kırpma: AÇIK" : "Kırpma: KAPALI";
+    b.classList.toggle("saved", __crushManual.cropMode);
+  }
+  crushRedrawAllPreviews();
+}
+
+function resetCrushCrop() {
+  __crushManual.cropRect = { x: 0, y: 0, w: 720, h: 1280 };
+  crushRedrawAllPreviews();
+}
 
 function crushCanvasCoords(ev, canvas) {
   const r = canvas.getBoundingClientRect();
@@ -860,6 +894,17 @@ function crushDrawBlurBaseOnly(cv) {
   const ox1 = (W - sw1) / 2;
   const oy1 = (H - sh1) / 2;
   ctx.drawImage(v, ox1, oy1, sw1, sh1);
+
+  // Apply manual crop preview (cropRect then scale back to full canvas)
+  const cr = crushClampCropRect(__crushManual.cropRect || { x: 0, y: 0, w: W, h: H });
+  if (!__crushManual._tmpCrop) __crushManual._tmpCrop = document.createElement("canvas");
+  const tc = __crushManual._tmpCrop;
+  tc.width = W; tc.height = H;
+  const tctx = tc.getContext("2d");
+  tctx.clearRect(0, 0, W, H);
+  tctx.drawImage(cv, cr.x, cr.y, cr.w, cr.h, 0, 0, W, H);
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(tc, 0, 0);
 }
 
 /**
@@ -916,6 +961,17 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   const ox1 = (PREVIEW_W - sw1) / 2;
   const oy1 = (PREVIEW_H - sh1) / 2;
   tctx.drawImage(v, ox1, oy1, sw1, sh1);
+
+  // Manual crop on v0base before window overlay
+  const cr = crushClampCropRect(__crushManual.cropRect || { x: 0, y: 0, w: PREVIEW_W, h: PREVIEW_H });
+  if (!__crushManual._tmpCrop) __crushManual._tmpCrop = document.createElement("canvas");
+  const tc = __crushManual._tmpCrop;
+  tc.width = PREVIEW_W; tc.height = PREVIEW_H;
+  const cctx = tc.getContext("2d");
+  cctx.clearRect(0, 0, PREVIEW_W, PREVIEW_H);
+  cctx.drawImage(tmpV0, cr.x, cr.y, cr.w, cr.h, 0, 0, PREVIEW_W, PREVIEW_H);
+  tctx.clearRect(0, 0, PREVIEW_W, PREVIEW_H);
+  tctx.drawImage(tc, 0, 0);
 
   const { wx, wy, ww, wh } = crushComputeLabWindowPx(PREVIEW_W, PREVIEW_H);
   const s2 = Math.max(ww / PREVIEW_W, wh / PREVIEW_H);
@@ -977,15 +1033,36 @@ function crushDrawRectsOverlay(cv) {
       ctx.fillRect(rec.x + rec.w - hs, rec.y + rec.h - hs, hs, hs);
     }
   }
+  // Crop overlay box on crop canvas
+  if (cv.id === "crushCropCanvas") {
+    const r = crushClampCropRect(__crushManual.cropRect || { x: 0, y: 0, w: 720, h: 1280 });
+    ctx.strokeStyle = __crushManual.cropMode ? "#6ae" : "#999";
+    ctx.lineWidth = __crushManual.cropMode ? 3 : 2;
+    ctx.strokeRect(r.x + 0.5, r.y + 0.5, Math.max(1, r.w - 1), Math.max(1, r.h - 1));
+    ctx.fillStyle = "rgba(0,0,0,0.10)";
+    ctx.fillRect(0, 0, 720, r.y);
+    ctx.fillRect(0, r.y + r.h, 720, 1280 - (r.y + r.h));
+    ctx.fillRect(0, r.y, r.x, r.h);
+    ctx.fillRect(r.x + r.w, r.y, 720 - (r.x + r.w), r.h);
+    // handles
+    const hs = 10;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(r.x - hs / 2, r.y - hs / 2, hs, hs);
+    ctx.fillRect(r.x + r.w - hs / 2, r.y - hs / 2, hs, hs);
+    ctx.fillRect(r.x - hs / 2, r.y + r.h - hs / 2, hs, hs);
+    ctx.fillRect(r.x + r.w - hs / 2, r.y + r.h - hs / 2, hs, hs);
+  }
 }
 
 function crushRedrawAllPreviews() {
   const blurCv = document.getElementById("crushBlurCanvas");
   const nudgeCv = document.getElementById("crushNudgeCanvas");
   const hookCv = document.getElementById("crushHookCanvas");
+  const cropCv = document.getElementById("crushCropCanvas");
   if (blurCv) crushDrawRectsOverlay(blurCv);
   if (nudgeCv) crushDrawVideoFrameOntoCanvas(nudgeCv);
   if (hookCv) crushDrawVideoFrameOntoCanvas(hookCv);
+  if (cropCv) crushDrawRectsOverlay(cropCv);
 }
 
 function crushUpdateRectList() {
@@ -1018,6 +1095,27 @@ function onCrushCanvasMouseDown(ev) {
   if (!cv) return;
   const { mx, my } = crushCanvasCoords(ev, cv);
   const hit = crushGetHitRect(mx, my);
+  if (cv.id === "crushCropCanvas" && __crushManual.cropMode) {
+    const r = crushClampCropRect(__crushManual.cropRect || { x: 0, y: 0, w: 720, h: 1280 });
+    const hs = 12;
+    const corners = [
+      { k: "tl", x: r.x, y: r.y },
+      { k: "tr", x: r.x + r.w, y: r.y },
+      { k: "bl", x: r.x, y: r.y + r.h },
+      { k: "br", x: r.x + r.w, y: r.y + r.h }
+    ];
+    let handle = null;
+    for (const c of corners) {
+      if (Math.abs(mx - c.x) <= hs && Math.abs(my - c.y) <= hs) { handle = c.k; break; }
+    }
+    const inside = mx >= r.x && my >= r.y && mx <= r.x + r.w && my <= r.y + r.h;
+    __crushManual.drag = handle
+      ? { type: "crop_resize", handle, mx0: mx, my0: my, r0: r, canvas: cv }
+      : inside
+        ? { type: "crop_move", mx0: mx, my0: my, r0: r, canvas: cv }
+        : null;
+    if (__crushManual.drag) { ev.preventDefault(); return; }
+  }
   if (__crushManual.drawMode) {
     __crushManual.drag = { type: "new", sx: mx, sy: my, canvas: cv };
     ev.preventDefault();
@@ -1059,6 +1157,34 @@ function onCrushCanvasMouseMove(ev) {
   const cv = d.canvas || document.getElementById("crushBlurCanvas");
   if (!cv) return;
   const { mx, my } = crushCanvasCoords(ev, cv);
+  if (d.type === "crop_move") {
+    const dx = mx - d.mx0;
+    const dy = my - d.my0;
+    const r = d.r0;
+    __crushManual.cropRect = crushClampCropRect({
+      x: r.x + dx,
+      y: r.y + dy,
+      w: r.w,
+      h: r.h
+    });
+    crushRedrawAllPreviews();
+    ev.preventDefault();
+    return;
+  }
+  if (d.type === "crop_resize") {
+    const dx = mx - d.mx0;
+    const dy = my - d.my0;
+    const r = d.r0;
+    let x = r.x, y = r.y, w = r.w, h = r.h;
+    if (d.handle.includes("t")) { y = r.y + dy; h = r.h - dy; }
+    if (d.handle.includes("b")) { h = r.h + dy; }
+    if (d.handle.includes("l")) { x = r.x + dx; w = r.w - dx; }
+    if (d.handle.includes("r")) { w = r.w + dx; }
+    __crushManual.cropRect = crushClampCropRect({ x, y, w, h });
+    crushRedrawAllPreviews();
+    ev.preventDefault();
+    return;
+  }
   if (d.type === "hook") {
     const dx = mx - d.mx0;
     const dy = my - d.my0;
@@ -1165,6 +1291,7 @@ function wireCrushManualBlurUi() {
   const file = document.getElementById("crushPreviewFile");
   const v = document.getElementById("crushPreviewVideo");
   const cv = document.getElementById("crushBlurCanvas");
+  const cropCv = document.getElementById("crushCropCanvas");
   const hookCv = document.getElementById("crushHookCanvas");
   const seek = document.getElementById("crushPreviewSeek");
   const wrap = document.getElementById("crushBlurPreviewWrap");
@@ -1174,6 +1301,8 @@ function wireCrushManualBlurUi() {
     __crushManual.selectedId = null;
     __crushManual.videoCropYNudgePx = 0;
     __crushManual.previewWindowShiftYPx = 0;
+    __crushManual.cropMode = false;
+    __crushManual.cropRect = { x: 0, y: 0, w: 720, h: 1280 };
     __crushManual.hookXOffsetPx = 0;
     __crushManual.hookYOffsetPx = 0;
     const ny = document.getElementById("crushVideoNudgeY");
@@ -1184,6 +1313,8 @@ function wireCrushManualBlurUi() {
     const pwyv = document.getElementById("crushPreviewWindowShiftYVal");
     if (pwy) pwy.value = "0";
     if (pwyv) pwyv.textContent = "0";
+    const cb = document.getElementById("crushCropModeBtn");
+    if (cb) { cb.textContent = "Kırpma: KAPALI"; cb.classList.remove("saved"); }
     const hx0 = document.getElementById("crushHookOffX");
     const hy0 = document.getElementById("crushHookOffY");
     const hxv0 = document.getElementById("crushHookOffXVal");
@@ -1269,6 +1400,7 @@ function wireCrushManualBlurUi() {
     });
   }
   cv.addEventListener("mousedown", onCrushCanvasMouseDown);
+  if (cropCv) cropCv.addEventListener("mousedown", onCrushCanvasMouseDown);
   if (hookCv) hookCv.addEventListener("mousedown", onCrushCanvasMouseDown);
   window.addEventListener("mousemove", onCrushCanvasMouseMove);
   window.addEventListener("mouseup", onCrushCanvasMouseUp);
@@ -1299,6 +1431,7 @@ async function crushVideo() {
   if (!url) { alert("Link gir."); return; }
 
   const manual_blur_rects = (__crushManual.rects || []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
+  const manual_crop_rect_720 = crushClampCropRect(__crushManual.cropRect || { x: 0, y: 0, w: 720, h: 1280 });
   const manual_reels_crop_y_nudge_px = Number(__crushManual.videoCropYNudgePx) || 0;
   const manual_reels_window_shift_y_px = Number(__crushManual.previewWindowShiftYPx) || 0;
   const hook_text = (document.getElementById("crushHookManual") && String(document.getElementById("crushHookManual").value || "").trim()) || "";
@@ -1319,6 +1452,7 @@ async function crushVideo() {
         url,
         brand,
         manual_blur_rects,
+        manual_crop_rect_720,
         manual_reels_crop_y_nudge_px,
         manual_reels_window_shift_y_px,
         hook_text,

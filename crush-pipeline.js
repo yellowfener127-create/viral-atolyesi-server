@@ -577,6 +577,23 @@ const MANUAL_REELS_WINDOW_SHIFT_Y_MAX = 250;
 const MANUAL_REELS_HOOK_OFF_MIN = -400;
 const MANUAL_REELS_HOOK_OFF_MAX = 400;
 
+/** İstek gövdesinden {x,y,w,h} (px, 720×1280 referansı) — manuel video kırpma kutusu. */
+function parseManualCropRectInput(raw) {
+  const r = raw && typeof raw === 'object' ? raw : null;
+  const xIn = Math.round(Number(r && r.x));
+  const yIn = Math.round(Number(r && r.y));
+  const wIn = Math.round(Number(r && r.w));
+  const hIn = Math.round(Number(r && r.h));
+  if (![xIn, yIn, wIn, hIn].every((n) => Number.isFinite(n))) {
+    return { x: 0, y: 0, w: MANUAL_BLUR_REF_W, h: MANUAL_BLUR_REF_H };
+  }
+  const x = Math.max(0, Math.min(MANUAL_BLUR_REF_W - 16, xIn));
+  const y = Math.max(0, Math.min(MANUAL_BLUR_REF_H - 16, yIn));
+  const w = Math.max(16, Math.min(MANUAL_BLUR_REF_W - x, wIn));
+  const h = Math.max(16, Math.min(MANUAL_BLUR_REF_H - y, hIn));
+  return { x, y, w, h };
+}
+
 /** Lab frame üst kırpımına manuel ince ayar (px, 720×1280 ile aynı dikey ölçek). Negatif = daha çok üst göster; pozitif = daha çok üstü gizle. */
 function parseManualReelsCropYNudgePx(raw) {
   const n = Number(raw);
@@ -875,6 +892,9 @@ async function buildCrushRenderPlan(o) {
 
   // hflip kapalı: yakılmış (burned-in) yazı pikseldir; altyazı akışı yoksa tespit edilemez, flip metni ters çevirir.
   const rawManual = parseManualBlurRectsInput(o.manual_blur_rects ?? o.manualBlurRects ?? []);
+  const manualCropRectRef = parseManualCropRectInput(
+    o.manual_crop_rect_720 ?? o.manualCropRect720 ?? o.manual_crop_rect ?? o.manualCropRect ?? null
+  );
   const manualReelsCropYNudgePx = parseManualReelsCropYNudgePx(
     o.manual_reels_crop_y_nudge_px ?? o.manualReelsCropYNudgePx
   );
@@ -891,7 +911,41 @@ async function buildCrushRenderPlan(o) {
   const ubChain = buildManualBlurDelogoChain('v0base', ubRects, outW, outH, 'v0postblur');
 
   let vChain = `[0:v]setpts=PTS-STARTPTS,fps=${targetFps}`;
-  vChain += `,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}[v0base]`;
+  vChain += `,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}[v0base0]`;
+  // Manual crop rect: crop in outW×outH space, then scale back to outW×outH (fill).
+  const cropRectOut = (() => {
+    const sx = outW / MANUAL_BLUR_REF_W;
+    const sy = outH / MANUAL_BLUR_REF_H;
+    let x = Math.round(manualCropRectRef.x * sx);
+    let y = Math.round(manualCropRectRef.y * sy);
+    let w = Math.round(manualCropRectRef.w * sx);
+    let h = Math.round(manualCropRectRef.h * sy);
+    x = Math.max(0, Math.min(outW - 16, x));
+    y = Math.max(0, Math.min(outH - 16, y));
+    w = Math.max(16, Math.min(outW - x, w));
+    h = Math.max(16, Math.min(outH - y, h));
+    // Even dims for yuv420p / x264 friendliness.
+    if (w % 2) w -= 1;
+    if (h % 2) h -= 1;
+    if (x % 2) x -= 1;
+    if (y % 2) y -= 1;
+    x = Math.max(0, x);
+    y = Math.max(0, y);
+    w = Math.max(16, Math.min(outW - x, w));
+    h = Math.max(16, Math.min(outH - y, h));
+    return { x, y, w, h };
+  })();
+  const isFullCrop =
+    cropRectOut.x === 0 &&
+    cropRectOut.y === 0 &&
+    cropRectOut.w === outW &&
+    cropRectOut.h === outH;
+  if (!isFullCrop) {
+    vChain += `;[v0base0]crop=${cropRectOut.w}:${cropRectOut.h}:${cropRectOut.x}:${cropRectOut.y},` +
+      `scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}[v0base]`;
+  } else {
+    vChain += `;[v0base0]crop=${outW}:${outH}:0:0[v0base]`;
+  }
   if (ubChain.chain) {
     vChain += `;${ubChain.chain}`;
   } else {
@@ -1147,6 +1201,7 @@ async function buildCrushRenderPlan(o) {
       outDurSec: Number(outDur.toFixed(3)),
       edge,
       manualBlurCount: ubRects.length,
+      manualCropRect720: manualCropRectRef,
       manualReelsCropYNudgePx,
       manualReelsWindowShiftYPx,
       manualReelsHookXOff,
@@ -1220,5 +1275,6 @@ module.exports = {
   MANUAL_BLUR_REF_H,
   parseManualReelsCropYNudgePx,
   parseManualReelsWindowShiftYPx,
-  parseManualReelsHookOffsetPx
+  parseManualReelsHookOffsetPx,
+  parseManualCropRectInput
 };
