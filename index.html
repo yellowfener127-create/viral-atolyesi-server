@@ -352,6 +352,10 @@
         <input type="range" id="crushVideoNudgeY" min="-500" max="500" step="1" value="0" style="width:min(100%,320px);vertical-align:middle;margin-left:6px" />
         <span id="crushVideoNudgeYVal" style="font-variant-numeric:tabular-nums">0</span> px
       </label>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Önizleme: 2. video (pencere içi) Y kaydır
+        <input type="range" id="crushPreviewWindowShiftY" min="-250" max="250" step="1" value="0" style="width:min(100%,320px);vertical-align:middle;margin-left:6px" />
+        <span id="crushPreviewWindowShiftYVal" style="font-variant-numeric:tabular-nums">0</span> px
+      </label>
     </div>
 
     <!-- Telif Ezici — Manuel Hook & Caption -->
@@ -676,7 +680,11 @@ function copyToolText(resultId, btnId) {
 /** Manuel blur: 720×1280 px. videoCropYNudgePx: Lab üst kırpım. frameImg: marka zırh PNG. */
 var __crushManual = {
   rects: [], selectedId: null, drawMode: false, hookDragMode: false, drag: null, nextId: 1, REF_W: 720, REF_H: 1280,
-  videoCropYNudgePx: 0, hookXOffsetPx: 0, hookYOffsetPx: 0, frameImg: null
+  videoCropYNudgePx: 0,
+  previewWindowShiftYPx: 0,
+  hookXOffsetPx: 0,
+  hookYOffsetPx: 0,
+  frameImg: null
 };
 
 function crushCanvasCoords(ev, canvas) {
@@ -935,7 +943,8 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   const vx = Math.round(wx + (ww - vww) / 2);
   // Hook/Kaydırma önizlemesinde üstteki (pencere) videoyu çok az aşağı al (%2 civarı).
   const previewDown = Math.round(wh * 0.02);
-  const vy = Math.round(wy + (wh - vwh) / 2) + previewDown;
+  const manualShift = Math.round((Number(__crushManual.previewWindowShiftYPx) || 0) * (PREVIEW_H / 1280));
+  const vy = Math.round(wy + (wh - vwh) / 2) + previewDown + manualShift;
   ctx.drawImage(tmpSc, cropX, cropY, vww, vwh, vx, vy, vww, vwh);
   const frm = __crushManual.frameImg;
   if (frm && frm.complete && frm.naturalWidth) {
@@ -1163,12 +1172,17 @@ function wireCrushManualBlurUi() {
     __crushManual.rects = [];
     __crushManual.selectedId = null;
     __crushManual.videoCropYNudgePx = 0;
+    __crushManual.previewWindowShiftYPx = 0;
     __crushManual.hookXOffsetPx = 0;
     __crushManual.hookYOffsetPx = 0;
     const ny = document.getElementById("crushVideoNudgeY");
     const nyv = document.getElementById("crushVideoNudgeYVal");
     if (ny) ny.value = "0";
     if (nyv) nyv.textContent = "0";
+    const pwy = document.getElementById("crushPreviewWindowShiftY");
+    const pwyv = document.getElementById("crushPreviewWindowShiftYVal");
+    if (pwy) pwy.value = "0";
+    if (pwyv) pwyv.textContent = "0";
     const hx0 = document.getElementById("crushHookOffX");
     const hy0 = document.getElementById("crushHookOffY");
     const hxv0 = document.getElementById("crushHookOffXVal");
@@ -1214,6 +1228,16 @@ function wireCrushManualBlurUi() {
       const n = Number(nudgeEl.value);
       __crushManual.videoCropYNudgePx = Number.isFinite(n) ? n : 0;
       if (nudgeValEl) nudgeValEl.textContent = String(__crushManual.videoCropYNudgePx);
+      crushRedrawAllPreviews();
+    });
+  }
+  const pwEl = document.getElementById("crushPreviewWindowShiftY");
+  const pwValEl = document.getElementById("crushPreviewWindowShiftYVal");
+  if (pwEl) {
+    pwEl.addEventListener("input", () => {
+      const n = Number(pwEl.value);
+      __crushManual.previewWindowShiftYPx = Number.isFinite(n) ? Math.round(n) : 0;
+      if (pwValEl) pwValEl.textContent = String(__crushManual.previewWindowShiftYPx);
       crushRedrawAllPreviews();
     });
   }
