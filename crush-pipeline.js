@@ -669,7 +669,7 @@ async function buildCrushRenderPlan(o) {
   const useLabFrame =
     (brandNorm === 'terapi' || brandNorm === 'umut' || brandNorm === 'kaos') && o.useReelsInstagramCanvas !== false;
   const useReelsInstagramCanvas =
-    (brandNorm === 'terapi' || brandNorm === 'umut') && o.useReelsInstagramCanvas !== false;
+    (brandNorm === 'terapi' || brandNorm === 'umut' || brandNorm === 'kaos') && o.useReelsInstagramCanvas !== false;
   const framePng = useLabFrame
     ? path.join(
         __dirname,
