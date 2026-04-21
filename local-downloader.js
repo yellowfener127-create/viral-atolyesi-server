@@ -5,6 +5,7 @@ const fs = require('fs');
 const https = require('https');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const crush = require('./crush-pipeline');
 
 const app = express();
@@ -810,7 +811,7 @@ function normBrand(brand) {
  * Gemini (Google AI Studio key): tek satır İngilizce hook. Başarısız olursa reject.
  * Ortam: GEMINI_API_KEY ve isteğe bağlı GEMINI_MODEL (örn. gemini-2.0-flash).
  */
-function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media) {
+function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media, modelOverride) {
   const n = normBrand(brand);
   const tone =
     n === 'umut'
@@ -841,7 +842,7 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media) {
     `Use the provided screenshot(s) + audio preview to make it specific.\n` +
     emojiRules +
     `\nReturn only the hook sentence, nothing else.`;
-  const model = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
+  const model = String(modelOverride || process.env.GEMINI_MODEL || 'gemini-2.5-pro').trim();
   const parts = [{ text: prompt }];
   try {
     const fs = require('fs');
@@ -886,6 +887,7 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media) {
               e.statusCode = res.statusCode;
               e.raw = raw;
               e.model = model;
+              e.geminiError = (j && j.error) ? j.error : null;
               return reject(e);
             }
             const t =
@@ -1501,7 +1503,14 @@ app.post('/crush', async (req, res) => {
     const isLabBrand = normBrand(brand) === 'terapi' || normBrand(brand) === 'umut' || normBrand(brand) === 'kaos';
     let gemHook = '';
     const gemKeyFromReq = String(req.body?.gemini_api_key ?? req.body?.geminiApiKey ?? '').trim();
-    const gemKey = gemKeyFromReq || String(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+    const gemKeyEnv = String(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+    const gemKey = gemKeyFromReq || gemKeyEnv;
+    const gemKeySource = gemKeyFromReq ? 'request' : (gemKeyEnv ? 'env' : 'missing');
+    const gemKeyFp = gemKey
+      ? crypto.createHash('sha256').update(gemKey).digest('hex').slice(0, 10)
+      : null;
+    const gemModelFromReq = String(req.body?.gemini_model ?? req.body?.geminiModel ?? '').trim();
+    const gemModel = gemModelFromReq || String(process.env.GEMINI_MODEL || 'gemini-2.5-pro').trim();
     const mustUseGeminiHook = !manualHookTextRaw && isLabBrand;
     let geminiErr = null;
     if (!manualHookTextRaw && gemKey && metaTitle && isLabBrand) {
@@ -1514,12 +1523,15 @@ app.post('/crush', async (req, res) => {
         gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, {
           framePng: frameFile,
           audioWav: audioFile
-        });
+        }, gemModel);
       } catch (e) {
         geminiErr = {
           message: (e && e.message) ? String(e.message) : String(e),
           statusCode: (e && (e.statusCode || e.code)) ? (e.statusCode || e.code) : null,
-          model: (e && e.model) ? String(e.model) : String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim()
+          model: (e && e.model) ? String(e.model) : gemModel,
+          keySource: gemKeySource,
+          keyFp: gemKeyFp,
+          apiError: (e && e.geminiError) ? e.geminiError : null
         };
         console.warn('[gemini hook]', geminiErr);
       }
@@ -1534,7 +1546,9 @@ app.post('/crush', async (req, res) => {
         gemini: geminiErr || {
           message: 'Gemini hook empty',
           statusCode: null,
-          model: String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim()
+          model: gemModel,
+          keySource: gemKeySource,
+          keyFp: gemKeyFp
         }
       });
     }
@@ -1560,7 +1574,7 @@ app.post('/crush', async (req, res) => {
     hookText = stripBannedHookWords(hookText);
     // If stripping "ignore" makes it too short, fall back to a safe brand hook.
     if (!hookText || hookText.length < 6) {
-      const fb = fallbackHookTextForBrand(brand);
+        const fb = fallbackHookTextForBrand(brand);
       hookText = reelsEmojiBrand ? ensureHookUsesPoolEmoji(fb, emojiPool) : fb;
       hookText = stripBannedHookWords(hookText) || fb;
     }

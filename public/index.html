@@ -1447,6 +1447,9 @@ async function crushVideo() {
     msg.textContent = "Local Downloader ile hazırlanıyor (PC'ye kaydedilecek)…";
     let gemini_api_key = "";
     try { gemini_api_key = String(localStorage.getItem("gemini_api_key") || "").trim(); } catch(eKey) {}
+    let gemini_model = "";
+    try { gemini_model = String(localStorage.getItem("gemini_model") || "").trim(); } catch(eModel) {}
+    if (!gemini_model) gemini_model = "gemini-2.5-pro";
     const localRes = await fetch("http://127.0.0.1:8787/crush", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1454,6 +1457,7 @@ async function crushVideo() {
         url,
         brand,
         gemini_api_key,
+        gemini_model,
         manual_blur_rects,
         manual_crop_rect_720,
         manual_reels_crop_y_nudge_px,
