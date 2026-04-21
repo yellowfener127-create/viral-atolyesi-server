@@ -1445,12 +1445,15 @@ async function crushVideo() {
   try {
     msg.style.display = "block";
     msg.textContent = "Local Downloader ile hazırlanıyor (PC'ye kaydedilecek)…";
+    let gemini_api_key = "";
+    try { gemini_api_key = String(localStorage.getItem("gemini_api_key") || "").trim(); } catch(eKey) {}
     const localRes = await fetch("http://127.0.0.1:8787/crush", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         url,
         brand,
+        gemini_api_key,
         manual_blur_rects,
         manual_crop_rect_720,
         manual_reels_crop_y_nudge_px,

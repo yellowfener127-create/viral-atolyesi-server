@@ -1500,7 +1500,8 @@ app.post('/crush', async (req, res) => {
     const reelsEmojiBrand = normBrand(brand) === 'terapi' || normBrand(brand) === 'umut';
     const isLabBrand = normBrand(brand) === 'terapi' || normBrand(brand) === 'umut' || normBrand(brand) === 'kaos';
     let gemHook = '';
-    const gemKey = String(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+    const gemKeyFromReq = String(req.body?.gemini_api_key ?? req.body?.geminiApiKey ?? '').trim();
+    const gemKey = gemKeyFromReq || String(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
     const mustUseGeminiHook = !manualHookTextRaw && isLabBrand;
     let geminiErr = null;
     if (!manualHookTextRaw && gemKey && metaTitle && isLabBrand) {
