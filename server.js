@@ -533,6 +533,9 @@ app.post('/tools/crush', async (req, res) => {
     const manualReelsCropYNudgePx = crush.parseManualReelsCropYNudgePx(
       req.body?.manual_reels_crop_y_nudge_px ?? req.body?.manualReelsCropYNudgePx
     );
+    const manualReelsWindowShiftYPx = crush.parseManualReelsWindowShiftYPx(
+      req.body?.manual_reels_window_shift_y_px ?? req.body?.manualReelsWindowShiftYPx
+    );
     const manualReelsHookXOff = crush.parseManualReelsHookOffsetPx(
       req.body?.manual_reels_hook_x_offset_px ?? req.body?.manualReelsHookXOffsetPx
     );
@@ -552,6 +555,7 @@ app.post('/tools/crush', async (req, res) => {
       coverBox: null,
       manual_blur_rects: manualBlurRects,
       manual_reels_crop_y_nudge_px: manualReelsCropYNudgePx,
+      manual_reels_window_shift_y_px: manualReelsWindowShiftYPx,
       manual_reels_hook_x_offset_px: manualReelsHookXOff,
       manual_reels_hook_y_offset_px: manualReelsHookYOff,
       manualBlurRefW: crush.MANUAL_BLUR_REF_W,
