@@ -422,12 +422,19 @@ function buildReelsInstagramCanvasFilters({
   const sy = outH / 1920;
   const sx = outW / 1080;
   const s = Math.min(sx, sy);
-  // Premium frame PNG window geometry (matches public/terapi_zrh_arka_plan.png)
-  // window: x=113,y=412,w=853,h=1229 on 1080×1920
-  const wx = Math.round(113 * sx);
-  const wy = Math.round(412 * sy);
-  const ww = Math.round(853 * sx);
-  const wh = Math.round(1229 * sy);
+  // Frame window geometry (1080×1920 referans).
+  // Therapy (terapi): mevcut “düzgün” yerleşimi bozma — eski sabit pencere.
+  // Chaos/Hope: video tam beyaz pencerenin içine otursun (taşma yok) — gerçek pencere bbox.
+  const win =
+    brandNorm === 'kaos'
+      ? { x: 94, y: 353, w: 890, h: 1366 }
+      : brandNorm === 'umut'
+        ? { x: 60, y: 390, w: 959, h: 1331 }
+        : { x: 113, y: 412, w: 853, h: 1229 };
+  const wx = Math.round(win.x * sx);
+  const wy = Math.round(win.y * sy);
+  const ww = Math.round(win.w * sx);
+  const wh = Math.round(win.h * sy);
   const fontSize = Math.max(20, Math.round(44 * s));
   const lineStep = Math.max(Math.round(fontSize * 1.30), fontSize + 4);
   const maxCapLines = 2;

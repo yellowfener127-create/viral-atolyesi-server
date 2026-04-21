@@ -699,11 +699,20 @@ function crushClampRect(x, y, w, h) {
 function crushComputeLabWindowPx(outW, outH) {
   const sx = outW / 1080;
   const sy = outH / 1920;
+  const brandEl = document.getElementById("crushBrand");
+  const b = brandEl ? String(brandEl.value || "terapi").toLowerCase() : "terapi";
+  // Therapy: eski pencereyi koru. Chaos/Hope: beyaz pencere bbox.
+  const win =
+    b === "kaos"
+      ? { x: 94, y: 353, w: 890, h: 1366 }
+      : b === "umut"
+        ? { x: 60, y: 390, w: 959, h: 1331 }
+        : { x: 113, y: 412, w: 853, h: 1229 };
   return {
-    wx: Math.round(113 * sx),
-    wy: Math.round(412 * sy),
-    ww: Math.round(853 * sx),
-    wh: Math.round(1229 * sy)
+    wx: Math.round(win.x * sx),
+    wy: Math.round(win.y * sy),
+    ww: Math.round(win.w * sx),
+    wh: Math.round(win.h * sy)
   };
 }
 
