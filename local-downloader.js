@@ -1888,15 +1888,45 @@ app.post('/crush', async (req, res) => {
             'gemini-1.5-flash-002',
             'gemini-1.5-pro-002'
           ].filter(Boolean);
+          const uniqModels = [];
+          const seenModels = new Set();
+          for (const m of vertexModelCandidates) {
+            const k = String(m).toLowerCase();
+            if (!k || seenModels.has(k)) continue;
+            seenModels.add(k);
+            uniqModels.push(m);
+          }
           let lastErr = null;
           let usedModel = '';
           let usedLoc = '';
-          const tried = { locations: uniqLoc, models: vertexModelCandidates };
+          const listInfoByLoc = [];
           outer:
           for (const loc of uniqLoc) {
             usedLoc = loc;
-            // 1) Try our known candidates first
-            for (const cand of vertexModelCandidates) {
+            // First: list publisher models in this location (tells us if project has access at all)
+            let listed = [];
+            try {
+              listed = await listVertexPublisherModels({ saPath: vertexSaPath, location: loc, pageSize: 200 });
+              const gemCount = listed.filter((id) => /^gemini-/i.test(id)).length;
+              listInfoByLoc.push({ loc, ok: true, total: listed.length, gemini: gemCount });
+            } catch (listErr) {
+              listInfoByLoc.push({
+                loc,
+                ok: false,
+                statusCode: listErr && listErr.statusCode ? listErr.statusCode : null,
+                message: String((listErr && listErr.message) || listErr || '').slice(0, 240)
+              });
+              lastErr = listErr;
+              continue;
+            }
+
+            // Prefer known candidates (filtered to those that exist in list if list is non-empty)
+            const listedSet = new Set((listed || []).map((x) => String(x).toLowerCase()));
+            const candidates = (listed && listed.length)
+              ? uniqModels.filter((m) => listedSet.has(String(m).toLowerCase()))
+              : uniqModels;
+
+            for (const cand of candidates) {
               usedModel = cand;
               try {
                 const vr = await fetchVertexHookEnglish({
@@ -1914,56 +1944,69 @@ app.post('/crush', async (req, res) => {
                 break outer;
               } catch (ex) {
                 lastErr = ex;
-                if (!isVertexModelNotFound(ex)) break; // non-model error: stop
+                if (!isVertexModelNotFound(ex)) break;
               }
             }
 
-            // 2) If still model-not-found, list models in this location and try best matches.
-            if (lastErr && isVertexModelNotFound(lastErr)) {
+            // As a last attempt in this location: try top-listed Gemini models by heuristic
+            const picks = (listed || [])
+              .filter((id) => /^gemini-/i.test(id))
+              .sort((a, b) => {
+                const A = a.toLowerCase();
+                const B = b.toLowerCase();
+                const score = (x) =>
+                  (x.includes('2.0') ? 30 : 0) +
+                  (x.includes('2.5') ? 25 : 0) +
+                  (x.includes('flash') ? 20 : 0) +
+                  (x.includes('pro') ? 10 : 0) +
+                  (/-00\d$/.test(x) ? 5 : 0);
+                return score(B) - score(A);
+              })
+              .slice(0, 8);
+            for (const cand of picks) {
+              usedModel = cand;
               try {
-                const listed = await listVertexPublisherModels({ saPath: vertexSaPath, location: loc, pageSize: 200 });
-                const picks = listed
-                  .filter((id) => /^gemini-/i.test(id))
-                  .sort((a, b) => {
-                    const A = a.toLowerCase();
-                    const B = b.toLowerCase();
-                    const score = (x) =>
-                      (x.includes('2.0') ? 30 : 0) +
-                      (x.includes('2.5') ? 25 : 0) +
-                      (x.includes('flash') ? 20 : 0) +
-                      (x.includes('pro') ? 10 : 0) +
-                      (/-00\d$/.test(x) ? 5 : 0);
-                    return score(B) - score(A);
-                  })
-                  .slice(0, 8);
-                for (const cand of picks) {
-                  usedModel = cand;
-                  try {
-                    const vr = await fetchVertexHookEnglish({
-                      saPath: vertexSaPath,
-                      location: loc,
-                      model: cand,
-                      title: metaTitle,
-                      brand,
-                      emojiPool,
-                      media
-                    });
-                    gemHook = vr.hook;
-                    gemModel = vr.model || cand;
-                    lastErr = null;
-                    break outer;
-                  } catch (ex2) {
-                    lastErr = ex2;
-                    if (!isVertexModelNotFound(ex2)) break;
-                  }
-                }
-              } catch (listErr) {
-                // Keep the original error, but attach list failure signal.
-                lastErr = lastErr || listErr;
+                const vr = await fetchVertexHookEnglish({
+                  saPath: vertexSaPath,
+                  location: loc,
+                  model: cand,
+                  title: metaTitle,
+                  brand,
+                  emojiPool,
+                  media
+                });
+                gemHook = vr.hook;
+                gemModel = vr.model || cand;
+                lastErr = null;
+                break outer;
+              } catch (ex2) {
+                lastErr = ex2;
+                if (!isVertexModelNotFound(ex2)) break;
               }
             }
           }
-          if (lastErr) throw Object.assign(lastErr, { triedModels: vertexModelCandidates, triedLocations: uniqLoc, model: usedModel, location: usedLoc });
+          if (lastErr) {
+            const allNoAccess = listInfoByLoc.length && listInfoByLoc.every((x) => x.ok && x.total === 0);
+            if (allNoAccess) {
+              const e = new Error(
+                'Vertex: Bu projede Publisher modelleri listelenemiyor/boş. ' +
+                'Çözüm: Vertex AI API etkin mi + service account "Vertex AI User" rolü var mı + proje GenAI erişimi açık mı kontrol et.'
+              );
+              e.statusCode = 403;
+              e.model = usedModel || gemModel;
+              e.triedLocations = uniqLoc;
+              e.triedModels = uniqModels;
+              e.listInfoByLoc = listInfoByLoc;
+              throw e;
+            }
+            throw Object.assign(lastErr, {
+              triedModels: uniqModels,
+              triedLocations: uniqLoc,
+              model: usedModel,
+              location: usedLoc,
+              listInfoByLoc
+            });
+          }
         } else {
           if (!gemKey) throw Object.assign(new Error('Gemini API key yok (GEMINI_API_KEY).'), { statusCode: 401, model: gemModel });
           gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, media, gemModel);
@@ -1995,7 +2038,8 @@ app.post('/crush', async (req, res) => {
             provider: (preferVertex && vertexSaPath) ? 'vertex' : 'ai_studio',
             vertex: vertexSaPath ? { location: vertexLocation, sa: path.basename(vertexSaPath) } : null,
             triedModels: (e && e.triedModels) ? e.triedModels : null,
-            triedLocations: (e && e.triedLocations) ? e.triedLocations : null
+            triedLocations: (e && e.triedLocations) ? e.triedLocations : null,
+            listInfoByLoc: (e && e.listInfoByLoc) ? e.listInfoByLoc : null
         };
         console.warn('[gemini hook]', geminiErr);
         }
