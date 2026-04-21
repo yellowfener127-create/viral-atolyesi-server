@@ -333,24 +333,6 @@
           </label>
           <button type="button" class="tool-btn" id="crushRectDeleteBtn" onclick="deleteSelectedCrushRect()" style="display:none">Seçili kutuyu sil</button>
         </div>
-        <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Video dikey kaydır
-          <input type="range" id="crushVideoNudgeY" min="-500" max="500" step="1" value="0" style="width:min(100%,280px);vertical-align:middle;margin-left:6px" />
-          <span id="crushVideoNudgeYVal" style="font-variant-numeric:tabular-nums">0</span> px
-        </label>
-        <label style="font-size:11px;color:var(--muted);display:block;margin-top:6px">Hook (boş = otomatik/Gemini)
-          <textarea id="crushHookManual" rows="2" class="tool-input" style="margin-top:4px;resize:vertical;min-height:44px;font-size:12px" placeholder="İngilizce kanca + emoji…"></textarea>
-        </label>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center;font-size:11px;color:var(--muted)">
-          <button type="button" class="tool-btn" id="crushHookDragBtn" onclick="toggleCrushHookDragMode()">Hook sürükle: KAPALI</button>
-          <label>Hook X
-            <input type="range" id="crushHookOffX" min="-400" max="400" step="1" value="0" style="width:120px;vertical-align:middle" />
-            <span id="crushHookOffXVal">0</span>
-          </label>
-          <label>Hook Y
-            <input type="range" id="crushHookOffY" min="-400" max="400" step="1" value="0" style="width:120px;vertical-align:middle" />
-            <span id="crushHookOffYVal">0</span>
-          </label>
-        </div>
         <div id="crushBlurRectList" style="font-size:11px;color:var(--muted);margin-top:6px;max-height:100px;overflow:auto"></div>
       </div>
       <button class="tool-btn" type="button" id="crushBtn" onclick="crushVideo()">⚡ İndir + Telif Ez (9:16)</button>
@@ -359,19 +341,30 @@
       <button class="tool-copy-btn" id="crushCaptionCopy" style="display:none" onclick="copyToolText('crushCaptionBox','crushCaptionCopy')">📋 Caption'ı Kopyala</button>
     </div>
 
-    <!-- Global Caption (English Only) — Terapi/Kaos/Umut -->
+    <!-- Telif Ezici — İnce Ayar (aynı /crush isteğine bağlı) -->
     <div class="tool-card">
-      <div class="tool-title">🌍 Global Caption (EN)</div>
-      <div class="tool-desc">English-only hook + caption + hashtag. Terapi (cute), Kaos (chaos) veya Umut (hope) seç.</div>
-      <select class="platform-select" id="enBrand">
-        <option value="terapi" selected>TERAPİ ATÖLYESİ (cute)</option>
-        <option value="kaos">KAOS ATÖLYESİ (chaos)</option>
-        <option value="umut">UMUT ATÖLYESİ (hope)</option>
-      </select>
-      <input class="tool-input" type="text" id="enTitle" placeholder="Video başlığı (opsiyonel)"/>
-      <button class="tool-btn" id="enBtn" onclick="generateEnglishCaption()">⚡ English Caption Üret</button>
-      <div class="tool-result" id="enResult"></div>
-      <button class="tool-copy-btn" id="enCopyBtn" style="display:none" onclick="copyToolText('enResult','enCopyBtn')">📋 Kopyala</button>
+      <div class="tool-title">🎛️ Telif Ezici — İnce Ayar</div>
+      <div class="tool-desc" style="font-size:12px;color:var(--muted)">
+        Bu kart, üstteki <strong>Telif Ezici</strong> önizlemesine bağlıdır: video dikey kaydırma + manuel hook yazma/emoji + hook konumu.
+      </div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Video dikey kaydır
+        <input type="range" id="crushVideoNudgeY" min="-500" max="500" step="1" value="0" style="width:min(100%,320px);vertical-align:middle;margin-left:6px" />
+        <span id="crushVideoNudgeYVal" style="font-variant-numeric:tabular-nums">0</span> px
+      </label>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Hook (boş = otomatik/Gemini)
+        <textarea id="crushHookManual" rows="2" class="tool-input" style="margin-top:4px;resize:vertical;min-height:44px;font-size:12px" placeholder="İngilizce kanca + emoji…"></textarea>
+      </label>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center;font-size:11px;color:var(--muted)">
+        <button type="button" class="tool-btn" id="crushHookDragBtn" onclick="toggleCrushHookDragMode()">Hook sürükle: KAPALI</button>
+        <label>Hook X
+          <input type="range" id="crushHookOffX" min="-400" max="400" step="1" value="0" style="width:140px;vertical-align:middle" />
+          <span id="crushHookOffXVal">0</span>
+        </label>
+        <label>Hook Y
+          <input type="range" id="crushHookOffY" min="-400" max="400" step="1" value="0" style="width:140px;vertical-align:middle" />
+          <span id="crushHookOffYVal">0</span>
+        </label>
+      </div>
     </div>
 
     <!-- (Video URL → MP4 indir kaldırıldı) -->
