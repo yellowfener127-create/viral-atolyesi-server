@@ -798,7 +798,8 @@ function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
   const wyWin = crushComputeLabWindowPx(PREVIEW_W, PREVIEW_H).wy;
   const fontSize = Math.max(12, Math.round(44 * sc));
   const lineStep = Math.max(Math.round(fontSize * 1.30), fontSize + 4);
-  const hookAreaTop = Math.round(24 * sy);
+  // Hook alanını çok az yukarı genişlet (kenarlara değil, sadece üstten).
+  const hookAreaTop = Math.round(18 * sy);
   const hookAreaBottom = Math.max(hookAreaTop + 1, Math.round(wyWin - 18 * sy));
   const blockH = (lines.length - 1) * lineStep + Math.round(fontSize * 1.08);
   let hookYTop = Math.max(hookAreaTop, Math.round(((hookAreaTop + hookAreaBottom) / 2) - (blockH / 2)));
