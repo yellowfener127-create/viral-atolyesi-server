@@ -352,10 +352,6 @@
         <input type="range" id="crushVideoNudgeY" min="-500" max="500" step="1" value="0" style="width:min(100%,320px);vertical-align:middle;margin-left:6px" />
         <span id="crushVideoNudgeYVal" style="font-variant-numeric:tabular-nums">0</span> px
       </label>
-      <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Video boyutu (çıktıda 9:16’e zorla kırpma kalkar)
-        <input type="range" id="crushVideoScale" min="0.60" max="1.00" step="0.01" value="1.00" style="width:min(100%,320px);vertical-align:middle;margin-left:6px" />
-        <span id="crushVideoScaleVal" style="font-variant-numeric:tabular-nums">1.00</span>
-      </label>
       <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Önizleme: 2. video (pencere içi) Y kaydır
         <input type="range" id="crushPreviewWindowShiftY" min="-250" max="250" step="1" value="0" style="width:min(100%,320px);vertical-align:middle;margin-left:6px" />
         <span id="crushPreviewWindowShiftYVal" style="font-variant-numeric:tabular-nums">0</span> px
@@ -686,7 +682,6 @@ var __crushManual = {
   rects: [], selectedId: null, drawMode: false, hookDragMode: false, drag: null, nextId: 1, REF_W: 720, REF_H: 1280,
   videoCropYNudgePx: 0,
   previewWindowShiftYPx: 0,
-  videoScale: 1.0,
   hookXOffsetPx: 0,
   hookYOffsetPx: 0,
   frameImg: null
@@ -900,6 +895,8 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   const vw = v.videoWidth;
   const vh = v.videoHeight;
   const nudge = Number(__crushManual.videoCropYNudgePx) || 0;
+  const nudgeRatio = nudge / 1280;
+  const panZoom = 1 + Math.min(0.60, Math.abs(nudgeRatio) * 1.15);
 
   if (!__crushManual._tmpV0) {
     __crushManual._tmpV0 = document.createElement("canvas");
@@ -928,14 +925,19 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   const ih2 = PREVIEW_H * s2;
   const excessH = ih2 - wh;
   const baseY = Math.max(0, excessH * 0.42);
-  const nudgeY = ih2 * (nudge / 1280);
+  const nudgeY = ih2 * nudgeRatio;
   const cropY = Math.max(0, Math.min(excessH, baseY + nudgeY));
   const cropX = Math.max(0, (iw2 - ww) / 2);
 
-  tmpSc.width = Math.max(1, Math.ceil(iw2));
-  tmpSc.height = Math.max(1, Math.ceil(ih2));
+  const iw3 = iw2 * panZoom;
+  const ih3 = ih2 * panZoom;
+  const excessH3 = ih3 - wh;
+  const cropY3 = Math.max(0, Math.min(excessH3, (Math.max(0, excessH3 * 0.42) + (ih3 * nudgeRatio))));
+
+  tmpSc.width = Math.max(1, Math.ceil(iw3));
+  tmpSc.height = Math.max(1, Math.ceil(ih3));
   const sctx = tmpSc.getContext("2d");
-  sctx.drawImage(tmpV0, 0, 0, PREVIEW_W, PREVIEW_H, 0, 0, iw2, ih2);
+  sctx.drawImage(tmpV0, 0, 0, PREVIEW_W, PREVIEW_H, 0, 0, iw3, ih3);
 
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
@@ -943,16 +945,15 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   // Chaos/Hope: video pencere içinde biraz daha küçük görünsün (%5–%6)
   const br = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
   const shrink = (br === "kaos" || br === "umut") ? 0.94 : 1.0;
-  const vs = Math.max(0.60, Math.min(1.00, Number(__crushManual.videoScale) || 1.0));
-  const vww = Math.max(2, Math.round(ww * shrink * vs));
-  const vwh = Math.max(2, Math.round(wh * shrink * vs));
+  const vww = Math.max(2, Math.round(ww * shrink));
+  const vwh = Math.max(2, Math.round(wh * shrink));
   const vx = Math.round(wx + (ww - vww) / 2);
   // Hook/Kaydırma önizlemesinde üstteki (pencere) videoyu çok az aşağı al (%2 civarı).
   const previewDown = Math.round(wh * 0.02);
   // 2. slider: pencere içi videonun kendisini komple kaydır (crop değil, destination y).
   const manualShiftPx = Math.round((Number(__crushManual.previewWindowShiftYPx) || 0) * (PREVIEW_H / 1280));
   const vy = Math.round(wy + (wh - vwh) / 2) + previewDown + manualShiftPx;
-  ctx.drawImage(tmpSc, cropX, cropY, vww, vwh, vx, vy, vww, vwh);
+  ctx.drawImage(tmpSc, cropX, cropY3, vww, vwh, vx, vy, vww, vwh);
   const frm = __crushManual.frameImg;
   if (frm && frm.complete && frm.naturalWidth) {
     ctx.drawImage(frm, 0, 0, PREVIEW_W, PREVIEW_H);
@@ -1180,17 +1181,12 @@ function wireCrushManualBlurUi() {
     __crushManual.selectedId = null;
     __crushManual.videoCropYNudgePx = 0;
     __crushManual.previewWindowShiftYPx = 0;
-    __crushManual.videoScale = 1.0;
     __crushManual.hookXOffsetPx = 0;
     __crushManual.hookYOffsetPx = 0;
     const ny = document.getElementById("crushVideoNudgeY");
     const nyv = document.getElementById("crushVideoNudgeYVal");
     if (ny) ny.value = "0";
     if (nyv) nyv.textContent = "0";
-    const vs = document.getElementById("crushVideoScale");
-    const vsv = document.getElementById("crushVideoScaleVal");
-    if (vs) vs.value = "1.00";
-    if (vsv) vsv.textContent = "1.00";
     const pwy = document.getElementById("crushPreviewWindowShiftY");
     const pwyv = document.getElementById("crushPreviewWindowShiftYVal");
     if (pwy) pwy.value = "0";
@@ -1253,16 +1249,6 @@ function wireCrushManualBlurUi() {
       crushRedrawAllPreviews();
     });
   }
-  const vsEl = document.getElementById("crushVideoScale");
-  const vsValEl = document.getElementById("crushVideoScaleVal");
-  if (vsEl) {
-    vsEl.addEventListener("input", () => {
-      const n = Number(vsEl.value);
-      __crushManual.videoScale = Number.isFinite(n) ? n : 1.0;
-      if (vsValEl) vsValEl.textContent = String(__crushManual.videoScale.toFixed(2));
-      crushRedrawAllPreviews();
-    });
-  }
   const hookTx = document.getElementById("crushHookManual");
   if (hookTx) {
     hookTx.addEventListener("input", function () {
@@ -1322,7 +1308,6 @@ async function crushVideo() {
   const manual_blur_rects = (__crushManual.rects || []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
   const manual_reels_crop_y_nudge_px = Number(__crushManual.videoCropYNudgePx) || 0;
   const manual_reels_window_shift_y_px = Number(__crushManual.previewWindowShiftYPx) || 0;
-  const manual_reels_video_scale = Number(__crushManual.videoScale) || 1.0;
   const hook_text = (document.getElementById("crushHookManual") && String(document.getElementById("crushHookManual").value || "").trim()) || "";
   const manual_reels_hook_x_offset_px = Number(__crushManual.hookXOffsetPx) || 0;
   const manual_reels_hook_y_offset_px = Number(__crushManual.hookYOffsetPx) || 0;
@@ -1343,7 +1328,6 @@ async function crushVideo() {
         manual_blur_rects,
         manual_reels_crop_y_nudge_px,
         manual_reels_window_shift_y_px,
-        manual_reels_video_scale,
         hook_text,
         manual_reels_hook_x_offset_px,
         manual_reels_hook_y_offset_px
