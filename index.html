@@ -1465,7 +1465,12 @@ async function crushVideo() {
     });
     const localData = await localRes.json().catch(() => ({}));
     if (!localRes.ok || !localData.ok) {
-      throw new Error((localData && localData.error) ? localData.error : "Local Downloader çalışmıyor (8787).");
+      const baseErr = (localData && localData.error) ? String(localData.error) : "Local Downloader çalışmıyor (8787).";
+      const g = localData && localData.gemini ? localData.gemini : null;
+      const gemInfo = g
+        ? ` (Gemini: ${g.statusCode != null ? g.statusCode : "?"} · ${String(g.model || "").trim() || "model?"} · ${String(g.message || "").trim() || "error"})`
+        : "";
+      throw new Error(baseErr + gemInfo);
     }
     msg.style.display = "block";
     msg.textContent = "✅ PC'ye kaydedildi: " + (localData.savedTo || "") + "\\" + (localData.file || "") +
