@@ -924,7 +924,9 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   const vww = Math.max(2, Math.round(ww * shrink));
   const vwh = Math.max(2, Math.round(wh * shrink));
   const vx = Math.round(wx + (ww - vww) / 2);
-  const vy = Math.round(wy + (wh - vwh) / 2);
+  // Hook/Kaydırma önizlemesinde üstteki (pencere) videoyu çok az aşağı al (%2 civarı).
+  const previewDown = Math.round(wh * 0.02);
+  const vy = Math.round(wy + (wh - vwh) / 2) + previewDown;
   ctx.drawImage(tmpSc, cropX, cropY, vww, vwh, vx, vy, vww, vwh);
   const frm = __crushManual.frameImg;
   if (frm && frm.complete && frm.naturalWidth) {
