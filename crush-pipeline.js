@@ -436,7 +436,9 @@ function buildReelsInstagramCanvasFilters({
   const blockH = lines.length ? ((lines.length - 1) * lineStep + Math.round(fontSize * 1.08)) : Math.round(fontSize * 1.08);
   // Hook'u video penceresinin üstündeki boşlukta ortala
   const hookAreaTop = Math.round(24 * sy);
-  const hookAreaBottom = Math.max(hookAreaTop + 1, Math.round(wy - 18 * sy));
+  // Üst beyaz bandı bir tık büyüt (caption/hook rahat sığsın)
+  const extraTopBand = Math.round(46 * sy);
+  const hookAreaBottom = Math.max(hookAreaTop + 1, Math.round(wy - 18 * sy) + extraTopBand);
   const hxOff = Math.round(
     parseManualReelsHookOffsetPx(hookXOffsetRefPx) * (outW / MANUAL_BLUR_REF_W)
   );
@@ -463,7 +465,9 @@ function buildReelsInstagramCanvasFilters({
     // Manuel nudge (720×1280 px referansı): ih*(nudge/1280) ifadesi ölçeklenmiş kare üzerinde kaydırır.
     `[v0]scale=${ww}:${wh}:force_original_aspect_ratio=increase,crop=${ww}:${wh}:(iw-ow)/2:${cropYExpr},setsar=1[vid]`,
     `[base][vid]overlay=x=${wx}:y=${wy}:shortest=1[vb]`,
-    `[vb][frame]overlay=x=0:y=0:format=auto[vt0]`
+    `[vb][frame]overlay=x=0:y=0:format=auto[vt0]`,
+    // Üst bandı büyütmek için beyaz kutu (frame üstünü de beyazlar, sonra yazı gelir)
+    `[vt0]drawbox=x=0:y=0:w=${outW}:h=${Math.max(1, Math.round(wy + extraTopBand))}:color=white@1.0:t=fill[vt0b]`
   ] : [
     `color=c=${bgHex}:s=${outW}x${outH}:d=99999[bg]`,
     `[v0]scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},setsar=1[vid]`,
@@ -473,7 +477,7 @@ function buildReelsInstagramCanvasFilters({
     parts.push(`[vt0]format=yuv420p[v1]`);
     return parts;
   }
-  let cur = 'vt0';
+  let cur = frameFileExists ? 'vt0b' : 'vt0';
   lines.forEach((line, i) => {
     const last = i === lines.length - 1;
     const next = last ? 'v1b' : `vth${i}`;

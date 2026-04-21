@@ -341,17 +341,27 @@
       <button class="tool-copy-btn" id="crushCaptionCopy" style="display:none" onclick="copyToolText('crushCaptionBox','crushCaptionCopy')">📋 Caption'ı Kopyala</button>
     </div>
 
-    <!-- Telif Ezici — İnce Ayar (aynı /crush isteğine bağlı) -->
+    <!-- Telif Ezici — Manuel Video Kaydırma -->
     <div class="tool-card">
-      <div class="tool-title">🎛️ Telif Ezici — İnce Ayar</div>
+      <div class="tool-title">⬍ Telif Ezici — Video Kaydırma (Manuel)</div>
       <div class="tool-desc" style="font-size:12px;color:var(--muted)">
-        Bu kart, üstteki <strong>Telif Ezici</strong> önizlemesine bağlıdır: video dikey kaydırma + manuel hook yazma/emoji + hook konumu.
+        Aynı <strong>Telif Ezici</strong> isteğine bağlıdır. Bu önizleme, çerçeve penceresindeki üst kırpımı (old hook gizleme) + nudge’ı gösterir.
       </div>
+      <canvas id="crushNudgeCanvas" width="720" height="1280" tabindex="0" style="max-width:100%;max-height:42vh;width:auto;height:auto;border:1px solid #333;border-radius:6px;background:#0a0a0a;display:block;touch-action:none"></canvas>
       <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Video dikey kaydır
         <input type="range" id="crushVideoNudgeY" min="-500" max="500" step="1" value="0" style="width:min(100%,320px);vertical-align:middle;margin-left:6px" />
         <span id="crushVideoNudgeYVal" style="font-variant-numeric:tabular-nums">0</span> px
       </label>
-      <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Hook (boş = otomatik/Gemini)
+    </div>
+
+    <!-- Telif Ezici — Manuel Hook & Caption -->
+    <div class="tool-card">
+      <div class="tool-title">✍️ Telif Ezici — Hook & Caption (Manuel)</div>
+      <div class="tool-desc" style="font-size:12px;color:var(--muted)">
+        Aynı <strong>Telif Ezici</strong> isteğine bağlıdır. Burada hook/caption metnini elle yazıp emoji ekleyebilir, konumunu ayarlayabilirsin.
+      </div>
+      <canvas id="crushHookCanvas" width="720" height="1280" tabindex="0" style="max-width:100%;max-height:42vh;width:auto;height:auto;border:1px solid #333;border-radius:6px;background:#0a0a0a;display:block;touch-action:none"></canvas>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Hook/CAPTION (boş = otomatik/Gemini)
         <textarea id="crushHookManual" rows="2" class="tool-input" style="margin-top:4px;resize:vertical;min-height:44px;font-size:12px" placeholder="İngilizce kanca + emoji…"></textarea>
       </label>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center;font-size:11px;color:var(--muted)">
@@ -711,11 +721,11 @@ function crushLoadZirhFramePng() {
   const img = new Image();
   img.onload = function () {
     __crushManual.frameImg = img;
-    try { crushDrawRectsOverlay(); } catch (e1) {}
+    try { crushRedrawAllPreviews(); } catch (e1) {}
   };
   img.onerror = function () {
     __crushManual.frameImg = null;
-    try { crushDrawRectsOverlay(); } catch (e2) {}
+    try { crushRedrawAllPreviews(); } catch (e2) {}
   };
   img.src = url;
 }
@@ -810,9 +820,8 @@ function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
 /**
  * Önizleme = sunucudaki [v0] + Lab penceresi + zırh PNG üstte + hook. Video yokken sadece zırh + hook.
  */
-function crushDrawVideoFrameOntoCanvas() {
+function crushDrawVideoFrameOntoCanvas(cv) {
   const v = document.getElementById("crushPreviewVideo");
-  const cv = document.getElementById("crushBlurCanvas");
   if (!cv) return;
   const ctx = cv.getContext("2d");
   const PREVIEW_W = cv.width;
@@ -889,11 +898,10 @@ function crushDrawVideoFrameOntoCanvas() {
   crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H);
 }
 
-function crushDrawRectsOverlay() {
-  const cv = document.getElementById("crushBlurCanvas");
+function crushDrawRectsOverlay(cv) {
   if (!cv) return;
   const ctx = cv.getContext("2d");
-  crushDrawVideoFrameOntoCanvas();
+  crushDrawVideoFrameOntoCanvas(cv);
   for (const rec of __crushManual.rects) {
     const sel = rec.id === __crushManual.selectedId;
     ctx.strokeStyle = sel ? "#6ae" : "#e8b84a";
@@ -907,6 +915,15 @@ function crushDrawRectsOverlay() {
       ctx.fillRect(rec.x + rec.w - hs, rec.y + rec.h - hs, hs, hs);
     }
   }
+}
+
+function crushRedrawAllPreviews() {
+  const blurCv = document.getElementById("crushBlurCanvas");
+  const nudgeCv = document.getElementById("crushNudgeCanvas");
+  const hookCv = document.getElementById("crushHookCanvas");
+  if (blurCv) crushDrawRectsOverlay(blurCv);
+  if (nudgeCv) crushDrawVideoFrameOntoCanvas(nudgeCv);
+  if (hookCv) crushDrawVideoFrameOntoCanvas(hookCv);
 }
 
 function crushUpdateRectList() {
@@ -935,25 +952,24 @@ function crushUpdateDeleteBtn() {
 }
 
 function onCrushCanvasMouseDown(ev) {
-  const cv = document.getElementById("crushBlurCanvas");
-  const v = document.getElementById("crushPreviewVideo");
+  const cv = ev.currentTarget;
   if (!cv) return;
   const { mx, my } = crushCanvasCoords(ev, cv);
   const hit = crushGetHitRect(mx, my);
   if (__crushManual.drawMode) {
-    __crushManual.drag = { type: "new", sx: mx, sy: my };
+    __crushManual.drag = { type: "new", sx: mx, sy: my, canvas: cv };
     ev.preventDefault();
     return;
   }
   if (hit && __crushManual.selectedId === hit.id && crushHitBrHandle(mx, my, hit)) {
-    __crushManual.drag = { type: "resize", id: hit.id, mx0: mx, my0: my, w0: hit.w, h0: hit.h };
+    __crushManual.drag = { type: "resize", id: hit.id, mx0: mx, my0: my, w0: hit.w, h0: hit.h, canvas: cv };
     ev.preventDefault();
     return;
   }
   if (hit && !__crushManual.drawMode) {
     __crushManual.selectedId = hit.id;
-    __crushManual.drag = { type: "move", id: hit.id, mx0: mx, my0: my, x0: hit.x, y0: hit.y };
-    crushDrawRectsOverlay();
+    __crushManual.drag = { type: "move", id: hit.id, mx0: mx, my0: my, x0: hit.x, y0: hit.y, canvas: cv };
+    crushRedrawAllPreviews();
     crushUpdateDeleteBtn();
     ev.preventDefault();
     return;
@@ -964,20 +980,21 @@ function onCrushCanvasMouseDown(ev) {
       mx0: mx,
       my0: my,
       hx0: __crushManual.hookXOffsetPx,
-      hy0: __crushManual.hookYOffsetPx
+      hy0: __crushManual.hookYOffsetPx,
+      canvas: cv
     };
     ev.preventDefault();
     return;
   }
   __crushManual.selectedId = null;
-  crushDrawRectsOverlay();
+  crushRedrawAllPreviews();
   crushUpdateDeleteBtn();
 }
 
 function onCrushCanvasMouseMove(ev) {
   const d = __crushManual.drag;
   if (!d) return;
-  const cv = document.getElementById("crushBlurCanvas");
+  const cv = d.canvas || document.getElementById("crushBlurCanvas");
   if (!cv) return;
   const { mx, my } = crushCanvasCoords(ev, cv);
   if (d.type === "hook") {
@@ -986,14 +1003,14 @@ function onCrushCanvasMouseMove(ev) {
     __crushManual.hookXOffsetPx = Math.max(-400, Math.min(400, Math.round(d.hx0 + dx)));
     __crushManual.hookYOffsetPx = Math.max(-400, Math.min(400, Math.round(d.hy0 + dy)));
     crushSyncHookSlidersFromState();
-    crushDrawRectsOverlay();
+    crushRedrawAllPreviews();
     ev.preventDefault();
     return;
   }
   if (d.type === "new") {
     const x = Math.min(d.sx, mx), y = Math.min(d.sy, my);
     const w = Math.abs(mx - d.sx), h = Math.abs(my - d.sy);
-    crushDrawVideoFrameOntoCanvas();
+    crushDrawVideoFrameOntoCanvas(cv);
     const ctx = cv.getContext("2d");
     const c = crushClampRect(x, y, w, h);
     ctx.strokeStyle = "#8f8";
@@ -1011,7 +1028,7 @@ function onCrushCanvasMouseMove(ev) {
     const nh = Math.max(4, d.h0 + (my - d.my0));
     const c = crushClampRect(r.x, r.y, nw, nh);
     r.w = c.w; r.h = c.h;
-    crushDrawRectsOverlay();
+    crushRedrawAllPreviews();
     crushUpdateRectList();
     ev.preventDefault();
     return;
@@ -1025,7 +1042,7 @@ function onCrushCanvasMouseMove(ev) {
     const ny = Math.max(0, Math.min(__crushManual.REF_H - r.h, Math.round(d.y0 + dy)));
     r.x = nx;
     r.y = ny;
-    crushDrawRectsOverlay();
+    crushRedrawAllPreviews();
     crushUpdateRectList();
     ev.preventDefault();
   }
@@ -1043,7 +1060,7 @@ function onCrushCanvasMouseUp(ev) {
       __crushManual.selectedId = id;
     }
     delete __crushManual._preview;
-    crushDrawRectsOverlay();
+    crushRedrawAllPreviews();
     crushUpdateRectList();
     crushUpdateDeleteBtn();
   }
@@ -1073,7 +1090,7 @@ function deleteSelectedCrushRect() {
   if (!__crushManual.selectedId) return;
   __crushManual.rects = __crushManual.rects.filter((r) => r.id !== __crushManual.selectedId);
   __crushManual.selectedId = null;
-  crushDrawRectsOverlay();
+  crushRedrawAllPreviews();
   crushUpdateRectList();
   crushUpdateDeleteBtn();
 }
@@ -1082,6 +1099,7 @@ function wireCrushManualBlurUi() {
   const file = document.getElementById("crushPreviewFile");
   const v = document.getElementById("crushPreviewVideo");
   const cv = document.getElementById("crushBlurCanvas");
+  const hookCv = document.getElementById("crushHookCanvas");
   const seek = document.getElementById("crushPreviewSeek");
   const wrap = document.getElementById("crushBlurPreviewWrap");
   if (!file || !v || !cv || !seek || !wrap) return;
@@ -1106,15 +1124,15 @@ function wireCrushManualBlurUi() {
     const f = file.files && file.files[0];
     if (!f) {
       try { v.removeAttribute("src"); } catch (e2) {}
-      crushDrawRectsOverlay();
+      crushRedrawAllPreviews();
       return;
     }
     try { v.src = URL.createObjectURL(f); } catch (e3) {
-      crushDrawRectsOverlay();
+      crushRedrawAllPreviews();
       return;
     }
     crushLoadZirhFramePng();
-    crushDrawRectsOverlay();
+    crushRedrawAllPreviews();
   });
   const brandSel = document.getElementById("crushBrand");
   if (brandSel) {
@@ -1132,7 +1150,7 @@ function wireCrushManualBlurUi() {
   seek.addEventListener("input", () => {
     v.currentTime = Number(seek.value) || 0;
   });
-  v.addEventListener("seeked", () => { crushDrawRectsOverlay(); });
+  v.addEventListener("seeked", () => { crushRedrawAllPreviews(); });
   const nudgeEl = document.getElementById("crushVideoNudgeY");
   const nudgeValEl = document.getElementById("crushVideoNudgeYVal");
   if (nudgeEl) {
@@ -1140,13 +1158,13 @@ function wireCrushManualBlurUi() {
       const n = Number(nudgeEl.value);
       __crushManual.videoCropYNudgePx = Number.isFinite(n) ? n : 0;
       if (nudgeValEl) nudgeValEl.textContent = String(__crushManual.videoCropYNudgePx);
-      crushDrawRectsOverlay();
+      crushRedrawAllPreviews();
     });
   }
   const hookTx = document.getElementById("crushHookManual");
   if (hookTx) {
     hookTx.addEventListener("input", function () {
-      crushDrawRectsOverlay();
+      crushRedrawAllPreviews();
     });
   }
   const hx = document.getElementById("crushHookOffX");
@@ -1156,7 +1174,7 @@ function wireCrushManualBlurUi() {
       const n = Number(hx.value);
       __crushManual.hookXOffsetPx = Number.isFinite(n) ? n : 0;
       if (hxv) hxv.textContent = String(__crushManual.hookXOffsetPx);
-      crushDrawRectsOverlay();
+      crushRedrawAllPreviews();
     });
   }
   const hy = document.getElementById("crushHookOffY");
@@ -1166,10 +1184,11 @@ function wireCrushManualBlurUi() {
       const n = Number(hy.value);
       __crushManual.hookYOffsetPx = Number.isFinite(n) ? n : 0;
       if (hyv) hyv.textContent = String(__crushManual.hookYOffsetPx);
-      crushDrawRectsOverlay();
+      crushRedrawAllPreviews();
     });
   }
   cv.addEventListener("mousedown", onCrushCanvasMouseDown);
+  if (hookCv) hookCv.addEventListener("mousedown", onCrushCanvasMouseDown);
   window.addEventListener("mousemove", onCrushCanvasMouseMove);
   window.addEventListener("mouseup", onCrushCanvasMouseUp);
   cv.addEventListener("keydown", (e) => {
@@ -1179,7 +1198,7 @@ function wireCrushManualBlurUi() {
     }
   });
   crushLoadZirhFramePng();
-  try { crushDrawRectsOverlay(); } catch (eInit) {}
+  try { crushRedrawAllPreviews(); } catch (eInit) {}
 }
 
 function toggleCrushFeatures() {
