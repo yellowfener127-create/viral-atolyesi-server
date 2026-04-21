@@ -461,11 +461,12 @@ function buildReelsInstagramCanvasFilters({
   const bgHex = brandNorm === 'umut' ? '0xF5F5F5' : '0xF0F8FF';
 
   const nudge = Number.isFinite(Number(cropYNudgeRefPx)) ? Math.round(Number(cropYNudgeRefPx)) : 0;
+  // 2. slider: pencere içindeki videonun kendisini (overlay) yukarı/aşağı kaydır.
   const winShift = parseManualReelsWindowShiftYPx(windowShiftYRefPx);
+  const winShiftPx = Math.round(winShift * (outH / MANUAL_BLUR_REF_H));
   const nudgeRatio = nudge / MANUAL_BLUR_REF_H;
-  const winShiftRatio = winShift / MANUAL_BLUR_REF_H;
   const cropYExpr =
-    `max(0\\,min(ih-oh\\,max(0\\,(ih-oh)*0.42)+ih*${nudgeRatio.toFixed(8)}+ih*${winShiftRatio.toFixed(8)}))`;
+    `max(0\\,min(ih-oh\\,max(0\\,(ih-oh)*0.42)+ih*${nudgeRatio.toFixed(8)}))`;
 
   const parts = frameFileExists ? [
     `color=c=white:s=${outW}x${outH}:d=99999[base]`,
@@ -479,7 +480,7 @@ function buildReelsInstagramCanvasFilters({
       const vww = Math.max(2, Math.round(ww * shrink));
       const vwh = Math.max(2, Math.round(wh * shrink));
       const vx = Math.round(wx + (ww - vww) / 2);
-      const vy = Math.round(wy + (wh - vwh) / 2);
+      const vy = Math.round(wy + (wh - vwh) / 2) + winShiftPx;
       return [
         `[v0]scale=${vww}:${vwh}:force_original_aspect_ratio=increase,crop=${vww}:${vwh}:(iw-ow)/2:${cropYExpr},setsar=1[vid]`,
         `[base][vid]overlay=x=${vx}:y=${vy}:shortest=1[vb]`

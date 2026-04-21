@@ -943,12 +943,10 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   const vx = Math.round(wx + (ww - vww) / 2);
   // Hook/Kaydırma önizlemesinde üstteki (pencere) videoyu çok az aşağı al (%2 civarı).
   const previewDown = Math.round(wh * 0.02);
-  // Bu slider, indirmedekiyle aynı mantık: cropY'yi değiştirir (video pencereyi tam doldurur).
-  const manualShift = Number(__crushManual.previewWindowShiftYPx) || 0;
-  const shiftRatio = manualShift / 1280;
-  const cropY2 = Math.max(0, Math.min(excessH, cropY + (ih2 * shiftRatio)));
-  const vy = Math.round(wy + (wh - vwh) / 2) + previewDown;
-  ctx.drawImage(tmpSc, cropX, cropY2, vww, vwh, vx, vy, vww, vwh);
+  // 2. slider: pencere içi videonun kendisini komple kaydır (crop değil, destination y).
+  const manualShiftPx = Math.round((Number(__crushManual.previewWindowShiftYPx) || 0) * (PREVIEW_H / 1280));
+  const vy = Math.round(wy + (wh - vwh) / 2) + previewDown + manualShiftPx;
+  ctx.drawImage(tmpSc, cropX, cropY, vww, vwh, vx, vy, vww, vwh);
   const frm = __crushManual.frameImg;
   if (frm && frm.complete && frm.naturalWidth) {
     ctx.drawImage(frm, 0, 0, PREVIEW_W, PREVIEW_H);
