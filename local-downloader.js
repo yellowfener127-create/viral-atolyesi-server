@@ -1010,8 +1010,9 @@ function httpRequestJson({ hostname, path: reqPath, method, headers }, body) {
 }
 
 function vertexHostForLocation(loc) {
-  const l = String(loc || '').trim();
-  return l ? `${l}-aiplatform.googleapis.com` : 'aiplatform.googleapis.com';
+  // Use the global host for reliability; region is already encoded in the URL path.
+  // Some environments return HTML 404 on regional hosts.
+  return 'aiplatform.googleapis.com';
 }
 
 async function getVertexAccessToken(saPath) {
@@ -1122,20 +1123,7 @@ async function listVertexPublisherModels({ saPath, location, pageSize = 100 }) {
       null
     ));
   } catch (e1) {
-    // Some environments return HTML 404 on regional host; retry with global host.
-    if (Number(e1 && e1.statusCode) === 404 && host !== 'aiplatform.googleapis.com') {
-      ({ json } = await httpRequestJson(
-        {
-          hostname: 'aiplatform.googleapis.com',
-          path: reqPath,
-          method: 'GET',
-          headers: { Authorization: `Bearer ${token}` }
-        },
-        null
-      ));
-    } else {
-      throw e1;
-    }
+    throw e1;
   }
   const models = (json && (json.models || json.publisherModels || json.items)) || [];
   const ids = [];
@@ -1241,23 +1229,7 @@ async function fetchVertexHookEnglish({ saPath, location, model, title, brand, e
       body
     ));
   } catch (e1) {
-    if (Number(e1 && e1.statusCode) === 404 && host !== 'aiplatform.googleapis.com') {
-      ({ json } = await httpRequestJson(
-        {
-          hostname: 'aiplatform.googleapis.com',
-          path: reqPath,
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(body),
-            Authorization: `Bearer ${token}`
-          }
-        },
-        body
-      ));
-    } else {
-      throw e1;
-    }
+    throw e1;
   }
 
   const t =
