@@ -1788,7 +1788,9 @@ app.post('/crush', async (req, res) => {
     const mustUseGeminiHook = !manualHookTextRaw && isLabBrand;
     let geminiErr = null;
     const vertexSaPath = resolveVertexServiceAccountPath();
-    const vertexLocation = String(req.body?.vertex_location ?? req.body?.vertexLocation ?? process.env.VERTEX_LOCATION ?? 'us-central1').trim() || 'us-central1';
+    const vertexLocationReq = String(req.body?.vertex_location ?? req.body?.vertexLocation ?? '').trim();
+    const vertexLocationEnv = String(process.env.VERTEX_LOCATION || '').trim();
+    const vertexLocation = (vertexLocationReq || vertexLocationEnv || 'us-central1').trim();
     const preferVertex = true; // Vertex uses Cloud Billing; avoids AI Studio prepay issues.
     const isModelNotFound = (e) => {
       const msg = String((e && e.message) || '');
@@ -1810,6 +1812,22 @@ app.post('/crush', async (req, res) => {
             const m = String((err && err.message) || '');
             return sc === 404 && /publisher model.*was not found|does not have access|model versions/i.test(m.toLowerCase());
           };
+          const vertexLocationCandidates = [
+            vertexLocationReq,
+            vertexLocationEnv,
+            vertexLocation,
+            'us-east1',
+            'us-central1',
+            'europe-west4'
+          ].map((x) => String(x || '').trim()).filter(Boolean);
+          const uniqLoc = [];
+          const seenLoc = new Set();
+          for (const l of vertexLocationCandidates) {
+            const k = l.toLowerCase();
+            if (seenLoc.has(k)) continue;
+            seenLoc.add(k);
+            uniqLoc.push(l);
+          }
           const vertexModelCandidates = [
             String(gemModel || '').trim(),
             'gemini-2.0-flash-001',
@@ -1818,12 +1836,17 @@ app.post('/crush', async (req, res) => {
           ].filter(Boolean);
           let lastErr = null;
           let usedModel = '';
+          let usedLoc = '';
+          const tried = { locations: uniqLoc, models: vertexModelCandidates };
+          outer:
+          for (const loc of uniqLoc) {
+            usedLoc = loc;
           for (const cand of vertexModelCandidates) {
             usedModel = cand;
             try {
               const vr = await fetchVertexHookEnglish({
                 saPath: vertexSaPath,
-                location: vertexLocation,
+                location: loc,
                 model: cand,
                 title: metaTitle,
                 brand,
@@ -1833,13 +1856,14 @@ app.post('/crush', async (req, res) => {
               gemHook = vr.hook;
               gemModel = vr.model || cand;
               lastErr = null;
-              break;
+              break outer;
             } catch (ex) {
               lastErr = ex;
               if (!isVertexModelNotFound(ex)) break; // non-model error: stop
             }
           }
-          if (lastErr) throw Object.assign(lastErr, { triedModels: vertexModelCandidates, model: usedModel });
+          }
+          if (lastErr) throw Object.assign(lastErr, { triedModels: vertexModelCandidates, triedLocations: uniqLoc, model: usedModel });
         } else {
           if (!gemKey) throw Object.assign(new Error('Gemini API key yok (GEMINI_API_KEY).'), { statusCode: 401, model: gemModel });
           gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, media, gemModel);
@@ -1870,7 +1894,8 @@ app.post('/crush', async (req, res) => {
             apiError: (e && e.geminiError) ? e.geminiError : (e && e.parsed) ? e.parsed : null,
             provider: (preferVertex && vertexSaPath) ? 'vertex' : 'ai_studio',
             vertex: vertexSaPath ? { location: vertexLocation, sa: path.basename(vertexSaPath) } : null,
-            triedModels: (e && e.triedModels) ? e.triedModels : null
+            triedModels: (e && e.triedModels) ? e.triedModels : null,
+            triedLocations: (e && e.triedLocations) ? e.triedLocations : null
         };
         console.warn('[gemini hook]', geminiErr);
         }
