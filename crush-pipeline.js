@@ -416,6 +416,7 @@ function buildReelsInstagramCanvasFilters({
   escapedLines,
   frameFileExists,
   cropYNudgeRefPx = 0,
+  windowShiftYRefPx = 0,
   hookXOffsetRefPx = 0,
   hookYOffsetRefPx = 0
 }) {
@@ -460,9 +461,11 @@ function buildReelsInstagramCanvasFilters({
   const bgHex = brandNorm === 'umut' ? '0xF5F5F5' : '0xF0F8FF';
 
   const nudge = Number.isFinite(Number(cropYNudgeRefPx)) ? Math.round(Number(cropYNudgeRefPx)) : 0;
+  const winShift = parseManualReelsWindowShiftYPx(windowShiftYRefPx);
   const nudgeRatio = nudge / MANUAL_BLUR_REF_H;
+  const winShiftRatio = winShift / MANUAL_BLUR_REF_H;
   const cropYExpr =
-    `max(0\\,min(ih-oh\\,max(0\\,(ih-oh)*0.42)+ih*${nudgeRatio.toFixed(8)}))`;
+    `max(0\\,min(ih-oh\\,max(0\\,(ih-oh)*0.42)+ih*${nudgeRatio.toFixed(8)}+ih*${winShiftRatio.toFixed(8)}))`;
 
   const parts = frameFileExists ? [
     `color=c=white:s=${outW}x${outH}:d=99999[base]`,
@@ -567,6 +570,8 @@ const MANUAL_BLUR_REF_W = 720;
 const MANUAL_BLUR_REF_H = 1280;
 const MANUAL_REELS_CROP_Y_NUDGE_MIN = -500;
 const MANUAL_REELS_CROP_Y_NUDGE_MAX = 500;
+const MANUAL_REELS_WINDOW_SHIFT_Y_MIN = -250;
+const MANUAL_REELS_WINDOW_SHIFT_Y_MAX = 250;
 const MANUAL_REELS_HOOK_OFF_MIN = -400;
 const MANUAL_REELS_HOOK_OFF_MAX = 400;
 
@@ -577,6 +582,16 @@ function parseManualReelsCropYNudgePx(raw) {
   return Math.max(
     MANUAL_REELS_CROP_Y_NUDGE_MIN,
     Math.min(MANUAL_REELS_CROP_Y_NUDGE_MAX, Math.round(n))
+  );
+}
+
+/** Pencere içi videoyu ayrıca yukarı/aşağı kaydır (px, 720×1280 referansı). */
+function parseManualReelsWindowShiftYPx(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(
+    MANUAL_REELS_WINDOW_SHIFT_Y_MIN,
+    Math.min(MANUAL_REELS_WINDOW_SHIFT_Y_MAX, Math.round(n))
   );
 }
 
@@ -861,6 +876,9 @@ async function buildCrushRenderPlan(o) {
   const manualReelsCropYNudgePx = parseManualReelsCropYNudgePx(
     o.manual_reels_crop_y_nudge_px ?? o.manualReelsCropYNudgePx
   );
+  const manualReelsWindowShiftYPx = parseManualReelsWindowShiftYPx(
+    o.manual_reels_window_shift_y_px ?? o.manualReelsWindowShiftYPx
+  );
   const manualReelsHookXOff = parseManualReelsHookOffsetPx(
     o.manual_reels_hook_x_offset_px ?? o.manualReelsHookXOffsetPx
   );
@@ -986,6 +1004,7 @@ async function buildCrushRenderPlan(o) {
           escapedLines: reelsEscapedLines,
           frameFileExists: frameExists,
           cropYNudgeRefPx: manualReelsCropYNudgePx,
+          windowShiftYRefPx: manualReelsWindowShiftYPx,
           hookXOffsetRefPx: manualReelsHookXOff,
           hookYOffsetRefPx: manualReelsHookYOff
         })
@@ -1127,6 +1146,7 @@ async function buildCrushRenderPlan(o) {
       edge,
       manualBlurCount: ubRects.length,
       manualReelsCropYNudgePx,
+      manualReelsWindowShiftYPx,
       manualReelsHookXOff,
       manualReelsHookYOff,
       musicFile: musicFile && fs.existsSync(musicFile) ? path.basename(musicFile) : null,
@@ -1197,5 +1217,6 @@ module.exports = {
   MANUAL_BLUR_REF_W,
   MANUAL_BLUR_REF_H,
   parseManualReelsCropYNudgePx,
+  parseManualReelsWindowShiftYPx,
   parseManualReelsHookOffsetPx
 };
