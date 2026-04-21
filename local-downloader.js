@@ -842,7 +842,8 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media, modelOve
     `Use the provided screenshot(s) + audio preview to make it specific.\n` +
     emojiRules +
     `\nReturn only the hook sentence, nothing else.`;
-  const model = String(modelOverride || process.env.GEMINI_MODEL || 'gemini-1.5-flash').trim();
+  // Note: Some older model aliases (e.g. gemini-1.5-flash) may no longer be available on v1beta generateContent.
+  const model = String(modelOverride || process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
   const parts = [{ text: prompt }];
   try {
     const fs = require('fs');
@@ -928,6 +929,260 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media, modelOve
     req.write(body);
     req.end();
   });
+}
+
+// ---------------- Vertex AI Gemini (service account) ----------------
+
+const KEYS_DIR = path.join(__dirname, 'keys');
+let __vertexTokenCache = { accessToken: null, expiresAtMs: 0, saPath: null };
+
+function base64UrlEncode(bufOrStr) {
+  const b = Buffer.isBuffer(bufOrStr) ? bufOrStr : Buffer.from(String(bufOrStr), 'utf8');
+  return b
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+}
+
+function resolveVertexServiceAccountPath() {
+  // Auto-pick the newest JSON in ./keys (user placed it there).
+  try {
+    if (!fs.existsSync(KEYS_DIR)) return null;
+    const files = fs
+      .readdirSync(KEYS_DIR)
+      .filter((f) => /\.json$/i.test(f))
+      .map((f) => path.join(KEYS_DIR, f))
+      .filter((p) => {
+        try { return fs.statSync(p).isFile() && fs.statSync(p).size > 50; } catch { return false; }
+      })
+      .sort((a, b) => {
+        try { return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs; } catch { return 0; }
+      });
+    return files[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function readServiceAccountJson(saPath) {
+  const p = String(saPath || '').trim();
+  if (!p || !fs.existsSync(p)) return null;
+  try {
+    const raw = fs.readFileSync(p, 'utf8');
+    const j = JSON.parse(raw);
+    if (!j.client_email || !j.private_key) return null;
+    return j;
+  } catch {
+    return null;
+  }
+}
+
+function httpRequestJson({ hostname, path: reqPath, method, headers }, body) {
+  return new Promise((resolve, reject) => {
+    const req = https.request({ hostname, path: reqPath, method, headers, timeout: 30_000 }, (res) => {
+      let raw = '';
+      res.on('data', (c) => { raw += c.toString(); });
+      res.on('end', () => {
+        const code = res.statusCode || 0;
+        let parsed = null;
+        try { parsed = raw ? JSON.parse(raw) : null; } catch {}
+        if (code >= 400) {
+          const msg =
+            (parsed && parsed.error && (parsed.error.message || parsed.error_description)) ||
+            (parsed && parsed.message) ||
+            raw ||
+            `HTTP ${code}`;
+          const e = new Error(String(msg).slice(0, 1500));
+          e.statusCode = code;
+          e.raw = raw;
+          e.parsed = parsed;
+          return reject(e);
+        }
+        resolve({ statusCode: code, raw, json: parsed });
+      });
+    });
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+async function getVertexAccessToken(saPath) {
+  const now = Date.now();
+  if (
+    __vertexTokenCache.accessToken &&
+    __vertexTokenCache.expiresAtMs &&
+    now < (__vertexTokenCache.expiresAtMs - 60_000) &&
+    __vertexTokenCache.saPath === saPath
+  ) {
+    return __vertexTokenCache.accessToken;
+  }
+  const sa = readServiceAccountJson(saPath);
+  if (!sa) {
+    const e = new Error('Vertex service account JSON okunamadı (keys/*.json).');
+    e.statusCode = 500;
+    throw e;
+  }
+  const iat = Math.floor(now / 1000);
+  const exp = iat + 3600;
+  const header = { alg: 'RS256', typ: 'JWT', kid: sa.private_key_id || undefined };
+  const claim = {
+    iss: sa.client_email,
+    scope: 'https://www.googleapis.com/auth/cloud-platform',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat,
+    exp
+  };
+  const unsigned = `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(claim))}`;
+  const signer = crypto.createSign('RSA-SHA256');
+  signer.update(unsigned);
+  signer.end();
+  const sig = signer.sign(sa.private_key);
+  const jwt = `${unsigned}.${base64UrlEncode(sig)}`;
+
+  const form =
+    'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer') +
+    '&assertion=' + encodeURIComponent(jwt);
+  const { json } = await httpRequestJson(
+    {
+      hostname: 'oauth2.googleapis.com',
+      path: '/token',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(form)
+      }
+    },
+    form
+  );
+  const tok = json && json.access_token ? String(json.access_token) : '';
+  const expiresIn = json && json.expires_in ? Number(json.expires_in) : 3600;
+  if (!tok) {
+    const e = new Error('Vertex token alınamadı.');
+    e.statusCode = 500;
+    e.raw = JSON.stringify(json || {});
+    throw e;
+  }
+  __vertexTokenCache = {
+    accessToken: tok,
+    expiresAtMs: now + Math.max(300, expiresIn) * 1000,
+    saPath
+  };
+  return tok;
+}
+
+async function fetchVertexHookEnglish({ saPath, location, model, title, brand, emojiPool, media }) {
+  const sa = readServiceAccountJson(saPath);
+  if (!sa || !sa.project_id) {
+    const e = new Error('Vertex SA JSON içinde project_id bulunamadı.');
+    e.statusCode = 500;
+    throw e;
+  }
+  const token = await getVertexAccessToken(saPath);
+
+  // Vertex models are typically "gemini-2.0-flash", "gemini-2.5-pro", etc.
+  const loc = String(location || 'us-central1').trim() || 'us-central1';
+  const mdl = String(model || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
+
+  // Reuse the same prompt style as AI Studio flow.
+  const n = normBrand(brand);
+  const tone =
+    n === 'umut'
+      ? 'hopeful, emotional, inspiring, sincere (no graphic injury topics)'
+      : 'wholesome, gentle, uplifting, family-friendly';
+  const style = pickOne([
+    'first-person vibe (perspective shift) WITHOUT literally saying "POV"',
+    'a specific, story-like hook that hints what will happen (no generic templates)',
+    'a subtle perspective twist (what you notice changes the whole moment)'
+  ]);
+  const pool = Array.isArray(emojiPool) ? emojiPool.filter(Boolean) : [];
+  const emojiRules =
+    pool.length > 0
+      ? `\nAdd exactly ONE emoji at the very end of the sentence (single space before it). ` +
+        `Choose that emoji ONLY from this pool: ${pool.slice(0, 100).join(' ')}\n` +
+        `No other emoji, and no emoji in the middle of the sentence.`
+      : '';
+  const prompt =
+    `Write a video-specific English hook for a vertical Shorts/Reels/TikTok video.\n` +
+    `It must feel like it matches THIS video (avoid generic templates like "watch till the end").\n` +
+    `Style: ${style}.\n` +
+    `Important: Do NOT start with "POV:" and do NOT use the word "POV" unless it is truly necessary.\n` +
+    `Banned words: do NOT use the word "ignore" in any form.\n` +
+    `Rules: max 55 characters total (including spaces + the final emoji). ` +
+    `No quotation marks. No hashtags. English only.\n` +
+    `Tone: ${tone}.\n` +
+    `Video title (may be vague): ${String(title || '').slice(0, 220)}\n` +
+    `Use the provided screenshot(s) + audio preview to make it specific.\n` +
+    emojiRules +
+    `\nReturn only the hook sentence, nothing else.`;
+
+  const parts = [{ text: prompt }];
+  try {
+    if (media && media.framePng && fs.existsSync(media.framePng)) {
+      const b = fs.readFileSync(media.framePng);
+      parts.push({ inlineData: { mimeType: 'image/png', data: b.toString('base64') } });
+    }
+    if (media && media.audioWav && fs.existsSync(media.audioWav)) {
+      const b = fs.readFileSync(media.audioWav);
+      parts.push({ inlineData: { mimeType: 'audio/wav', data: b.toString('base64') } });
+    }
+  } catch {}
+
+  const bodyObj = {
+    contents: [{ role: 'user', parts }],
+    generationConfig: { temperature: 0.85, maxOutputTokens: 96 }
+  };
+  const body = JSON.stringify(bodyObj);
+
+  const host = `${loc}-aiplatform.googleapis.com`;
+  const reqPath =
+    `/v1/projects/${encodeURIComponent(sa.project_id)}` +
+    `/locations/${encodeURIComponent(loc)}` +
+    `/publishers/google/models/${encodeURIComponent(mdl)}:generateContent`;
+
+  const { json } = await httpRequestJson(
+    {
+      hostname: host,
+      path: reqPath,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        Authorization: `Bearer ${token}`
+      }
+    },
+    body
+  );
+
+  const t =
+    (json &&
+      json.candidates &&
+      json.candidates[0] &&
+      json.candidates[0].content &&
+      json.candidates[0].content.parts &&
+      json.candidates[0].content.parts.map((p) => p.text || '').join('')) ||
+    '';
+  const line = String(t)
+    .replace(/\s+/g, ' ')
+    .replace(/^["']|["']$/g, '')
+    .trim()
+    .replace(/\bignore\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 120);
+  if (line.length < 6) {
+    const e = new Error('Vertex Gemini empty hook');
+    e.statusCode = 502;
+    e.model = mdl;
+    throw e;
+  }
+  return {
+    hook: line,
+    model: mdl,
+    location: loc,
+    projectId: sa.project_id,
+    saEmail: sa.client_email
+  };
 }
 
 function getBrandFolderName(brand) {
@@ -1448,9 +1703,27 @@ app.post('/crush', async (req, res) => {
     } catch (e0) {
       const msg0 = String((e0 && e0.message) || e0 || '');
 
+      // Video kaldırıldı / erişilemiyor: retry yapma, net hata dön.
+      if (/video unavailable|removed by the uploader|this video has been removed|private video|does not exist/i.test(msg0)) {
+        return res.status(404).json({
+          error:
+            'Video indirilemiyor: video kaldırılmış/erişilemiyor (YouTube). Başka video deneyin.',
+          detail: msg0.slice(0, 800)
+        });
+      }
+
       if (isYoutubeAgeSignInError(msg0)) {
         return res.status(400).json({
           error: 'Bu video yaş kısıtlı veya oturum istiyor; Telif Ezici bu videoları işlemez. Sitede yaş kısıtlı Shorts listelenmez.'
+        });
+      }
+      // Rate limit: retry yerine net 429 dön (kullanıcı beklesin).
+      if (/http error 429|too many requests/i.test(msg0)) {
+        return res.status(429).json({
+          error:
+            'YouTube 429 (Too Many Requests): çok hızlı istek atıldığı için geçici engel. 10-30 dk bekleyip tekrar dene. ' +
+            'Devam ederse: farklı ağ/IP dene veya cookies-from-browser ile girişli çerez kullan.',
+          detail: msg0.slice(0, 800)
         });
       }
       if (/did not get any data blocks|unable to download video data|http error 403|http error 416|http error 429|po token/i.test(msg0)) {
@@ -1510,45 +1783,88 @@ app.post('/crush', async (req, res) => {
       ? crypto.createHash('sha256').update(gemKey).digest('hex').slice(0, 10)
       : null;
     const gemModelFromReq = String(req.body?.gemini_model ?? req.body?.geminiModel ?? '').trim();
-    const gemModel = gemModelFromReq || String(process.env.GEMINI_MODEL || 'gemini-1.5-flash').trim();
+    const gemModelDefault = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
+    let gemModel = gemModelFromReq || gemModelDefault;
     const mustUseGeminiHook = !manualHookTextRaw && isLabBrand;
     let geminiErr = null;
-    if (!manualHookTextRaw && gemKey && metaTitle && isLabBrand) {
+    const vertexSaPath = resolveVertexServiceAccountPath();
+    const vertexLocation = String(req.body?.vertex_location ?? req.body?.vertexLocation ?? process.env.VERTEX_LOCATION ?? 'us-central1').trim() || 'us-central1';
+    const preferVertex = true; // Vertex uses Cloud Billing; avoids AI Studio prepay issues.
+    const isModelNotFound = (e) => {
+      const msg = String((e && e.message) || '');
+      const sc = Number(e && e.statusCode);
+      return (sc === 404) && /model[s]?\/.+?is not found|not supported for generatecontent/i.test(msg.toLowerCase());
+    };
+    if (!manualHookTextRaw && metaTitle && isLabBrand) {
       try {
         const frameFile = path.join(tmpDir, 'gem_frame.png');
         const audioFile = path.join(tmpDir, 'gem_audio.wav');
         const tSec = Math.min(2.0, Math.max(0.35, inDur * 0.25));
         await ffmpegExtractFrame(inFile, frameFile, tSec, 'ffmpeg').catch(() => {});
         await ffmpegExtractAudioPreview(inFile, audioFile, 6, 'ffmpeg').catch(() => {});
-        gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, {
-          framePng: frameFile,
-          audioWav: audioFile
-        }, gemModel);
+        const media = { framePng: frameFile, audioWav: audioFile };
+
+        if (preferVertex && vertexSaPath) {
+          const vr = await fetchVertexHookEnglish({
+            saPath: vertexSaPath,
+            location: vertexLocation,
+            model: gemModel,
+            title: metaTitle,
+            brand,
+            emojiPool,
+            media
+          });
+          gemHook = vr.hook;
+        } else {
+          if (!gemKey) throw Object.assign(new Error('Gemini API key yok (GEMINI_API_KEY).'), { statusCode: 401, model: gemModel });
+          gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, media, gemModel);
+        }
       } catch (e) {
+        // If the requested model is not available for v1beta generateContent, retry once with a known-good model.
+        if (!preferVertex && isModelNotFound(e) && gemModel !== 'gemini-2.0-flash') {
+          try {
+            gemModel = 'gemini-2.0-flash';
+            gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, {
+              framePng: path.join(tmpDir, 'gem_frame.png'),
+              audioWav: path.join(tmpDir, 'gem_audio.wav')
+            }, gemModel);
+            e = null;
+          } catch (e2) {
+            e = e2;
+          }
+        }
+        if (!e && gemHook && gemHook.length >= 6) {
+          // recovered via fallback model
+        } else {
         geminiErr = {
           message: (e && e.message) ? String(e.message) : String(e),
           statusCode: (e && (e.statusCode || e.code)) ? (e.statusCode || e.code) : null,
           model: (e && e.model) ? String(e.model) : gemModel,
           keySource: gemKeySource,
           keyFp: gemKeyFp,
-          apiError: (e && e.geminiError) ? e.geminiError : null
+            apiError: (e && e.geminiError) ? e.geminiError : (e && e.parsed) ? e.parsed : null,
+            provider: (preferVertex && vertexSaPath) ? 'vertex' : 'ai_studio',
+            vertex: vertexSaPath ? { location: vertexLocation, sa: path.basename(vertexSaPath) } : null
         };
         console.warn('[gemini hook]', geminiErr);
+        }
       }
     }
     // If Gemini is required but didn't produce a hook, fail fast (do not render video).
-    if (mustUseGeminiHook && (!gemKey || !metaTitle || !gemHook || gemHook.length < 6)) {
+    if (mustUseGeminiHook && (!metaTitle || !gemHook || gemHook.length < 6)) {
       return res.status(502).json({
         ok: false,
-        error: !gemKey
-          ? 'Gemini API key yok (GEMINI_API_KEY). Hook üretilemedi.'
-          : (!metaTitle ? 'Video title alınamadı; Gemini hook üretimi yapılamadı.' : 'Gemini hook üretimi başarısız oldu. Video render edilmedi.'),
+        error: !metaTitle
+          ? 'Video title alınamadı; hook üretimi yapılamadı.'
+          : 'Gemini hook üretimi başarısız oldu. Video render edilmedi.',
         gemini: geminiErr || {
           message: 'Gemini hook empty',
           statusCode: null,
           model: gemModel,
           keySource: gemKeySource,
-          keyFp: gemKeyFp
+          keyFp: gemKeyFp,
+          provider: (preferVertex && vertexSaPath) ? 'vertex' : 'ai_studio',
+          vertex: vertexSaPath ? { location: vertexLocation, sa: path.basename(vertexSaPath) } : null
         }
       });
     }
