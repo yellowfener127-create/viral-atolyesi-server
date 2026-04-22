@@ -1108,10 +1108,9 @@ async function listVertexPublisherModels({ saPath, location, pageSize = 100 }) {
   const token = await getVertexAccessToken(saPath);
   const loc = String(location || 'us-central1').trim() || 'us-central1';
   const host = vertexHostForLocation(loc);
-  const reqPath =
-    `/v1/projects/${encodeURIComponent(sa.project_id)}` +
-    `/locations/${encodeURIComponent(loc)}` +
-    `/publishers/google/models?pageSize=${encodeURIComponent(String(pageSize))}`;
+  // Correct REST format: publishers models list does NOT include project in path.
+  // Ref: Vertex AI REST v1beta1 publishers.models.list
+  const reqPath = `/v1beta1/publishers/google/models?pageSize=${encodeURIComponent(String(pageSize))}`;
 
   let json = null;
   try {
@@ -1127,7 +1126,7 @@ async function listVertexPublisherModels({ saPath, location, pageSize = 100 }) {
   } catch (e1) {
     throw e1;
   }
-  const models = (json && (json.models || json.publisherModels || json.items)) || [];
+  const models = (json && (json.publisherModels || json.models || json.items)) || [];
   const ids = [];
   for (const m of models || []) {
     const nm = m && (m.name || m.model || m.id);
@@ -1210,8 +1209,9 @@ async function fetchVertexHookEnglish({ saPath, location, model, title, brand, e
   const body = JSON.stringify(bodyObj);
 
   const host = vertexHostForLocation(loc);
+  // Use v1beta1 for generateContent to match Vertex GenAI REST surface.
   const reqPath =
-    `/v1/projects/${encodeURIComponent(sa.project_id)}` +
+    `/v1beta1/projects/${encodeURIComponent(sa.project_id)}` +
     `/locations/${encodeURIComponent(loc)}` +
     `/publishers/google/models/${encodeURIComponent(mdl)}:generateContent`;
 
