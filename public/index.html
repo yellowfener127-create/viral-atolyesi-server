@@ -1476,8 +1476,12 @@ async function crushVideo() {
             ` · triedModels=${JSON.stringify(g.triedModels || [])}` +
             (g.listInfoByLoc ? ` · listInfoByLoc=${JSON.stringify(g.listInfoByLoc)}` : '')
           : "";
+      const reqInfo =
+        g && (g.request || g.contentType)
+          ? ` · request=${g.request ? JSON.stringify(g.request) : "null"} · contentType=${g.contentType ? JSON.stringify(g.contentType) : "null"}`
+          : "";
       const gemInfo = g
-        ? ` (Gemini: ${g.statusCode != null ? g.statusCode : "?"} · ${String(g.model || "").trim() || "model?"} · ${String(g.message || "").trim() || "error"}${extra})`
+        ? ` (Gemini: ${g.statusCode != null ? g.statusCode : "?"} · ${String(g.model || "").trim() || "model?"} · ${String(g.message || "").trim() || "error"}${extra}${reqInfo})`
         : "";
       throw new Error(baseErr + gemInfo);
     }
