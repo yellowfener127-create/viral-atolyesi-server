@@ -931,12 +931,335 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media, modelOve
   });
 }
 
+// ---------------- Vertex AI Gemini (service account) ----------------
+
+const KEYS_DIR = path.join(__dirname, 'keys');
+let __vertexTokenCache = { accessToken: null, expiresAtMs: 0, saPath: null };
+
+function base64UrlEncode(bufOrStr) {
+  const b = Buffer.isBuffer(bufOrStr) ? bufOrStr : Buffer.from(String(bufOrStr), 'utf8');
+  return b
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+}
+
+function resolveVertexServiceAccountPath() {
+  // Auto-pick the newest JSON in ./keys (user placed it there).
+  try {
+    if (!fs.existsSync(KEYS_DIR)) return null;
+    const files = fs
+      .readdirSync(KEYS_DIR)
+      .filter((f) => /\.json$/i.test(f))
+      .map((f) => path.join(KEYS_DIR, f))
+      .filter((p) => {
+        try { return fs.statSync(p).isFile() && fs.statSync(p).size > 50; } catch { return false; }
+      })
+      .sort((a, b) => {
+        try { return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs; } catch { return 0; }
+      });
+    return files[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function readServiceAccountJson(saPath) {
+  const p = String(saPath || '').trim();
+  if (!p || !fs.existsSync(p)) return null;
+  try {
+    const raw = fs.readFileSync(p, 'utf8');
+    const j = JSON.parse(raw);
+    if (!j.client_email || !j.private_key) return null;
+    return j;
+  } catch {
+    return null;
+  }
+}
+
+function httpRequestJson({ hostname, path: reqPath, method, headers }, body) {
+  return new Promise((resolve, reject) => {
+    const req = https.request({ hostname, path: reqPath, method, headers, timeout: 30_000 }, (res) => {
+      let raw = '';
+      res.on('data', (c) => { raw += c.toString(); });
+      res.on('end', () => {
+        const code = res.statusCode || 0;
+        let parsed = null;
+        try { parsed = raw ? JSON.parse(raw) : null; } catch {}
+        if (code >= 400) {
+          const msg =
+            (parsed && parsed.error && (parsed.error.message || parsed.error_description)) ||
+            (parsed && parsed.message) ||
+            raw ||
+            `HTTP ${code}`;
+          const e = new Error(String(msg).slice(0, 1500));
+          e.statusCode = code;
+          e.raw = raw;
+          e.parsed = parsed;
+          e.request = { hostname, path: reqPath, method };
+          return reject(e);
+        }
+        resolve({ statusCode: code, raw, json: parsed });
+      });
+    });
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+function vertexHostForLocation(loc) {
+  // Use the global host for reliability; region is already encoded in the URL path.
+  // Some environments return HTML 404 on regional hosts.
+  return 'aiplatform.googleapis.com';
+}
+
+async function getVertexAccessToken(saPath) {
+  const now = Date.now();
+  if (
+    __vertexTokenCache.accessToken &&
+    __vertexTokenCache.expiresAtMs &&
+    now < (__vertexTokenCache.expiresAtMs - 60_000) &&
+    __vertexTokenCache.saPath === saPath
+  ) {
+    return __vertexTokenCache.accessToken;
+  }
+  const sa = readServiceAccountJson(saPath);
+  if (!sa) {
+    const e = new Error('Vertex service account JSON okunamadı (keys/*.json).');
+    e.statusCode = 500;
+    throw e;
+  }
+  const iat = Math.floor(now / 1000);
+  const exp = iat + 3600;
+  const header = { alg: 'RS256', typ: 'JWT', kid: sa.private_key_id || undefined };
+  const claim = {
+    iss: sa.client_email,
+    scope: 'https://www.googleapis.com/auth/cloud-platform',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat,
+    exp
+  };
+  const unsigned = `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(claim))}`;
+  const signer = crypto.createSign('RSA-SHA256');
+  signer.update(unsigned);
+  signer.end();
+  const sig = signer.sign(sa.private_key);
+  const jwt = `${unsigned}.${base64UrlEncode(sig)}`;
+
+  const form =
+    'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer') +
+    '&assertion=' + encodeURIComponent(jwt);
+  const { json } = await httpRequestJson(
+    {
+      hostname: 'oauth2.googleapis.com',
+      path: '/token',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(form)
+      }
+    },
+    form
+  );
+  const tok = json && json.access_token ? String(json.access_token) : '';
+  const expiresIn = json && json.expires_in ? Number(json.expires_in) : 3600;
+  if (!tok) {
+    const e = new Error('Vertex token alınamadı.');
+    e.statusCode = 500;
+    e.raw = JSON.stringify(json || {});
+    throw e;
+  }
+  __vertexTokenCache = {
+    accessToken: tok,
+    expiresAtMs: now + Math.max(300, expiresIn) * 1000,
+    saPath
+  };
+  return tok;
+}
+
+function extractVertexModelId(nameOrId) {
+  const s = String(nameOrId || '').trim();
+  if (!s) return '';
+  const idx = s.lastIndexOf('/models/');
+  if (idx >= 0) return s.slice(idx + '/models/'.length).trim();
+  // If it's already an id like "gemini-2.0-flash-001"
+  return s;
+}
+
 function normalizeGeminiModelName(raw) {
-  // Requirement: always use "gemini-2.0-flash" (no suffix).
+  // User requirement: ensure requests use "gemini-2.0-flash" (no "-001").
   const s = String(raw || '').trim();
   if (!s) return '';
   if (/^gemini-2\.0-flash(-\d+)?$/i.test(s)) return 'gemini-2.0-flash';
   return s;
+}
+
+async function listVertexPublisherModels({ saPath, location, pageSize = 100 }) {
+  const sa = readServiceAccountJson(saPath);
+  if (!sa || !sa.project_id) {
+    const e = new Error('Vertex SA JSON içinde project_id bulunamadı.');
+    e.statusCode = 500;
+    throw e;
+  }
+  const token = await getVertexAccessToken(saPath);
+  const loc = String(location || 'us-central1').trim() || 'us-central1';
+  const host = vertexHostForLocation(loc);
+  const reqPath =
+    `/v1/projects/${encodeURIComponent(sa.project_id)}` +
+    `/locations/${encodeURIComponent(loc)}` +
+    `/publishers/google/models?pageSize=${encodeURIComponent(String(pageSize))}`;
+
+  let json = null;
+  try {
+    ({ json } = await httpRequestJson(
+      {
+        hostname: host,
+        path: reqPath,
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` }
+      },
+      null
+    ));
+  } catch (e1) {
+    throw e1;
+  }
+  const models = (json && (json.models || json.publisherModels || json.items)) || [];
+  const ids = [];
+  for (const m of models || []) {
+    const nm = m && (m.name || m.model || m.id);
+    const id = extractVertexModelId(nm);
+    if (id) ids.push(id);
+  }
+  // uniq, preserve order
+  const out = [];
+  const seen = new Set();
+  for (const id of ids) {
+    const k = id.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(id);
+  }
+  return out;
+}
+
+async function fetchVertexHookEnglish({ saPath, location, model, title, brand, emojiPool, media }) {
+  const sa = readServiceAccountJson(saPath);
+  if (!sa || !sa.project_id) {
+    const e = new Error('Vertex SA JSON içinde project_id bulunamadı.');
+    e.statusCode = 500;
+    throw e;
+  }
+  const token = await getVertexAccessToken(saPath);
+
+  // Vertex models are versioned (often needs suffix like -001 / -002).
+  const loc = String(location || 'us-central1').trim() || 'us-central1';
+  const mdl = normalizeGeminiModelName(model || 'gemini-2.0-flash') || 'gemini-2.0-flash';
+
+  // Reuse the same prompt style as AI Studio flow.
+  const n = normBrand(brand);
+  const tone =
+    n === 'umut'
+      ? 'hopeful, emotional, inspiring, sincere (no graphic injury topics)'
+      : 'wholesome, gentle, uplifting, family-friendly';
+  const style = pickOne([
+    'first-person vibe (perspective shift) WITHOUT literally saying "POV"',
+    'a specific, story-like hook that hints what will happen (no generic templates)',
+    'a subtle perspective twist (what you notice changes the whole moment)'
+  ]);
+  const pool = Array.isArray(emojiPool) ? emojiPool.filter(Boolean) : [];
+  const emojiRules =
+    pool.length > 0
+      ? `\nAdd exactly ONE emoji at the very end of the sentence (single space before it). ` +
+        `Choose that emoji ONLY from this pool: ${pool.slice(0, 100).join(' ')}\n` +
+        `No other emoji, and no emoji in the middle of the sentence.`
+      : '';
+  const prompt =
+    `Write a video-specific English hook for a vertical Shorts/Reels/TikTok video.\n` +
+    `It must feel like it matches THIS video (avoid generic templates like "watch till the end").\n` +
+    `Style: ${style}.\n` +
+    `Important: Do NOT start with "POV:" and do NOT use the word "POV" unless it is truly necessary.\n` +
+    `Banned words: do NOT use the word "ignore" in any form.\n` +
+    `Rules: max 55 characters total (including spaces + the final emoji). ` +
+    `No quotation marks. No hashtags. English only.\n` +
+    `Tone: ${tone}.\n` +
+    `Video title (may be vague): ${String(title || '').slice(0, 220)}\n` +
+    `Use the provided screenshot(s) + audio preview to make it specific.\n` +
+    emojiRules +
+    `\nReturn only the hook sentence, nothing else.`;
+
+  const parts = [{ text: prompt }];
+  try {
+    if (media && media.framePng && fs.existsSync(media.framePng)) {
+      const b = fs.readFileSync(media.framePng);
+      parts.push({ inlineData: { mimeType: 'image/png', data: b.toString('base64') } });
+    }
+    if (media && media.audioWav && fs.existsSync(media.audioWav)) {
+      const b = fs.readFileSync(media.audioWav);
+      parts.push({ inlineData: { mimeType: 'audio/wav', data: b.toString('base64') } });
+    }
+  } catch {}
+
+  const bodyObj = {
+    contents: [{ role: 'user', parts }],
+    generationConfig: { temperature: 0.85, maxOutputTokens: 96 }
+  };
+  const body = JSON.stringify(bodyObj);
+
+  const host = vertexHostForLocation(loc);
+  const reqPath =
+    `/v1/projects/${encodeURIComponent(sa.project_id)}` +
+    `/locations/${encodeURIComponent(loc)}` +
+    `/publishers/google/models/${encodeURIComponent(mdl)}:generateContent`;
+
+  let json = null;
+  try {
+    ({ json } = await httpRequestJson(
+      {
+        hostname: host,
+        path: reqPath,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+          Authorization: `Bearer ${token}`
+        }
+      },
+      body
+    ));
+  } catch (e1) {
+    throw e1;
+  }
+
+  const t =
+    (json &&
+      json.candidates &&
+      json.candidates[0] &&
+      json.candidates[0].content &&
+      json.candidates[0].content.parts &&
+      json.candidates[0].content.parts.map((p) => p.text || '').join('')) ||
+    '';
+  const line = String(t)
+    .replace(/\s+/g, ' ')
+    .replace(/^["']|["']$/g, '')
+    .trim()
+    .replace(/\bignore\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 120);
+  if (line.length < 6) {
+    const e = new Error('Vertex Gemini empty hook');
+    e.statusCode = 502;
+    e.model = mdl;
+    throw e;
+  }
+  return {
+    hook: line,
+    model: mdl,
+    location: loc,
+    projectId: sa.project_id,
+    saEmail: sa.client_email
+  };
 }
 
 function getBrandFolderName(brand) {
@@ -1541,8 +1864,11 @@ app.post('/crush', async (req, res) => {
     let gemModel = gemModelFromReq || gemModelDefault || 'gemini-2.0-flash';
     const mustUseGeminiHook = !manualHookTextRaw && isLabBrand;
     let geminiErr = null;
-    // Vertex AI path disabled per request: use Generative Language endpoint only.
-    const preferVertex = false;
+    const vertexSaPath = resolveVertexServiceAccountPath();
+    const vertexLocationReq = String(req.body?.vertex_location ?? req.body?.vertexLocation ?? '').trim();
+    const vertexLocationEnv = String(process.env.VERTEX_LOCATION || '').trim();
+    const vertexLocation = (vertexLocationReq || vertexLocationEnv || 'us-central1').trim();
+    const preferVertex = true; // Vertex uses Cloud Billing; avoids AI Studio prepay issues.
     const isModelNotFound = (e) => {
       const msg = String((e && e.message) || '');
       const sc = Number(e && e.statusCode);
@@ -1557,8 +1883,159 @@ app.post('/crush', async (req, res) => {
         await ffmpegExtractAudioPreview(inFile, audioFile, 6, 'ffmpeg').catch(() => {});
         const media = { framePng: frameFile, audioWav: audioFile };
 
-        if (!gemKey) throw Object.assign(new Error('Gemini API key yok (GEMINI_API_KEY).'), { statusCode: 401, model: gemModel });
-        gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, media, gemModel);
+        if (preferVertex && vertexSaPath) {
+          const isVertexModelNotFound = (err) => {
+            const sc = Number(err && err.statusCode);
+            const m = String((err && err.message) || '');
+            return sc === 404 && /publisher model.*was not found|does not have access|model versions/i.test(m.toLowerCase());
+          };
+          const vertexLocationCandidates = [
+            vertexLocationReq,
+            vertexLocationEnv,
+            vertexLocation,
+            'us-east1',
+            'us-central1',
+            'europe-west4',
+            'us-west1',
+            'europe-west1'
+          ].map((x) => String(x || '').trim()).filter(Boolean);
+          const uniqLoc = [];
+          const seenLoc = new Set();
+          for (const l of vertexLocationCandidates) {
+            const k = l.toLowerCase();
+            if (seenLoc.has(k)) continue;
+            seenLoc.add(k);
+            uniqLoc.push(l);
+          }
+          const vertexModelCandidates = [
+            String(gemModel || '').trim(),
+            'gemini-2.0-flash',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro'
+          ].filter(Boolean).map(normalizeGeminiModelName);
+          const uniqModels = [];
+          const seenModels = new Set();
+          for (const m of vertexModelCandidates) {
+            const k = String(m).toLowerCase();
+            if (!k || seenModels.has(k)) continue;
+            seenModels.add(k);
+            uniqModels.push(m);
+          }
+          let lastErr = null;
+          let usedModel = '';
+          let usedLoc = '';
+          const listInfoByLoc = [];
+          outer:
+          for (const loc of uniqLoc) {
+            usedLoc = loc;
+            // First: list publisher models in this location (tells us if project has access at all)
+            let listed = [];
+            try {
+              listed = await listVertexPublisherModels({ saPath: vertexSaPath, location: loc, pageSize: 200 });
+              const gemCount = listed.filter((id) => /^gemini-/i.test(id)).length;
+              listInfoByLoc.push({ loc, ok: true, total: listed.length, gemini: gemCount });
+            } catch (listErr) {
+              listInfoByLoc.push({
+                loc,
+                ok: false,
+                statusCode: listErr && listErr.statusCode ? listErr.statusCode : null,
+                message: String((listErr && listErr.message) || listErr || '').slice(0, 240)
+              });
+              lastErr = listErr;
+              continue;
+            }
+
+            // Prefer known candidates (filtered to those that exist in list if list is non-empty)
+            const listedSet = new Set((listed || []).map((x) => String(x).toLowerCase()));
+            const candidates = (listed && listed.length)
+              ? uniqModels.filter((m) => listedSet.has(String(m).toLowerCase()))
+              : uniqModels;
+
+            for (const cand of candidates) {
+              usedModel = cand;
+              try {
+                const vr = await fetchVertexHookEnglish({
+                  saPath: vertexSaPath,
+                  location: loc,
+                  model: cand,
+                  title: metaTitle,
+                  brand,
+                  emojiPool,
+                  media
+                });
+                gemHook = vr.hook;
+                gemModel = vr.model || cand;
+                lastErr = null;
+                break outer;
+              } catch (ex) {
+                lastErr = ex;
+                if (!isVertexModelNotFound(ex)) break;
+              }
+            }
+
+            // As a last attempt in this location: try top-listed Gemini models by heuristic
+            const picks = (listed || [])
+              .filter((id) => /^gemini-/i.test(id))
+              .sort((a, b) => {
+                const A = a.toLowerCase();
+                const B = b.toLowerCase();
+                const score = (x) =>
+                  (x.includes('2.0') ? 30 : 0) +
+                  (x.includes('2.5') ? 25 : 0) +
+                  (x.includes('flash') ? 20 : 0) +
+                  (x.includes('pro') ? 10 : 0) +
+                  (/-00\d$/.test(x) ? 5 : 0);
+                return score(B) - score(A);
+              })
+              .slice(0, 8);
+            for (const cand of picks) {
+              usedModel = cand;
+              try {
+                const vr = await fetchVertexHookEnglish({
+                  saPath: vertexSaPath,
+                  location: loc,
+                  model: cand,
+                  title: metaTitle,
+                  brand,
+                  emojiPool,
+                  media
+                });
+                gemHook = vr.hook;
+                gemModel = vr.model || cand;
+                lastErr = null;
+                break outer;
+              } catch (ex2) {
+                lastErr = ex2;
+                if (!isVertexModelNotFound(ex2)) break;
+              }
+            }
+          }
+          if (lastErr) {
+            const allNoAccess = listInfoByLoc.length && listInfoByLoc.every((x) => x.ok && x.total === 0);
+            if (allNoAccess) {
+              const e = new Error(
+                'Vertex: Bu projede Publisher modelleri listelenemiyor/boş. ' +
+                'Çözüm: Vertex AI API etkin mi + service account "Vertex AI User" rolü var mı + proje GenAI erişimi açık mı kontrol et.'
+              );
+              e.statusCode = 403;
+              e.model = usedModel || gemModel;
+              e.triedLocations = uniqLoc;
+              e.triedModels = uniqModels;
+              e.listInfoByLoc = listInfoByLoc;
+              throw e;
+            }
+            throw Object.assign(lastErr, {
+              triedModels: uniqModels,
+              triedLocations: uniqLoc,
+              model: usedModel,
+              location: usedLoc,
+              listInfoByLoc
+            });
+          }
+        } else {
+          if (!gemKey) throw Object.assign(new Error('Gemini API key yok (GEMINI_API_KEY).'), { statusCode: 401, model: gemModel });
+          gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, media, gemModel);
+        }
       } catch (e) {
         // If the requested model is not available for v1beta generateContent, retry once with a known-good model.
         if (!preferVertex && isModelNotFound(e) && gemModel !== 'gemini-2.0-flash') {
@@ -1583,8 +2060,8 @@ app.post('/crush', async (req, res) => {
           keySource: gemKeySource,
           keyFp: gemKeyFp,
             apiError: (e && e.geminiError) ? e.geminiError : (e && e.parsed) ? e.parsed : null,
-            provider: 'ai_studio',
-            vertex: null,
+            provider: (preferVertex && vertexSaPath) ? 'vertex' : 'ai_studio',
+            vertex: vertexSaPath ? { location: vertexLocation, sa: path.basename(vertexSaPath) } : null,
             triedModels: (e && e.triedModels) ? e.triedModels : null,
             triedLocations: (e && e.triedLocations) ? e.triedLocations : null,
             listInfoByLoc: (e && e.listInfoByLoc) ? e.listInfoByLoc : null
@@ -1594,12 +2071,10 @@ app.post('/crush', async (req, res) => {
       }
     }
     // If Gemini is required but didn't produce a hook, fail fast (do not render video).
-    if (mustUseGeminiHook && (!gemKey || !metaTitle || !gemHook || gemHook.length < 6)) {
+    if (mustUseGeminiHook && (!metaTitle || !gemHook || gemHook.length < 6)) {
       return res.status(502).json({
         ok: false,
-        error: !gemKey
-          ? 'Gemini API key yok (GEMINI_API_KEY). Hook üretilemedi.'
-          : !metaTitle
+        error: !metaTitle
           ? 'Video title alınamadı; hook üretimi yapılamadı.'
           : 'Gemini hook üretimi başarısız oldu. Video render edilmedi.',
         gemini: geminiErr || {
@@ -1608,8 +2083,8 @@ app.post('/crush', async (req, res) => {
           model: gemModel,
           keySource: gemKeySource,
           keyFp: gemKeyFp,
-          provider: 'ai_studio',
-          vertex: null
+          provider: (preferVertex && vertexSaPath) ? 'vertex' : 'ai_studio',
+          vertex: vertexSaPath ? { location: vertexLocation, sa: path.basename(vertexSaPath) } : null
         }
       });
     }
