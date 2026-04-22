@@ -985,6 +985,7 @@ function httpRequestJson({ hostname, path: reqPath, method, headers }, body) {
       res.on('data', (c) => { raw += c.toString(); });
       res.on('end', () => {
         const code = res.statusCode || 0;
+        const contentType = (res.headers && (res.headers['content-type'] || res.headers['Content-Type'])) || '';
         let parsed = null;
         try { parsed = raw ? JSON.parse(raw) : null; } catch {}
         if (code >= 400) {
@@ -998,6 +999,7 @@ function httpRequestJson({ hostname, path: reqPath, method, headers }, body) {
           e.raw = raw;
           e.parsed = parsed;
           e.request = { hostname, path: reqPath, method };
+          e.contentType = String(contentType || '');
           return reject(e);
         }
         resolve({ statusCode: code, raw, json: parsed });
@@ -2064,7 +2066,9 @@ app.post('/crush', async (req, res) => {
             vertex: vertexSaPath ? { location: vertexLocation, sa: path.basename(vertexSaPath) } : null,
             triedModels: (e && e.triedModels) ? e.triedModels : null,
             triedLocations: (e && e.triedLocations) ? e.triedLocations : null,
-            listInfoByLoc: (e && e.listInfoByLoc) ? e.listInfoByLoc : null
+            listInfoByLoc: (e && e.listInfoByLoc) ? e.listInfoByLoc : null,
+            request: (e && e.request) ? e.request : null,
+            contentType: (e && e.contentType) ? e.contentType : null
         };
         console.warn('[gemini hook]', geminiErr);
         }
