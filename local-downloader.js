@@ -1674,66 +1674,6 @@ async function runYtDlpToResponse(res, url) {
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
-// UI helper page: opens from HTTPS site without mixed-content fetch.
-// Browser navigates to http://127.0.0.1:8787/ui/download?url=... (top-level navigation allowed),
-// then this page (same-origin) calls /download and shows result.
-app.get('/ui/download', (req, res) => {
-  const url = String(req.query?.url || '').trim();
-  const safe = url.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(`<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Local Downloader</title>
-  <style>
-    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b0b0b;color:#eee;margin:0;padding:18px}
-    .box{max-width:720px;margin:0 auto;background:#141414;border:1px solid #2a2a2a;border-radius:10px;padding:16px}
-    .muted{color:#aaa;font-size:13px}
-    pre{white-space:pre-wrap;word-break:break-word;background:#0f0f0f;border:1px solid #2a2a2a;padding:12px;border-radius:8px}
-    .ok{color:#7CFF9B}
-    .err{color:#FF7C7C}
-    button{background:#222;color:#eee;border:1px solid #444;border-radius:8px;padding:8px 10px;cursor:pointer}
-  </style>
-</head>
-<body>
-  <div class="box">
-    <div style="font-weight:700">⬇ Local Downloader</div>
-    <div class="muted" style="margin-top:6px">İndirme başlatılıyor…</div>
-    <div class="muted" style="margin-top:6px">URL:</div>
-    <pre>${safe || '(boş)'}</pre>
-    <div id="out" class="muted">⏳ Bekleniyor…</div>
-    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-      <button onclick="try{window.close()}catch(e){}">Pencereyi kapat</button>
-    </div>
-  </div>
-  <script>
-    const url = ${JSON.stringify(url)};
-    const out = document.getElementById('out');
-    async function run() {
-      if (!url) {
-        out.className = 'err';
-        out.textContent = 'Hata: url gerekli';
-        return;
-      }
-      try {
-        const r = await fetch('/download?url=' + encodeURIComponent(url), { cache: 'no-store' });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || !j.ok) throw new Error((j && j.error) ? j.error : ('HTTP ' + r.status));
-        out.className = 'ok';
-        out.textContent = '✅ Kaydedildi: ' + (j.savedTo || '') + '\\\\' + (j.file || '');
-      } catch (e) {
-        out.className = 'err';
-        out.textContent = '❌ ' + (e && e.message ? e.message : String(e));
-      }
-    }
-    run();
-  </script>
-</body>
-</html>`);
-});
-
 app.get('/download', async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: 'url gerekli' });
