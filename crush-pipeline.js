@@ -1091,7 +1091,7 @@ async function buildCrushRenderPlan(o) {
           `[0:a]asetpts=PTS-STARTPTS,` +
           `rubberband=tempo=${effectiveSpeed.toFixed(6)}:pitch=${pitchFactor.toFixed(8)},` +
           `volume='${volExpr}',` +
-          `aformat=sample_fmts=fltp:channel_layouts=stereo,` +
+          `aformat=sample_fmts=fltp:channel_layouts=stereo,aresample=async=1:first_pts=0,` +
           `apad=pad_dur=${(outDur + 0.5).toFixed(3)},` +
           `atrim=0:${outDur.toFixed(3)},asetpts=PTS-STARTPTS[a0];` +
           `[${musicInputIdx}:a]atrim=start=${musicStart.toFixed(3)}:duration=${outDur.toFixed(3)},asetpts=PTS-STARTPTS,` +
@@ -1103,7 +1103,7 @@ async function buildCrushRenderPlan(o) {
           `[0:a]asetpts=PTS-STARTPTS,` +
           `atempo=${effectiveSpeed.toFixed(6)},` +
           `volume='${volExpr}',` +
-          `aformat=sample_fmts=fltp:channel_layouts=stereo,` +
+          `aformat=sample_fmts=fltp:channel_layouts=stereo,aresample=async=1:first_pts=0,` +
           `apad=pad_dur=${(outDur + 0.5).toFixed(3)},` +
           `atrim=0:${outDur.toFixed(3)},asetpts=PTS-STARTPTS[a0];` +
           `[${musicInputIdx}:a]atrim=start=${musicStart.toFixed(3)}:duration=${outDur.toFixed(3)},asetpts=PTS-STARTPTS,` +
@@ -1118,6 +1118,7 @@ async function buildCrushRenderPlan(o) {
           `[0:a]asetpts=PTS-STARTPTS,` +
             `rubberband=tempo=${effectiveSpeed.toFixed(6)}:pitch=${pitchFactor.toFixed(8)},` +
             `volume='${volExpr}',` +
+            `aresample=async=1:first_pts=0,` +
             `apad=pad_dur=${(outDur + 0.5).toFixed(3)},` +
             `atrim=0:${outDur.toFixed(3)},asetpts=PTS-STARTPTS[a]`
         );
@@ -1126,6 +1127,7 @@ async function buildCrushRenderPlan(o) {
           `[0:a]asetpts=PTS-STARTPTS,` +
             `atempo=${effectiveSpeed.toFixed(6)},` +
             `volume='${volExpr}',` +
+            `aresample=async=1:first_pts=0,` +
             `apad=pad_dur=${(outDur + 0.5).toFixed(3)},` +
             `atrim=0:${outDur.toFixed(3)},asetpts=PTS-STARTPTS[a]`
         );
