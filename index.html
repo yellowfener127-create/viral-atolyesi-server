@@ -2051,9 +2051,18 @@ async function startDownload(url, btn) {
       // localhost yoksa Render'a düş
     }
 
-    // Local Downloader yoksa: kullanıcıyı başka siteye atma.
-    // Net hata ver (kullanıcı local-downloader'ı açsın).
-    throw new Error("Local Downloader çalışmıyor. Lütfen PC'de `node local-downloader.js` çalıştır ve tekrar dene.");
+    // GitHub Pages -> Render büyük dosya indirmede fetch(blob) sık sık "Failed to fetch" verir.
+    // Bu ortamda indirmeyi tarayıcıya bırakıyoruz (popup'sız <a> click).
+    if (typeof location !== "undefined" && /github\.io$/i.test(location.hostname || "")) {
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return;
+    }
 
     const res = await fetch(url, { method: "GET", mode: "cors", cache: "no-store" });
     if (!res.ok) {
