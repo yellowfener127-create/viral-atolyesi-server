@@ -260,7 +260,7 @@
     <button class="search-btn" id="searchBtn" onclick="doSearch()">🔍 Videoları Getir</button>
   </div>
   <div class="load-more-row" id="loadMoreBar" style="display:none;margin-bottom:22px" aria-hidden="true">
-    <button type="button" class="load-more-btn" id="loadMoreBtn" onclick="loadMoreOrFetch()">➕ 5 video daha getir</button>
+    <button type="button" class="load-more-btn" id="loadMoreBtn" onclick="loadMoreOrFetch()">➕ 20 video daha getir</button>
   </div>
 
   <div id="results"></div>
@@ -1523,7 +1523,8 @@ let activeCat = "animal";
 let activePlat = "youtube";
 
 // "Daha fazla yükle" state
-const PAGE_SIZE = 5;
+// Kota: API tarafında zaten tek seferde büyük liste çekiyoruz; ekranda 5 yerine 20 göstermek kota maliyetini anlamlı artırmaz.
+const PAGE_SIZE = 20;
 const resultsState = {
   all: [],
   visibleCount: 0,
@@ -2163,9 +2164,9 @@ function updateLoadMoreBar() {
   bar.style.display = show ? "flex" : "none";
   bar.setAttribute("aria-hidden", show ? "false" : "true");
   if (shown < total) {
-    btn.textContent = "➕ 5 video daha (listeden)";
+    btn.textContent = "➕ 20 video daha (listeden)";
   } else {
-    btn.textContent = !savedKey ? "➕ 5 video daha (API key gerekli)" : "➕ 5 video daha getir";
+    btn.textContent = !savedKey ? "➕ 20 video daha (API key gerekli)" : "➕ 20 video daha getir";
   }
 }
 
