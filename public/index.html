@@ -1012,13 +1012,9 @@ function crushDrawVideoFrameOntoCanvas(cv) {
 
 function crushDrawRectsOverlay(cv) {
   if (!cv) return;
-  // Blur dikdörtgenleri 720×1280 tam kare (v0base) uzayına map edilir.
-  // Bu yüzden blur canvas'ta sadece tek video (arka) gösterilir; pencere/çerçeve/hook bindirmeyiz.
-  if (cv.id === "crushBlurCanvas") {
-    crushDrawBlurBaseOnly(cv);
-  } else {
-    crushDrawVideoFrameOntoCanvas(cv);
-  }
+  // Tüm önizlemeler aynı kompoziti göstersin (3 ayrı canvas ama aynı ayarlar).
+  // Blur/crop kutuları yine 720×1280 referans uzayında çizilir.
+  crushDrawVideoFrameOntoCanvas(cv);
   const ctx = cv.getContext("2d");
   for (const rec of __crushManual.rects) {
     const sel = rec.id === __crushManual.selectedId;
@@ -1060,8 +1056,8 @@ function crushRedrawAllPreviews() {
   const hookCv = document.getElementById("crushHookCanvas");
   const cropCv = document.getElementById("crushCropCanvas");
   if (blurCv) crushDrawRectsOverlay(blurCv);
-  if (nudgeCv) crushDrawVideoFrameOntoCanvas(nudgeCv);
-  if (hookCv) crushDrawVideoFrameOntoCanvas(hookCv);
+  if (nudgeCv) crushDrawRectsOverlay(nudgeCv);
+  if (hookCv) crushDrawRectsOverlay(hookCv);
   if (cropCv) crushDrawRectsOverlay(cropCv);
 }
 
