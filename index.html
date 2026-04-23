@@ -328,6 +328,11 @@
         <canvas id="crushBlurCanvas" width="720" height="1280" tabindex="0" style="max-width:100%;max-height:52vh;width:auto;height:auto;border:1px solid #333;border-radius:6px;background:#0a0a0a;display:block;touch-action:none"></canvas>
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center">
           <button type="button" class="tool-btn" id="crushBlurModeBtn" onclick="toggleCrushBlurDrawMode()">Blur Ekle</button>
+          <label style="font-size:11px;color:var(--muted)">Zoom
+            <input type="range" id="crushBlurZoom" min="1" max="6" step="0.25" value="1" style="width:120px;vertical-align:middle" />
+            <span id="crushBlurZoomVal" style="font-variant-numeric:tabular-nums">1.00×</span>
+          </label>
+          <button type="button" class="tool-btn" onclick="resetCrushBlurView()">Zoom sıfırla</button>
           <label style="font-size:11px;color:var(--muted)">Kare (s)
             <input type="range" id="crushPreviewSeek" min="0" max="1" step="0.05" value="0" disabled style="width:160px;vertical-align:middle" />
           </label>
@@ -688,6 +693,9 @@ function copyToolText(resultId, btnId) {
 /** Manuel blur: 720×1280 px. videoCropYNudgePx: Lab üst kırpım. frameImg: marka zırh PNG. */
 var __crushManual = {
   rects: [], selectedId: null, drawMode: false, hookDragMode: false, drag: null, nextId: 1, REF_W: 720, REF_H: 1280,
+  blurZoom: 1,
+  blurPanX: 0,
+  blurPanY: 0,
   videoCropYNudgePx: 0,
   previewWindowShiftYPx: 0,
   cropMode: false,
@@ -726,6 +734,42 @@ function crushCanvasCoords(ev, canvas) {
   const scaleX = canvas.width / r.width;
   const scaleY = canvas.height / r.height;
   return { mx: (ev.clientX - r.left) * scaleX, my: (ev.clientY - r.top) * scaleY };
+}
+
+function crushBlurViewParams(cv) {
+  const W = cv.width, H = cv.height;
+  const z = Math.max(1, Math.min(6, Number(__crushManual.blurZoom) || 1));
+  const sw = Math.max(1, Math.round(W / z));
+  const sh = Math.max(1, Math.round(H / z));
+  let sx = Math.round(Number(__crushManual.blurPanX) || 0);
+  let sy = Math.round(Number(__crushManual.blurPanY) || 0);
+  sx = Math.max(0, Math.min(W - sw, sx));
+  sy = Math.max(0, Math.min(H - sh, sy));
+  __crushManual.blurZoom = z;
+  __crushManual.blurPanX = sx;
+  __crushManual.blurPanY = sy;
+  return { z, sx, sy, sw, sh, W, H };
+}
+
+function crushBlurScreenToBase(cv, mx, my) {
+  const p = crushBlurViewParams(cv);
+  return { bx: p.sx + (mx / p.z), by: p.sy + (my / p.z) };
+}
+
+function crushBlurBaseToScreen(cv, bx, by) {
+  const p = crushBlurViewParams(cv);
+  return { x: (bx - p.sx) * p.z, y: (by - p.sy) * p.z, z: p.z };
+}
+
+function resetCrushBlurView() {
+  __crushManual.blurZoom = 1;
+  __crushManual.blurPanX = 0;
+  __crushManual.blurPanY = 0;
+  const z = document.getElementById("crushBlurZoom");
+  const zv = document.getElementById("crushBlurZoomVal");
+  if (z) z.value = "1";
+  if (zv) zv.textContent = "1.00×";
+  crushRedrawAllPreviews();
 }
 
 function crushClampRect(x, y, w, h) {
@@ -907,6 +951,19 @@ function crushDrawBlurBaseOnly(cv) {
   ctx.drawImage(tc, 0, 0);
 }
 
+function crushDrawBlurBaseWithView(cv) {
+  if (!cv) return;
+  const W = cv.width, H = cv.height;
+  if (!__crushManual._tmpBlurBase) __crushManual._tmpBlurBase = document.createElement("canvas");
+  const base = __crushManual._tmpBlurBase;
+  base.width = W; base.height = H;
+  crushDrawBlurBaseOnly(base);
+  const ctx = cv.getContext("2d");
+  const p = crushBlurViewParams(cv);
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(base, p.sx, p.sy, p.sw, p.sh, 0, 0, W, H);
+}
+
 /**
  * Önizleme = sunucudaki [v0] + Lab penceresi + zırh PNG üstte + hook. Video yokken sadece zırh + hook.
  */
@@ -1012,21 +1069,37 @@ function crushDrawVideoFrameOntoCanvas(cv) {
 
 function crushDrawRectsOverlay(cv) {
   if (!cv) return;
-  // Tüm önizlemeler aynı kompoziti göstersin (3 ayrı canvas ama aynı ayarlar).
-  // Blur/crop kutuları yine 720×1280 referans uzayında çizilir.
-  crushDrawVideoFrameOntoCanvas(cv);
+  if (cv.id === "crushBlurCanvas") {
+    crushDrawBlurBaseWithView(cv);
+  } else {
+    crushDrawVideoFrameOntoCanvas(cv);
+  }
   const ctx = cv.getContext("2d");
   for (const rec of __crushManual.rects) {
     const sel = rec.id === __crushManual.selectedId;
     ctx.strokeStyle = sel ? "#6ae" : "#e8b84a";
     ctx.lineWidth = sel ? 3 : 2;
-    ctx.strokeRect(rec.x + 0.5, rec.y + 0.5, Math.max(1, rec.w - 1), Math.max(1, rec.h - 1));
-    ctx.fillStyle = sel ? "rgba(100,180,255,0.14)" : "rgba(255,200,100,0.1)";
-    ctx.fillRect(rec.x, rec.y, rec.w, rec.h);
-    if (sel) {
-      const hs = 10;
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(rec.x + rec.w - hs, rec.y + rec.h - hs, hs, hs);
+    if (cv.id === "crushBlurCanvas") {
+      const p0 = crushBlurBaseToScreen(cv, rec.x, rec.y);
+      const ww = rec.w * p0.z;
+      const hh = rec.h * p0.z;
+      ctx.strokeRect(p0.x + 0.5, p0.y + 0.5, Math.max(1, ww - 1), Math.max(1, hh - 1));
+      ctx.fillStyle = sel ? "rgba(100,180,255,0.14)" : "rgba(255,200,100,0.1)";
+      ctx.fillRect(p0.x, p0.y, ww, hh);
+      if (sel) {
+        const hs = 10;
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(p0.x + ww - hs, p0.y + hh - hs, hs, hs);
+      }
+    } else {
+      ctx.strokeRect(rec.x + 0.5, rec.y + 0.5, Math.max(1, rec.w - 1), Math.max(1, rec.h - 1));
+      ctx.fillStyle = sel ? "rgba(100,180,255,0.14)" : "rgba(255,200,100,0.1)";
+      ctx.fillRect(rec.x, rec.y, rec.w, rec.h);
+      if (sel) {
+        const hs = 10;
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(rec.x + rec.w - hs, rec.y + rec.h - hs, hs, hs);
+      }
     }
   }
   // Crop overlay box on crop canvas
@@ -1090,7 +1163,16 @@ function onCrushCanvasMouseDown(ev) {
   const cv = ev.currentTarget;
   if (!cv) return;
   const { mx, my } = crushCanvasCoords(ev, cv);
-  const hit = crushGetHitRect(mx, my);
+  const bpt = (cv.id === "crushBlurCanvas") ? crushBlurScreenToBase(cv, mx, my) : { bx: mx, by: my };
+  const bx = bpt.bx, by = bpt.by;
+  const hit = crushGetHitRect(bx, by);
+
+  if (cv.id === "crushBlurCanvas" && (ev.button === 2 || ev.buttons === 2)) {
+    const p = crushBlurViewParams(cv);
+    __crushManual.drag = { type: "blur_pan", mx0: mx, my0: my, panX0: p.sx, panY0: p.sy, canvas: cv };
+    ev.preventDefault();
+    return;
+  }
   if (cv.id === "crushCropCanvas" && __crushManual.cropMode) {
     const r = crushClampCropRect(__crushManual.cropRect || { x: 0, y: 0, w: 720, h: 1280 });
     const hs = 12;
@@ -1117,14 +1199,14 @@ function onCrushCanvasMouseDown(ev) {
     ev.preventDefault();
     return;
   }
-  if (hit && __crushManual.selectedId === hit.id && crushHitBrHandle(mx, my, hit)) {
-    __crushManual.drag = { type: "resize", id: hit.id, mx0: mx, my0: my, w0: hit.w, h0: hit.h, canvas: cv };
+  if (hit && __crushManual.selectedId === hit.id && crushHitBrHandle(bx, by, hit)) {
+    __crushManual.drag = { type: "resize", id: hit.id, mx0: bx, my0: by, w0: hit.w, h0: hit.h, canvas: cv };
     ev.preventDefault();
     return;
   }
   if (hit && !__crushManual.drawMode) {
     __crushManual.selectedId = hit.id;
-    __crushManual.drag = { type: "move", id: hit.id, mx0: mx, my0: my, x0: hit.x, y0: hit.y, canvas: cv };
+    __crushManual.drag = { type: "move", id: hit.id, mx0: bx, my0: by, x0: hit.x, y0: hit.y, canvas: cv };
     crushRedrawAllPreviews();
     crushUpdateDeleteBtn();
     ev.preventDefault();
@@ -1153,6 +1235,19 @@ function onCrushCanvasMouseMove(ev) {
   const cv = d.canvas || document.getElementById("crushBlurCanvas");
   if (!cv) return;
   const { mx, my } = crushCanvasCoords(ev, cv);
+  const bpt = (cv.id === "crushBlurCanvas") ? crushBlurScreenToBase(cv, mx, my) : { bx: mx, by: my };
+  const bx = bpt.bx, by = bpt.by;
+
+  if (d.type === "blur_pan") {
+    const p = crushBlurViewParams(cv);
+    const dx = mx - d.mx0;
+    const dy = my - d.my0;
+    __crushManual.blurPanX = Math.round(d.panX0 - dx / p.z);
+    __crushManual.blurPanY = Math.round(d.panY0 - dy / p.z);
+    crushRedrawAllPreviews();
+    ev.preventDefault();
+    return;
+  }
   if (d.type === "crop_move") {
     const dx = mx - d.mx0;
     const dy = my - d.my0;
@@ -1192,10 +1287,12 @@ function onCrushCanvasMouseMove(ev) {
     return;
   }
   if (d.type === "new") {
-    const x = Math.min(d.sx, mx), y = Math.min(d.sy, my);
-    const w = Math.abs(mx - d.sx), h = Math.abs(my - d.sy);
+    const sx0 = (cv.id === "crushBlurCanvas") ? crushBlurScreenToBase(cv, d.sx, d.sy).bx : d.sx;
+    const sy0 = (cv.id === "crushBlurCanvas") ? crushBlurScreenToBase(cv, d.sx, d.sy).by : d.sy;
+    const x = Math.min(sx0, bx), y = Math.min(sy0, by);
+    const w = Math.abs(bx - sx0), h = Math.abs(by - sy0);
     if (cv && cv.id === "crushBlurCanvas") {
-      crushDrawBlurBaseOnly(cv);
+      crushDrawBlurBaseWithView(cv);
     } else {
       crushDrawVideoFrameOntoCanvas(cv);
     }
@@ -1203,7 +1300,12 @@ function onCrushCanvasMouseMove(ev) {
     const c = crushClampRect(x, y, w, h);
     ctx.strokeStyle = "#8f8";
     ctx.setLineDash([6, 4]);
-    ctx.strokeRect(c.x, c.y, c.w, c.h);
+    if (cv.id === "crushBlurCanvas") {
+      const p0 = crushBlurBaseToScreen(cv, c.x, c.y);
+      ctx.strokeRect(p0.x, p0.y, c.w * p0.z, c.h * p0.z);
+    } else {
+      ctx.strokeRect(c.x, c.y, c.w, c.h);
+    }
     ctx.setLineDash([]);
     __crushManual._preview = c;
     ev.preventDefault();
@@ -1212,8 +1314,8 @@ function onCrushCanvasMouseMove(ev) {
   if (d.type === "resize") {
     const r = __crushManual.rects.find((x) => x.id === d.id);
     if (!r) return;
-    const nw = Math.max(4, d.w0 + (mx - d.mx0));
-    const nh = Math.max(4, d.h0 + (my - d.my0));
+    const nw = Math.max(4, d.w0 + (bx - d.mx0));
+    const nh = Math.max(4, d.h0 + (by - d.my0));
     const c = crushClampRect(r.x, r.y, nw, nh);
     r.w = c.w; r.h = c.h;
     crushRedrawAllPreviews();
@@ -1224,8 +1326,8 @@ function onCrushCanvasMouseMove(ev) {
   if (d.type === "move") {
     const r = __crushManual.rects.find((x) => x.id === d.id);
     if (!r) return;
-    const dx = mx - d.mx0;
-    const dy = my - d.my0;
+    const dx = bx - d.mx0;
+    const dy = by - d.my0;
     const nx = Math.max(0, Math.min(__crushManual.REF_W - r.w, Math.round(d.x0 + dx)));
     const ny = Math.max(0, Math.min(__crushManual.REF_H - r.h, Math.round(d.y0 + dy)));
     r.x = nx;
@@ -1292,6 +1394,34 @@ function wireCrushManualBlurUi() {
   const seek = document.getElementById("crushPreviewSeek");
   const wrap = document.getElementById("crushBlurPreviewWrap");
   if (!file || !v || !cv || !seek || !wrap) return;
+
+  cv.addEventListener("contextmenu", (e) => e.preventDefault());
+  const z = document.getElementById("crushBlurZoom");
+  const zv = document.getElementById("crushBlurZoomVal");
+  if (z) {
+    z.addEventListener("input", () => {
+      __crushManual.blurZoom = Number(z.value) || 1;
+      if (zv) zv.textContent = (__crushManual.blurZoom).toFixed(2) + "×";
+      crushRedrawAllPreviews();
+    });
+  }
+  cv.addEventListener("wheel", (ev) => {
+    ev.preventDefault();
+    const { mx, my } = crushCanvasCoords(ev, cv);
+    const basePt = crushBlurScreenToBase(cv, mx, my);
+    const dir = ev.deltaY > 0 ? -1 : 1;
+    const step = 0.15;
+    const cur = Number(__crushManual.blurZoom) || 1;
+    const nz = Math.max(1, Math.min(6, cur * (dir > 0 ? (1 + step) : (1 - step))));
+    __crushManual.blurZoom = nz;
+    const p = crushBlurViewParams(cv);
+    __crushManual.blurPanX = Math.round(basePt.bx - (mx / p.z));
+    __crushManual.blurPanY = Math.round(basePt.by - (my / p.z));
+    crushBlurViewParams(cv);
+    if (z) z.value = String(__crushManual.blurZoom);
+    if (zv) zv.textContent = (__crushManual.blurZoom).toFixed(2) + "×";
+    crushRedrawAllPreviews();
+  }, { passive: false });
   file.addEventListener("change", () => {
     __crushManual.rects = [];
     __crushManual.selectedId = null;
