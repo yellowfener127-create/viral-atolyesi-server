@@ -2035,25 +2035,18 @@ async function startDownload(url, btn) {
     btn.textContent = "⏳ İndiriliyor...";
   }
   try {
-    // Tercih: Kullanıcının kendi bilgisayarından indirme (localhost helper).
-    // Kullanıcı `npm run local-downloader` çalıştırırsa bu endpoint aktif olur.
-    try {
-      const localUrl = "http://127.0.0.1:8787/download?url=" + encodeURIComponent(new URL(url).searchParams.get("url") || url);
-      const h = await fetch("http://127.0.0.1:8787/health", { cache: "no-store" }).then(r => r.ok).catch(() => false);
-      if (h) {
-        const resLocal = await fetch(localUrl, { method: "GET", cache: "no-store" });
-        const data = await resLocal.json().catch(() => ({}));
-        if (!resLocal.ok) throw new Error(data.error || ("Local downloader " + resLocal.status));
-        alert("✅ Video kaydedildi:\n" + (data.savedTo || "—") + "\n\nDosya: " + (data.file || "—"));
-        return;
-      }
-    } catch (e) {
-      // localhost yoksa Render'a düş
+    // Not: GitHub Pages (HTTPS) -> http://127.0.0.1 fetch "mixed content" sebebiyle engellenir.
+    // Çözüm: Local Downloader UI sayfasını yeni pencerede aç (top-level navigation).
+    const realUrl = (new URL(url).searchParams.get("url") || url);
+    const uiUrl = "http://127.0.0.1:8787/ui/download?url=" + encodeURIComponent(realUrl);
+    const w = window.open(uiUrl, "_blank", "noopener,noreferrer,width=520,height=680");
+    if (!w) {
+      // Popup engellendiyse aynı sekmede aç.
+      window.location.href = uiUrl;
+    } else {
+      alert("✅ Local Downloader penceresi açıldı. İndirme oradan başlayacak.");
     }
-
-    // Local Downloader yoksa: kullanıcıyı başka siteye atma.
-    // Net hata ver (kullanıcı local-downloader'ı açsın).
-    throw new Error("Local Downloader çalışmıyor. Lütfen PC'de `node local-downloader.js` çalıştır ve tekrar dene.");
+    return;
 
     const res = await fetch(url, { method: "GET", mode: "cors", cache: "no-store" });
     if (!res.ok) {
