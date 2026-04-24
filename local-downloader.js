@@ -1739,8 +1739,8 @@ app.post('/crush', async (req, res) => {
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-local-crush-'));
   const inTpl = path.join(tmpDir, 'in.%(ext)s');
-  const outName = `crushed_${brand}_9x16_${Date.now()}.mp4`;
-  const outFile = path.join(brandDir, outName);
+  // outFile will be decided after caption/hashtags are known.
+  let outFile = path.join(brandDir, `crushed_${brand}_9x16_${Date.now()}.mp4`);
 
   try {
     const metaDur = await ytDlpGetDurationSec(url);
@@ -2125,6 +2125,18 @@ app.post('/crush', async (req, res) => {
     rememberUsed(cache, 'hooks', hookText);
     rememberUsed(cache, 'captions', finalCaption);
     saveDirectorCache(cache);
+
+    // File name = caption + hashtags (like Windows Explorer preview).
+    // Keep it filesystem-safe and reasonably short; also ensure uniqueness.
+    const filenameBaseRaw = [finalCaption, (finalHashtags || []).join(' ')].filter(Boolean).join(' ').trim();
+    const filenameBase = safeName(filenameBaseRaw || `crushed_${brand}_9x16_${Date.now()}`);
+    const desired = path.join(brandDir, filenameBase.endsWith('.mp4') ? filenameBase : (filenameBase + '.mp4'));
+    if (!fs.existsSync(desired)) {
+      outFile = desired;
+    } else {
+      const stem = filenameBase.replace(/\.mp4$/i, '');
+      outFile = path.join(brandDir, safeName(stem).slice(0, 160) + `_${Date.now()}.mp4`);
+    }
 
     const coverBox = null;
 
