@@ -391,6 +391,16 @@
           <input type="range" id="crushHookOffY" min="-400" max="400" step="1" value="0" style="width:140px;vertical-align:middle" />
           <span id="crushHookOffYVal">0</span>
         </label>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid #333;font-size:11px;color:var(--muted)">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="crushLabMeterEnabled" />
+            <span>Lab meter (küçük therapy/hope/chaos; nudge + hook önizlemede sürüklenebilir)</span>
+          </label>
+          <label style="display:block;margin-top:6px">Hedef %
+            <input type="range" id="crushLabMeterValue" min="0" max="100" step="1" value="80" style="width:min(100%,280px);vertical-align:middle" />
+            <span id="crushLabMeterValueVal" style="font-variant-numeric:tabular-nums">80</span>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -702,7 +712,11 @@ var __crushManual = {
   cropRect: { x: 0, y: 0, w: 720, h: 1280 },
   hookXOffsetPx: 0,
   hookYOffsetPx: 0,
-  frameImg: null
+  frameImg: null,
+  labMeterEnabled: false,
+  labMeterValue: 80,
+  labMeterX: 24,
+  labMeterY: 100
 };
 
 function crushClampCropRect(r) {
@@ -877,6 +891,57 @@ function crushSplitHookLines55(text) {
   const l2 = s.slice(br + 1).trim();
   if (!l1) return ["", l2];
   return l2 ? [l1, l2] : [l1];
+}
+
+function crushGetLabMeterRefSize() {
+  return { w: 100, h: 150 };
+}
+function crushHitLabMeter(bx, by) {
+  if (!__crushManual.labMeterEnabled) return false;
+  const { w, h } = crushGetLabMeterRefSize();
+  const x = __crushManual.labMeterX;
+  const y = __crushManual.labMeterY;
+  return bx >= x && by >= y && bx <= x + w && by <= y + h;
+}
+function crushDrawLabMeterWidget(ctx) {
+  if (!__crushManual.labMeterEnabled) return;
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  const x = __crushManual.labMeterX;
+  const y = __crushManual.labMeterY;
+  const { w: rfw, h: rfh } = crushGetLabMeterRefSize();
+  const mw = Math.max(1, Math.round((rfw * W) / 720));
+  const mh = Math.max(1, Math.round((rfh * H) / 1280));
+  const b = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
+  const label = b === "umut" ? "hope" : (b === "kaos" ? "chaos" : "therapy");
+  const val = Math.max(0, Math.min(100, Math.round(Number(__crushManual.labMeterValue) || 0)));
+  ctx.save();
+  ctx.fillStyle = "rgba(16,16,16,0.58)";
+  ctx.strokeStyle = "rgba(255,200,100,0.75)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  if (ctx.roundRect) { ctx.roundRect(x, y, mw, mh, 4); } else { ctx.rect(x, y, mw, mh); }
+  ctx.fill();
+  ctx.stroke();
+  const fsT = Math.max(8, Math.round(9 * (W / 720)));
+  ctx.fillStyle = "#e8e8e8";
+  ctx.font = "600 " + fsT + 'px "Segoe UI",sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText(label + " / meter", x + mw * 0.5, y + 6);
+  const barH = Math.round((100 * H) / 1280) * 0.72;
+  const barW = Math.max(2, Math.round((18 * W) / 720));
+  const bl = x + 8;
+  const bt = y + Math.round(22 * (H / 1280)) + 6;
+  ctx.fillStyle = "rgba(0,0,0,0.4)";
+  ctx.fillRect(bl - 1, bt - 1, barW + 2, barH + 2);
+  const fillH = (barH * val) / 100;
+  ctx.fillStyle = "rgba(45,200,100,0.9)";
+  ctx.fillRect(bl, bt + barH - fillH, barW, fillH);
+  ctx.fillStyle = "#eee";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(String(val) + "%", bl + barW + 4, bt + barH * 0.5);
+  ctx.restore();
 }
 
 function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
@@ -1121,6 +1186,9 @@ function crushDrawRectsOverlay(cv) {
     ctx.fillRect(r.x - hs / 2, r.y + r.h - hs / 2, hs, hs);
     ctx.fillRect(r.x + r.w - hs / 2, r.y + r.h - hs / 2, hs, hs);
   }
+  if ((cv.id === "crushNudgeCanvas" || cv.id === "crushHookCanvas") && __crushManual.labMeterEnabled) {
+    crushDrawLabMeterWidget(ctx);
+  }
 }
 
 function crushRedrawAllPreviews() {
@@ -1170,6 +1238,18 @@ function onCrushCanvasMouseDown(ev) {
   if (cv.id === "crushBlurCanvas" && (ev.button === 2 || ev.buttons === 2)) {
     const p = crushBlurViewParams(cv);
     __crushManual.drag = { type: "blur_pan", mx0: mx, my0: my, panX0: p.sx, panY0: p.sy, canvas: cv };
+    ev.preventDefault();
+    return;
+  }
+  if ((cv.id === "crushNudgeCanvas" || cv.id === "crushHookCanvas") && __crushManual.labMeterEnabled && crushHitLabMeter(bx, by) && !__crushManual.drawMode) {
+    __crushManual.drag = {
+      type: "lab_meter",
+      mx0: bx,
+      my0: by,
+      x0: __crushManual.labMeterX,
+      y0: __crushManual.labMeterY,
+      canvas: cv
+    };
     ev.preventDefault();
     return;
   }
@@ -1244,6 +1324,16 @@ function onCrushCanvasMouseMove(ev) {
     const dy = my - d.my0;
     __crushManual.blurPanX = Math.round(d.panX0 - dx / p.z);
     __crushManual.blurPanY = Math.round(d.panY0 - dy / p.z);
+    crushRedrawAllPreviews();
+    ev.preventDefault();
+    return;
+  }
+  if (d.type === "lab_meter") {
+    const dx = bx - d.mx0;
+    const dy = by - d.my0;
+    const { w: Mw, h: Mh } = crushGetLabMeterRefSize();
+    __crushManual.labMeterX = Math.max(0, Math.min(720 - Mw, Math.round(d.x0 + dx)));
+    __crushManual.labMeterY = Math.max(0, Math.min(1280 - Mh, Math.round(d.y0 + dy)));
     crushRedrawAllPreviews();
     ev.preventDefault();
     return;
@@ -1390,6 +1480,7 @@ function wireCrushManualBlurUi() {
   const v = document.getElementById("crushPreviewVideo");
   const cv = document.getElementById("crushBlurCanvas");
   const cropCv = document.getElementById("crushCropCanvas");
+  const nudgeCv = document.getElementById("crushNudgeCanvas");
   const hookCv = document.getElementById("crushHookCanvas");
   const seek = document.getElementById("crushPreviewSeek");
   const wrap = document.getElementById("crushBlurPreviewWrap");
@@ -1525,7 +1616,25 @@ function wireCrushManualBlurUi() {
       crushRedrawAllPreviews();
     });
   }
+  const le = document.getElementById("crushLabMeterEnabled");
+  if (le) {
+    le.addEventListener("change", function () {
+      __crushManual.labMeterEnabled = !!le.checked;
+      crushRedrawAllPreviews();
+    });
+  }
+  const lv = document.getElementById("crushLabMeterValue");
+  const lvv = document.getElementById("crushLabMeterValueVal");
+  if (lv) {
+    lv.addEventListener("input", function () {
+      const n = Number(lv.value);
+      __crushManual.labMeterValue = Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0;
+      if (lvv) lvv.textContent = String(__crushManual.labMeterValue);
+      crushRedrawAllPreviews();
+    });
+  }
   cv.addEventListener("mousedown", onCrushCanvasMouseDown);
+  if (nudgeCv) nudgeCv.addEventListener("mousedown", onCrushCanvasMouseDown);
   if (cropCv) cropCv.addEventListener("mousedown", onCrushCanvasMouseDown);
   if (hookCv) hookCv.addEventListener("mousedown", onCrushCanvasMouseDown);
   window.addEventListener("mousemove", onCrushCanvasMouseMove);
@@ -1589,7 +1698,19 @@ async function crushVideo() {
         manual_reels_window_shift_y_px,
         hook_text,
         manual_reels_hook_x_offset_px,
-        manual_reels_hook_y_offset_px
+        manual_reels_hook_y_offset_px,
+        lab_meter: (function () {
+          if (!__crushManual.labMeterEnabled) return { enabled: false };
+          const b = String(document.getElementById("crushBrand")?.value || "terapi").toLowerCase();
+          const kind = b === "umut" ? "hope" : (b === "kaos" ? "chaos" : "therapy");
+          return {
+            enabled: true,
+            value: Math.max(0, Math.min(100, Math.round(Number(__crushManual.labMeterValue) || 0))),
+            x: Math.round(Number(__crushManual.labMeterX) || 0),
+            y: Math.round(Number(__crushManual.labMeterY) || 0),
+            kind
+          };
+        })()
       })
     });
     const localData = await localRes.json().catch(() => ({}));

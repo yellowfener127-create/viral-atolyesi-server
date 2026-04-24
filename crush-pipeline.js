@@ -702,6 +702,155 @@ function buildManualBlurDelogoChain(inputLabel, rects, outW, outH, finalLabel) {
   return { chain: parts.join(';'), outLabel: finalLabel };
 }
 
+/**
+ * lab_meter: { enabled, value 0..100, x, y, kind: therapy|hope|chaos } (720×1280 ref px).
+ */
+function parseLabMeterOptions(o) {
+  const r = o?.lab_meter ?? o?.labMeter;
+  if (!r || typeof r !== 'object') return { enabled: false };
+  const on =
+    r.enabled === true ||
+    r.enabled === 1 ||
+    r.enabled === '1' ||
+    o?.lab_meter_enabled === true ||
+    o?.lab_meter_enabled === 1;
+  if (!on) return { enabled: false };
+  const value = Math.max(0, Math.min(100, Math.round(Number(r.value != null ? r.value : 80))));
+  const x = Math.max(0, Math.min(MANUAL_BLUR_REF_W - 1, Math.round(Number(r.x != null ? r.x : 24))));
+  const y = Math.max(0, Math.min(MANUAL_BLUR_REF_H - 1, Math.round(Number(r.y != null ? r.y : 80))));
+  let kind = String(r.kind != null ? r.kind : o?.brand || 'therapy')
+    .toLowerCase();
+  if (kind === 'terapi') kind = 'therapy';
+  if (kind === 'umut') kind = 'hope';
+  if (kind === 'kaos') kind = 'chaos';
+  if (!['therapy', 'hope', 'chaos'].includes(kind)) {
+    const b = String(o?.brand || '')
+      .toLowerCase();
+    if (b === 'umut') kind = 'hope';
+    else if (b === 'kaos') kind = 'chaos';
+    else kind = 'therapy';
+  }
+  return { enabled: true, value, x, y, kind };
+}
+
+/**
+ * [v1] (Lab tuval) üstüne küçük “meter” overlay → [v1lab]. Sadece Reels Instagram canvas sonrası.
+ */
+function buildReelsLabMeterOverlayFilters({
+  outW,
+  outH,
+  outDur,
+  meter,
+  fontPart
+}) {
+  const m = meter;
+  if (!m || !m.enabled) return [];
+  const N = m.value;
+  const sxR = outW / MANUAL_BLUR_REF_W;
+  const syR = outH / MANUAL_BLUR_REF_H;
+  const _even = (n) => {
+    const v = Math.max(2, Math.round(n));
+    return v % 2 ? v - 1 : v;
+  };
+  let mw = _even(100 * sxR);
+  let mh = _even(150 * syR);
+  const barW = _even(18 * sxR);
+  const barH = _even(100 * syR);
+  const padT = 8;
+  const barLeft = 10;
+  const barTop = Math.round(28 * syR);
+  let mx = Math.max(0, Math.min(outW - mw, Math.round(m.x * sxR)));
+  let my = Math.max(0, Math.min(outH - mh, Math.round(m.y * syR)));
+  if (my + mh > outH) mh = _even(outH - my);
+  if (mx + mw > outW) mw = _even(outW - mx);
+  const D = outDur;
+  const te = D >= 5 ? D - 5 : Math.max(0.1, D * 0.88);
+  const teF = te.toFixed(4);
+  const df = D.toFixed(4);
+  const Nf = Number(N);
+  const kindTitle =
+    m.kind === 'hope'
+      ? 'hope / meter'
+      : m.kind === 'chaos'
+        ? 'chaos / meter'
+        : 'therapy / meter';
+  const title = escapeDrawtextText(kindTitle);
+  const fs = Math.max(9, Math.round(11 * Math.min(sxR, syR)));
+  const fsP = Math.max(8, Math.round(12 * Math.min(sxR, syR)));
+  // Bar dolgu yüksekliği (0..barH) — 5% adımlı t < te; t ≥ te: tam N%
+  const hBarExpr = `if(lt(t\\,${teF})\\,max(0\\,${barH}*5*floor(min(${Nf}.0*min(1.0\\,t/${teF})\\,${Nf}.0-0.0001)/5)/100.0)\\,${barH}*${Nf}/100.0)`;
+  const parts = [
+    `color=c=0x00000000:s=${mw}x${mh},d=1,format=rgba[labp0]`,
+    `[labp0]drawbox=x=0:y=0:w=iw:h=ih:color=0x101010@0.52:t=fill[labp1]`,
+    // Dikey yarı saydam sütun (ölçek çubuğu gölge)
+    `[labp1]drawbox=x=${barLeft - 1}:y=${barTop - 1}:w=${barW + 2}:h=${barH + 2}:color=0x000000@0.35:t=1[labp1b]`
+  ];
+  if (N > 0) {
+    parts.push(
+      `color=c=0x22dd77@0.92:s=${barW}x${barH},d=1,format=rgba[labb0]`,
+      `[labb0]crop=${barW}:h='${hBarExpr}':x=0:y='ih-oh'[labbf]`,
+      `[labp1b][labbf]overlay=${barLeft}:${barTop}:format=auto[labp2]`
+    );
+  } else {
+    parts.push(`[labp1b]format=rgba[labp2]`);
+  }
+  parts.push(
+    `[labp2]drawtext=text='${title}'${fontPart}:` +
+      `fontsize=${fs}:fontcolor=0xeeeeee@0.95:borderw=0:shadowx=0:shadowy=0:fix_bounds=1:` +
+      `x='(w-text_w)/2':y=${padT}:enable='eq(1,1)'[labp2t]`
+  );
+  // Yüzde: segmentler
+  const pctLabel = (str, en) => {
+    const tesc = escapeDrawtextText(String(str));
+    return (
+      `drawtext=text='${tesc}'${fontPart}:` +
+      `fontsize=${fsP}:fontcolor=0xeeeeee@0.98:shadowx=0:shadowy=0:fix_bounds=1:` +
+      `x=${barLeft + barW + 6}:y=${barTop + Math.round((barH - fsP) * 0.5)}:enable='${en}'`
+    );
+  };
+  if (N <= 0) {
+    parts.push(`[labp2t]${pctLabel('0%', 'eq(1,1)')}[labp3]`);
+  } else {
+    let cur = 'labp2t';
+    let i = 0;
+    for (let v = 0; v < N; v += 5) {
+      const t0 = (v * te) / N;
+      const t1 = (Math.min(v + 5, N) * te) / N;
+      const show = String(Math.min(v + 5, N)) + '%';
+      const isLast = v + 5 >= N;
+      const t0F = t0.toFixed(4);
+      const en = isLast
+        ? `gte(t\\,${t0F})`
+        : `if(and(gte(t\\,${t0F})\\,lt(t\\,${t1.toFixed(4)}))\\,1\\,0)`;
+      const next = isLast ? 'labp3' : `labp2x${i}`;
+      parts.push(`[${cur}]${pctLabel(show, en)}[${next}]`);
+      cur = next;
+      i++;
+    }
+  }
+  // Kalp atışı: çok hafif ölçek; son 5 sn sarı parlama; animasyon aralığında ince kırmızı çerçeve nabzı
+  const tLast5 = Math.max(0, D - 5)
+    .toFixed(3);
+  const nPulse = Math.min(100, Math.max(0, N));
+  const enRed = `if(lt(t\\,${teF})\\,gt(abs(sin(2*PI*0.65*t+0.04*${nPulse})),0.93)\\,0)`;
+  const enYel = `gte(t\\,${tLast5})`;
+  parts.push(
+    `[labp3]format=rgba,scale=eval=frame:w=iw*\\(1+0.01*sin(2*PI*0.72*t)\\):` +
+      `h=ih*\\(1+0.01*sin(2*PI*0.72*t)\\):flags=bicubic,` +
+      `pad=${mw}:${mh}:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=rgba[labh1]`,
+    `[labh1]drawbox=x=0:y=0:w=iw:color=0xFF2200@0.55:h=1:t=1:enable='${enRed}'[labh2]`,
+    `[labh2]drawbox=x=0:y=ih-1:w=iw:color=0xFF2200@0.55:h=1:t=1:enable='${enRed}'[labh3]`,
+    `[labh3]drawbox=x=0:y=0:w=1:color=0xFF2200@0.5:h=ih:t=1:enable='${enRed}'[labh4]`,
+    `[labh4]drawbox=x=iw-1:y=0:w=1:color=0xFF2200@0.5:h=ih:t=1:enable='${enRed}'[labh5]`,
+    `[labh5]drawbox=x=0:y=0:w=iw:color=0xFFDD00@0.32:h=1:t=1:enable='${enYel}'[labh6]`,
+    `[labh6]drawbox=x=0:y=ih-1:w=iw:color=0xFFDD00@0.32:h=1:t=1:enable='${enYel}'[labh7]`,
+    `[labh7]drawbox=x=0:y=0:w=1:color=0xFFDD00@0.3:h=ih:t=1:enable='${enYel}'[labh8]`,
+    `[labh8]drawbox=x=iw-1:y=0:w=1:color=0xFFDD00@0.3:h=ih:t=1:enable='${enYel}'[labh9]`,
+    `[v1][labh9]overlay=${mx}:${my}:shortest=1:format=auto[v1lab]`
+  );
+  return parts;
+}
+
 async function buildCrushRenderPlan(o) {
   const {
     inFile,
@@ -972,6 +1121,9 @@ async function buildCrushRenderPlan(o) {
   const noiseOpEff = useReelsInstagramCanvas ? 0.002 : noiseOpacity;
   const grainOpEff = useReelsInstagramCanvas ? 0.006 : grainOpacity;
 
+  const labMeterOpt = useReelsInstagramCanvas ? parseLabMeterOptions(o) : { enabled: false };
+  const preWmLabel = labMeterOpt.enabled && useReelsInstagramCanvas ? 'v1lab' : 'v1';
+
   const wmInputIdx = frameExists ? 2 : 1;
   const tailWmAndGrain = [
     `[${wmInputIdx}:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
@@ -981,7 +1133,7 @@ async function buildCrushRenderPlan(o) {
     `[wm0]split=2[wmA][wmB]`,
     `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[wmMask]`,
     `[wmB][wmMask]alphamerge,format=rgba,colorchannelmixer=aa=${wmAlphaFinal.toFixed(4)}[wm]`,
-    `[v1][wm]overlay=x='${wmXExpr}':y='${wmYExpr}':format=auto[v1m]`,
+    `[${preWmLabel}][wm]overlay=x='${wmXExpr}':y='${wmYExpr}':format=auto[v1m]`,
     `[v1m]split=2[vA][vB]`,
     `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
     `[vA][vN]blend=all_mode=overlay:all_opacity=${noiseOpEff},format=yuv420p[vblend]`,
@@ -1068,6 +1220,15 @@ async function buildCrushRenderPlan(o) {
           hookYOffsetRefPx: manualReelsHookYOff
         })
       : legacyVisualStack),
+    ...(labMeterOpt.enabled && useReelsInstagramCanvas
+      ? buildReelsLabMeterOverlayFilters({
+        outW,
+        outH,
+        outDur,
+        meter: labMeterOpt,
+        fontPart
+      })
+      : []),
     ...tailWmAndGrain
   ];
 
@@ -1210,7 +1371,15 @@ async function buildCrushRenderPlan(o) {
       manualReelsHookXOff,
       manualReelsHookYOff,
       musicFile: musicFile && fs.existsSync(musicFile) ? path.basename(musicFile) : null,
-      hookFont: fontFile ? path.basename(fontFile) : null
+      hookFont: fontFile ? path.basename(fontFile) : null,
+      labMeter: labMeterOpt.enabled
+        ? {
+            value: labMeterOpt.value,
+            x: labMeterOpt.x,
+            y: labMeterOpt.y,
+            kind: labMeterOpt.kind
+          }
+        : null
     }
   };
 }
@@ -1279,5 +1448,6 @@ module.exports = {
   parseManualReelsCropYNudgePx,
   parseManualReelsWindowShiftYPx,
   parseManualReelsHookOffsetPx,
-  parseManualCropRectInput
+  parseManualCropRectInput,
+  parseLabMeterOptions
 };

@@ -545,6 +545,7 @@ app.post('/tools/crush', async (req, res) => {
     const manualReelsHookYOff = crush.parseManualReelsHookOffsetPx(
       req.body?.manual_reels_hook_y_offset_px ?? req.body?.manualReelsHookYOffsetPx
     );
+    const labMeterBody = req.body?.lab_meter ?? req.body?.labMeter ?? null;
 
     const plan = await crush.buildCrushRenderPlan({
       inFile,
@@ -562,6 +563,7 @@ app.post('/tools/crush', async (req, res) => {
       manual_reels_window_shift_y_px: manualReelsWindowShiftYPx,
       manual_reels_hook_x_offset_px: manualReelsHookXOff,
       manual_reels_hook_y_offset_px: manualReelsHookYOff,
+      lab_meter: labMeterBody,
       manualBlurRefW: crush.MANUAL_BLUR_REF_W,
       manualBlurRefH: crush.MANUAL_BLUR_REF_H,
       hasAudio,
