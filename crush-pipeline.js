@@ -819,9 +819,10 @@ function buildReelsLabMeterOverlayFilters({
       const show = String(Math.min(v + 5, N)) + '%';
       const isLast = v + 5 >= N;
       const t0F = t0.toFixed(4);
+      // drawtext enable: bazı FFmpeg'lerde and()/if() yok; 0/1 * mantığı güvenli
       const en = isLast
         ? `gte(t\\,${t0F})`
-        : `if(and(gte(t\\,${t0F})\\,lt(t\\,${t1.toFixed(4)}))\\,1\\,0)`;
+        : `gte(t\\,${t0F})*lt(t\\,${t1.toFixed(4)})`;
       const next = isLast ? 'labp3' : `labp2x${i}`;
       parts.push(`[${cur}]${pctLabel(show, en)}[${next}]`);
       cur = next;
@@ -832,7 +833,7 @@ function buildReelsLabMeterOverlayFilters({
   const tLast5 = Math.max(0, D - 5)
     .toFixed(3);
   const nPulse = Math.min(100, Math.max(0, N));
-  const enRed = `if(lt(t\\,${teF})\\,gt(abs(sin(2*PI*0.65*t+0.04*${nPulse})),0.93)\\,0)`;
+  const enRed = `lt(t\\,${teF})*gt(abs(sin(2*PI*0.65*t+0.04*${nPulse})),0.93)`;
   const enYel = `gte(t\\,${tLast5})`;
   parts.push(
     `[labp3]format=rgba,scale=eval=frame:w=iw*\\(1+0.01*sin(2*PI*0.72*t)\\):` +
