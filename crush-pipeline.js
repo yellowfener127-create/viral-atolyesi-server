@@ -752,13 +752,13 @@ function buildReelsLabMeterOverlayFilters({
     const v = Math.max(2, Math.round(n));
     return v % 2 ? v - 1 : v;
   };
-  let mw = _even(100 * sxR);
-  let mh = _even(150 * syR);
-  const barW = _even(18 * sxR);
-  const barH = _even(100 * syR);
-  const padT = 8;
-  const barLeft = 10;
-  const barTop = Math.round(28 * syR);
+  let mw = _even(120 * sxR);
+  let mh = _even(130 * syR);
+  const titleH = 22;
+  const cxi = Math.round(mw / 2);
+  const cyi = Math.min(mh - 6, titleH + Math.round(0.62 * mh));
+  const r1 = Math.max(6, Math.round(0.31 * Math.min(mw, mh - titleH - 4)));
+  const r0 = Math.max(1, Math.round(r1 * 0.58));
   let mx = Math.max(0, Math.min(outW - mw, Math.round(m.x * sxR)));
   let my = Math.max(0, Math.min(outH - mh, Math.round(m.y * syR)));
   if (my + mh > outH) mh = _even(outH - my);
@@ -766,8 +766,9 @@ function buildReelsLabMeterOverlayFilters({
   const D = outDur;
   const te = D >= 5 ? D - 5 : Math.max(0.1, D * 0.88);
   const teF = te.toFixed(4);
-  const df = D.toFixed(4);
   const Nf = Number(N);
+  const vExpr = `if(lt(t\\,${teF})\\,5*floor(min(${Nf}.0*min(1.0\\,t/${teF})\\,${Nf}.0-0.0001)/5)\\,${Nf}.0)`;
+  const gMul = `max(0\\,1-${vExpr}/100.0)`;
   const kindTitle =
     m.kind === 'hope'
       ? 'hope / meter'
@@ -775,37 +776,56 @@ function buildReelsLabMeterOverlayFilters({
         ? 'chaos / meter'
         : 'therapy / meter';
   const title = escapeDrawtextText(kindTitle);
-  const fs = Math.max(9, Math.round(11 * Math.min(sxR, syR)));
-  const fsP = Math.max(8, Math.round(12 * Math.min(sxR, syR)));
-  // Bar dolgu yüksekliği (0..barH) — 5% adımlı t < te; t ≥ te: tam N%
-  const hBarExpr = `if(lt(t\\,${teF})\\,max(0\\,${barH}*5*floor(min(${Nf}.0*min(1.0\\,t/${teF})\\,${Nf}.0-0.0001)/5)/100.0)\\,${barH}*${Nf}/100.0)`;
-  // color: seçenekler sadece ':' ile; virgül yeni filtre sayılır (Windows FFmpeg hatası: No option name near '1')
+  const fs = Math.max(10, Math.round(12 * Math.min(sxR, syR)));
+  const fsP = Math.max(9, Math.round(12 * Math.min(sxR, syR)));
+  const pexpr =
+    'sqrt(pow(X-' +
+    cxi +
+    ' \\,2)+pow(Y-' +
+    cyi +
+    ' \\,2))';
+  const angE =
+    'if(gt(sqrt(pow(X-' +
+    cxi +
+    ' \\,2)+pow(Y-' +
+    cyi +
+    ' \\,2))\\,0.001)\\,min(2*PI\\,max(0\\,2*PI+atan2(2*' +
+    cyi +
+    '-2*Y\\,2*X-2*' +
+    cxi +
+    ')))\\,0)';
+  const inArc =
+    'between(' +
+    pexpr +
+    '\\,' +
+    r0 +
+    '\\,' +
+    r1 +
+    ')*lt(Y\\,' +
+    cyi +
+    ')*' +
+    'gte(' +
+    angE +
+    '\\,PI*\\(1-' +
+    vExpr +
+    '/100.0\\))';
+  const inTrack = 'between(' + pexpr + '\\,' + r0 + '\\,' + r1 + ')*lt(Y\\,' + cyi + ')';
+  const rE = 'if(' + inArc + '\\,255\\,if(' + inTrack + '\\,200\\,255))';
+  const gE = 'if(' + inArc + '\\,255*(' + gMul + ')\\,if(' + inTrack + '\\,200\\,255))';
+  const bE = 'if(' + inArc + '\\,0\\,if(' + inTrack + '\\,200\\,255))';
   const parts = [
-    `color=c=0x00000000@0.0:s=${mw}x${mh}:d=9999,format=rgba[labp0]`,
-    `[labp0]drawbox=x=0:y=0:w=iw:h=ih:color=0x101010@0.52:t=fill[labp1]`,
-    `[labp1]drawbox=x=${barLeft - 1}:y=${barTop - 1}:w=${barW + 2}:h=${barH + 2}:color=0x000000@0.35:t=1[labp1b]`
+    `color=c=white:s=${mw}x${mh}:d=9999,format=rgba[labp0]`,
+    `[labp0]geq=r='${rE}':g='${gE}':b='${bE}':a='255'[labp1]`,
+    `[labp1]drawtext=text='${title}'${fontPart}:` +
+      `fontsize=${fs}:fontcolor=0x000000:borderw=0:shadowx=0:shadowy=0:fix_bounds=1:` +
+      `x='(w-text_w)/2':y=4:enable='eq(1,1)'[labp2t]`
   ];
-  if (N > 0) {
-    parts.push(
-      `color=c=0x22dd77@0.92:s=${barW}x${barH}:d=9999,format=rgba[labb0]`,
-      `[labb0]crop=${barW}:h='${hBarExpr}':x=0:y='ih-oh'[labbf]`,
-      `[labp1b][labbf]overlay=${barLeft}:${barTop}:format=auto[labp2]`
-    );
-  } else {
-    parts.push(`[labp1b]format=rgba[labp2]`);
-  }
-  parts.push(
-    `[labp2]drawtext=text='${title}'${fontPart}:` +
-      `fontsize=${fs}:fontcolor=0xeeeeee@0.95:borderw=0:shadowx=0:shadowy=0:fix_bounds=1:` +
-      `x='(w-text_w)/2':y=${padT}:enable='eq(1,1)'[labp2t]`
-  );
-  // Yüzde: segmentler
   const pctLabel = (str, en) => {
     const tesc = escapeDrawtextText(String(str));
     return (
       `drawtext=text='${tesc}'${fontPart}:` +
-      `fontsize=${fsP}:fontcolor=0xeeeeee@0.98:shadowx=0:shadowy=0:fix_bounds=1:` +
-      `x=${barLeft + barW + 6}:y=${barTop + Math.round((barH - fsP) * 0.5)}:enable='${en}'`
+      `fontsize=${fsP}:fontcolor=0x000000:shadowx=0:shadowy=0:fix_bounds=1:` +
+      `x='(w-text_w)/2':y='h-text_h-6':enable='${en}'`
     );
   };
   if (N <= 0) {
@@ -819,7 +839,6 @@ function buildReelsLabMeterOverlayFilters({
       const show = String(Math.min(v + 5, N)) + '%';
       const isLast = v + 5 >= N;
       const t0F = t0.toFixed(4);
-      // drawtext enable: bazı FFmpeg'lerde and()/if() yok; 0/1 * mantığı güvenli
       const en = isLast
         ? `gte(t\\,${t0F})`
         : `gte(t\\,${t0F})*lt(t\\,${t1.toFixed(4)})`;
@@ -829,25 +848,11 @@ function buildReelsLabMeterOverlayFilters({
       i++;
     }
   }
-  // Kalp atışı: çok hafif ölçek; son 5 sn sarı parlama; animasyon aralığında ince kırmızı çerçeve nabzı
-  const tLast5 = Math.max(0, D - 5)
-    .toFixed(3);
-  const nPulse = Math.min(100, Math.max(0, N));
-  const enRed = `lt(t\\,${teF})*gt(abs(sin(2*PI*0.65*t+0.04*${nPulse})),0.93)`;
-  const enYel = `gte(t\\,${tLast5})`;
   parts.push(
     `[labp3]format=rgba,scale=eval=frame:w=iw*\\(1+0.01*sin(2*PI*0.72*t)\\):` +
       `h=ih*\\(1+0.01*sin(2*PI*0.72*t)\\):flags=bicubic,` +
-      `pad=${mw}:${mh}:(ow-iw)/2:(oh-ih)/2:color=0x00000000@0,format=rgba[labh1]`,
-    `[labh1]drawbox=x=0:y=0:w=iw:color=0xFF2200@0.55:h=1:t=1:enable='${enRed}'[labh2]`,
-    `[labh2]drawbox=x=0:y=ih-1:w=iw:color=0xFF2200@0.55:h=1:t=1:enable='${enRed}'[labh3]`,
-    `[labh3]drawbox=x=0:y=0:w=1:color=0xFF2200@0.5:h=ih:t=1:enable='${enRed}'[labh4]`,
-    `[labh4]drawbox=x=iw-1:y=0:w=1:color=0xFF2200@0.5:h=ih:t=1:enable='${enRed}'[labh5]`,
-    `[labh5]drawbox=x=0:y=0:w=iw:color=0xFFDD00@0.32:h=1:t=1:enable='${enYel}'[labh6]`,
-    `[labh6]drawbox=x=0:y=ih-1:w=iw:color=0xFFDD00@0.32:h=1:t=1:enable='${enYel}'[labh7]`,
-    `[labh7]drawbox=x=0:y=0:w=1:color=0xFFDD00@0.3:h=ih:t=1:enable='${enYel}'[labh8]`,
-    `[labh8]drawbox=x=iw-1:y=0:w=1:color=0xFFDD00@0.3:h=ih:t=1:enable='${enYel}'[labh9]`,
-    `[v1][labh9]overlay=${mx}:${my}:shortest=1:format=auto[v1lab]`
+      `pad=${mw}:${mh}:(ow-iw)/2:(oh-ih)/2:color=0xFFFFFF@1,format=rgba[labh1]`,
+    `[v1][labh1]overlay=${mx}:${my}:shortest=1:format=auto[v1lab]`
   );
   return parts;
 }
