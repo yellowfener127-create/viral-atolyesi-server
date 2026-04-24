@@ -781,13 +781,13 @@ function buildReelsLabMeterOverlayFilters({
   const hBarExpr = `if(lt(t\\,${teF})\\,max(0\\,${barH}*5*floor(min(${Nf}.0*min(1.0\\,t/${teF})\\,${Nf}.0-0.0001)/5)/100.0)\\,${barH}*${Nf}/100.0)`;
   // color: seçenekler sadece ':' ile; virgül yeni filtre sayılır (Windows FFmpeg hatası: No option name near '1')
   const parts = [
-    `color=c=0x00000000@0.0:s=${mw}x${mh}:d=9999:f=rgba[labp0]`,
+    `color=c=0x00000000@0.0:s=${mw}x${mh}:d=9999,format=rgba[labp0]`,
     `[labp0]drawbox=x=0:y=0:w=iw:h=ih:color=0x101010@0.52:t=fill[labp1]`,
     `[labp1]drawbox=x=${barLeft - 1}:y=${barTop - 1}:w=${barW + 2}:h=${barH + 2}:color=0x000000@0.35:t=1[labp1b]`
   ];
   if (N > 0) {
     parts.push(
-      `color=c=0x22dd77@0.92:s=${barW}x${barH}:d=9999:f=rgba[labb0]`,
+      `color=c=0x22dd77@0.92:s=${barW}x${barH}:d=9999,format=rgba[labb0]`,
       `[labb0]crop=${barW}:h='${hBarExpr}':x=0:y='ih-oh'[labbf]`,
       `[labp1b][labbf]overlay=${barLeft}:${barTop}:format=auto[labp2]`
     );
