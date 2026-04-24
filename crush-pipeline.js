@@ -683,10 +683,13 @@ function buildManualBlurDelogoChain(inputLabel, rects, outW, outH, finalLabel) {
   const parts = [];
   let cur = inputLabel;
   list.forEach((r, i) => {
-    const x = Math.max(0, Math.min(outW - 2, Math.round(r.x)));
-    const y = Math.max(0, Math.min(outH - 2, Math.round(r.y)));
-    let w = Math.min(outW - x, Math.max(8, Math.round(r.w)));
-    let h = Math.min(outH - y, Math.max(8, Math.round(r.h)));
+    // delogo is strict about the box being fully inside frame.
+    // Use a conservative clamp so x+w and y+h never touch the right/bottom edge.
+    // (Some Windows builds error out when x+w == in_w or y+h == in_h.)
+    const x = Math.max(0, Math.min(outW - 9, Math.round(r.x)));
+    const y = Math.max(0, Math.min(outH - 9, Math.round(r.y)));
+    let w = Math.min((outW - x - 1), Math.max(8, Math.round(r.w)));
+    let h = Math.min((outH - y - 1), Math.max(8, Math.round(r.h)));
     w -= w % 2;
     h -= h % 2;
     if (w < 8 || h < 8) return;
