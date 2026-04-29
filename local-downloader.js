@@ -293,6 +293,19 @@ function buildHookFromCaption(caption) {
   s = s.replace(/\bthis\s+ranked\b/i, 'Ranked');
   s = s.replace(/\branked\s+funniest\b/i, 'Funniest ranked');
 
+  // 2.5) Fix awkward "Watch how ranked ..." patterns
+  // If it contains ranked + falls apart/escalates, prefer "This ranked ..." (more IG-native)
+  if (/\branked\b/i.test(s) && (/\bfalls\s+apart\b/i.test(s) || /\bescalates\b/i.test(s) || /\bgoes\s+wrong\b/i.test(s))) {
+    s = s.replace(/^watch how\s+/i, 'This ');
+    s = s.replace(/^watch\s+/i, 'This ');
+  }
+  // If still "Watch how ranked ..." add "this"
+  s = s.replace(/^watch how\s+ranked\b/i, 'Watch how this ranked');
+  s = s.replace(/^watch\s+ranked\b/i, 'Watch this ranked');
+
+  // 2.6) Micro language polish: perfectly cut -> perfectly-cut
+  s = s.replace(/\bperfectly\s+cut\b/gi, 'perfectly-cut');
+
   // 3) Trim filler words a bit
   s = s.replace(/\breally\b|\bliterally\b|\bjust\b|\bperfect\b/gi, '').replace(/\s+/g, ' ').trim();
 
