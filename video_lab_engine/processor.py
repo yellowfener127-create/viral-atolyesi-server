@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 
 from .encoder import pick_hw_video_encoder
+from .gauge_assets import render_speedometer_assets
 from .meter_modes import MeterEngine, detect_meter_from_filename
 from .metadata_tags import build_metadata_args
 from .probe import ffmpeg_has_filter, has_audio_stream, probe_duration_sec
@@ -63,26 +64,8 @@ def _sanitize_hook(s: str) -> str:
     )
 
 
-def _bar_width_expr(s_pct: int, t_pct: int, dur: float) -> str:
-    d = f"{dur:.6f}".rstrip("0").rstrip(".")
-    return (
-        "max(4\\,floor(iw*0.83*min("
-        f"{t_pct}/100\\,"
-        f"({s_pct}/100+({t_pct}-{s_pct})/100*min(t/{d}\\,1))"
-        ")))"
-    )
-
-
-def _glow_width_expr(s_pct: int, t_pct: int, dur: float) -> str:
-    inner = _bar_width_expr(s_pct, t_pct, dur)
-    return f"min(floor(iw*0.92)\\,{inner}+14)"
-
-
-def _percent_curve(s: int, t: int, steps: int, i: float) -> int:
-    u = (i + 0.45) / steps
-    v = min(1.0, max(0.0, u))
-    p = s + (t - s) * (v**1.12)
-    return int(max(s, min(t, round(p))))
+def _lit_float(x: float) -> str:
+    return f"{x:.6f}".rstrip("0").rstrip(".")
 
 
 def build_filter_complex(
@@ -90,12 +73,12 @@ def build_filter_complex(
     engine: MeterEngine,
     hook_textfile_rel: str,
     font_file_rel: str | None,
-    bar_glow_hex: str,
-    bar_main_hex: str,
+    gauge_base_rel: str,
+    gauge_glow_rel: str,
+    needle_rel: str,
     rng: random.Random,
 ) -> str:
     z = engine.micro_zoom
-    s_pct = engine.random_start_percent
     t_pct = engine.target_percent
     sp = engine.speed_factor
 
@@ -104,44 +87,64 @@ def build_filter_complex(
     bs = rng.uniform(-0.03, 0.03)
     grain = rng.randint(6, 13)
 
-    wbar = _bar_width_expr(s_pct, t_pct, dur)
-    wglow = _glow_width_expr(s_pct, t_pct, dur)
-    bx = "floor(iw*0.085)-5"
-    by_main = "ih-132"
-    by_glow = "ih-137"
-
     font_opt = ""
     if font_file_rel:
         font_opt = f":fontfile={font_file_rel}"
 
-    hook_seg = (
+    hook_base = (
         f"drawtext=textfile={hook_textfile_rel}:reload=0{font_opt}"
         ":fontcolor=0xf0f4ff:borderw=4:bordercolor=0x101014@0.9"
         ":shadowcolor=0x4400aa@0.5:shadowx=5:shadowy=5"
         ":x=(w-text_w)/2:y=92:fontsize=54:line_spacing=8"
     )
 
-    steps = min(16, max(8, int(dur * 2)))
-    segments: list[str] = []
-    cur_in = "lv5"
-    for i in range(steps):
-        t0 = dur * i / steps
-        t1 = dur * (i + 1) / steps
-        pct = _percent_curve(s_pct, t_pct, steps, float(i))
-        next_out = f"pct{i}"
-        enable = f"enable='between(t\\,{t0:.6f}\\,{t1:.6f})'"
-        pct_esc = str(pct)
-        segments.append(
-            f"[{cur_in}]drawtext=text='{pct_esc}'{font_opt}"
-            ":fontcolor=0xfff7f2:borderw=3:bordercolor=0x201010@0.85"
-            ":shadowcolor=0xaa4400@0.45:shadowx=4:shadowy=4"
-            ":x=w-text_w-floor(w*0.09):y=h-210"
-            ":fontsize=46"
-            f":{enable}[{next_out}]"
-        )
-        cur_in = next_out
+    # 5-second rule must be true in the OUTPUT timeline.
+    # We apply setpts=PTS/speed_factor at the end, so output_time = input_time / speed_factor.
+    # Want: output_time_hit = output_dur - 5  => input_time_hit = dur - 5*speed_factor.
+    pd = max(0.10, float(dur) - 5.0 * float(sp))
+    pd_lit = _lit_float(pd)
 
-    prem = cur_in
+    # Smooth easing (smoothstep): p^2 * (3 - 2p)
+    p_expr = f"min(t/{pd_lit}\\,1)"
+    ease_expr = f"({p_expr})*({p_expr})*(3-2*({p_expr}))"
+    score_expr = f"min({t_pct}\\,{t_pct}*({ease_expr}))"
+
+    # Hook sync: subtle pulse while the needle is moving.
+    hook_glow = (
+        f"drawtext=textfile={hook_textfile_rel}:reload=0{font_opt}"
+        ":fontcolor=0xffffff@0.30:borderw=0"
+        ":shadowcolor=0x66ccff@0.35:shadowx=10:shadowy=10"
+        f":alpha='if(lt(t\\,{pd_lit})\\,0.55+0.45*sin(2*PI*t*1.10)\\,0)'"
+        ":x=(w-text_w)/2:y=92:fontsize=56:line_spacing=8"
+    )
+
+    # Gauge placement (bottom-center)
+    gx = "(W-w)/2"
+    gy = "H-h-80"
+
+    # Needle rotation range (radians). The needle image points UP at angle=0.
+    a0 = -2.20  # ~-126°
+    a1 = 2.20   # ~+126°
+    angle_expr = f"({a0})+({a1-a0})*(({score_expr})/100)"
+
+    # Digital number (centered under the gauge)
+    num_text = f"%{{eif\\:{score_expr}\\:d}}"
+    num_seg = (
+        f"drawtext=text='{num_text}'{font_opt}"
+        ":fontcolor=0xfff7f2:borderw=3:bordercolor=0x201010@0.85"
+        ":shadowcolor=0x000000@0.55:shadowx=4:shadowy=4"
+        ":x=(w-text_w)/2:y=h-420:fontsize=72"
+    )
+
+    # Subtle checkpoint pulses (every 10 points) using glow overlay
+    pulse_terms: list[str] = []
+    for k in range(10, 101, 10):
+        if k > t_pct:
+            break
+        tk = pd * (k / max(1, t_pct))
+        pulse_terms.append(f"between(t\\,{_lit_float(tk - 0.07)}\\,{_lit_float(tk + 0.07)})")
+    pulse_enable = "+".join(pulse_terms) if pulse_terms else "0"
+    target_enable = f"between(t\\,{_lit_float(pd - 0.12)}\\,{_lit_float(pd + 0.22)})"
 
     fc_core = (
         f"[0:v]split=2[lv_a][lv_b];"
@@ -152,17 +155,26 @@ def build_filter_complex(
         f"[lv0]scale=iw*{z}:ih*{z},crop={OUT_W}:{OUT_H}[lv1];"
         f"[lv1]noise=alls={grain}:allf=t+u,colorbalance="
         f"rs={rs:.5f}:gs={gs:.5f}:bs={bs:.5f}[lv2];"
-        f"[lv2]drawbox=x={bx}:y={by_glow}:w={wglow}:h=38:color={bar_glow_hex}@0.42:t=fill[lv3];"
-        f"[lv3]drawbox=x={bx}:y={by_main}:w={wbar}:h=28:color={bar_main_hex}@0.94:t=fill[lv4];"
-        f"[lv4]{hook_seg}[lv5]"
+        f"[lv2]{hook_base}[lv3];"
+        f"[lv3]{hook_glow}[lv4];"
+        # Static gauge base (input 1)
+        f"[lv4][1:v]overlay=x={gx}:y={gy}:format=auto[lv5];"
+        # Prepare glow layers from input 2 (normal pulses + target-hit burst)
+        f"[2:v]format=rgba,colorchannelmixer=aa=0.75[glo];"
+        f"[glo]lutrgb=r='min(255,val*1.25)':g='min(255,val*1.25)':b='min(255,val*1.25)'[glo_p];"
+        f"[glo]lutrgb=r='min(255,val*1.80)':g='min(255,val*1.80)':b='min(255,val*1.90)'[glo_t];"
+        # Checkpoint glow pulses
+        f"[lv5][glo_p]overlay=x={gx}:y={gy}:format=auto:enable='{pulse_enable}'[lv6];"
+        # Target hit glow burst (slightly stronger / whiter)
+        f"[lv6][glo_t]overlay=x={gx}:y={gy}:format=auto:enable='{target_enable}'[lv7];"
+        # Rotating needle (input 3)
+        f"[3:v]format=rgba,rotate=angle='{angle_expr}':ow=iw:oh=ih:c=none[ndl];"
+        f"[lv7][ndl]overlay=x={gx}:y={gy}:format=auto[lv8];"
+        f"[lv8]{num_seg}[lv9]"
     )
 
-    joined_pct = ";".join(segments)
     sp_lit = f"{sp:.6f}".rstrip("0").rstrip(".")
-    if joined_pct:
-        fc_rest = f";{joined_pct};[{prem}]setpts=PTS/{sp_lit}[vout]"
-    else:
-        fc_rest = f";[lv5]setpts=PTS/{sp_lit}[vout]"
+    fc_rest = f";[lv9]setpts=PTS/{sp_lit}[vout]"
 
     return fc_core + fc_rest
 
@@ -193,13 +205,22 @@ def process_file(
     try:
         enc = pick_hw_video_encoder(ffmpeg_exe)
 
+        # Pre-render gauge assets into work_dir (static base + glow + needle)
+        # Use system font for nicer baked-in numbers when available.
+        assets = render_speedometer_assets(
+            work_dir,
+            kind=engine.kind.value,
+            font_abs=_find_font_file(),
+        )
+
         fc_video = build_filter_complex(
             dur,
             engine,
             hook_rel,
             font_rel,
-            engine.theme.bar_glow,
-            engine.theme.bar_primary,
+            assets["base"],
+            assets["glow"],
+            assets["needle"],
             rng,
         )
 
@@ -222,7 +243,26 @@ def process_file(
         else:
             full_fc = fc_video
 
-        cmd: list[str] = [ffmpeg_exe, "-hide_banner", "-y", "-i", str(input_mp4)]
+        cmd: list[str] = [
+            ffmpeg_exe,
+            "-hide_banner",
+            "-y",
+            "-i",
+            str(input_mp4),
+            # Static overlays (looped)
+            "-loop",
+            "1",
+            "-i",
+            assets["base"],
+            "-loop",
+            "1",
+            "-i",
+            assets["glow"],
+            "-loop",
+            "1",
+            "-i",
+            assets["needle"],
+        ]
 
         cmd += ["-filter_complex", full_fc, "-map", "[vout]"]
         if audio_ok:
