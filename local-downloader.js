@@ -240,6 +240,19 @@ function toSingleSentenceCaption(text) {
   return out ? `${out}.` : '';
 }
 
+function hookSeedFromCaption(caption) {
+  const s = toSingleSentenceCaption(String(caption || '').trim())
+    .replace(/[“”"']/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!s) return '';
+  // Keep it short and hook-like (avoid long captions)
+  const words = s.split(' ').filter(Boolean);
+  const maxWords = 9;
+  const out = words.slice(0, maxWords).join(' ').trim();
+  return out.length > 6 ? out : s.slice(0, 60).trim();
+}
+
 function pickOne(arr) {
   if (!arr || !arr.length) return '';
   return arr[Math.floor(Math.random() * arr.length)];
@@ -2104,12 +2117,16 @@ app.post('/crush', async (req, res) => {
         }
       });
     }
+    // Caption first: hook should align with the caption text
+    const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand), titleIsListicle));
+    const finalCaption = toSingleSentenceCaption(fallbackCaptionBits.caption || fallbackCaptionForBrand(brand));
+
     const seed =
       manualHookTextRaw
         ? manualHookTextRaw
         : gemHook && gemHook.length > 8
           ? gemHook
-          : titleHook || fallbackHookTextForBrand(brand);
+          : (hookSeedFromCaption(finalCaption) || titleHook || fallbackHookTextForBrand(brand));
     // Hook için listicle/ranked sinyalini tamamen yok say (Best one is #1 vb. istemiyoruz)
     const hookCore = manualHookTextRaw
       ? manualHookTextRaw.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)
@@ -2131,8 +2148,6 @@ app.post('/crush', async (req, res) => {
       hookText = stripBannedHookWords(hookText) || fb;
     }
     const hook = { text: hookText, bannerY: 0, y: 95, boxOpacity: 1, color: null };
-    const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand), titleIsListicle));
-    const finalCaption = toSingleSentenceCaption(fallbackCaptionBits.caption || fallbackCaptionForBrand(brand));
     const finalHashtags = ensureHashtagPack(brand, hookText, fallbackCaptionBits.hashtags);
     rememberUsed(cache, 'hooks', hookText);
     rememberUsed(cache, 'captions', finalCaption);

@@ -20,8 +20,9 @@ def main() -> None:
     w, h = im.size
     px = im.load()
 
-    # Background -> transparent via HSV mask:
-    # Keep only "bright whites" (ticks) OR "colorful enough" pixels (arc).
+    # Background -> transparent using a hybrid:
+    # - Remove pixels close to sampled background colors (corners)
+    # - Keep arc pixels (saturated) and tick pixels (bright)
     for y in range(h):
         for x in range(w):
             r, g, b, a = px[x, y]
@@ -29,20 +30,57 @@ def main() -> None:
                 continue
             rr, gg, bb = r / 255.0, g / 255.0, b / 255.0
             _, s, v = colorsys.rgb_to_hsv(rr, gg, bb)
-            # Keep: near-white highlights OR saturated arc colors.
-            keep = (v >= 0.80 and s <= 0.25) or (s >= 0.55 and v >= 0.22)
-            if not keep:
+            keep_arc = (s >= 0.28 and v >= 0.10)
+            keep_tick = (v >= 0.78 and s <= 0.28)
+            if not (keep_arc or keep_tick):
                 px[x, y] = (r, g, b, 0)
+
+    # Chroma-key style cleanup for any remaining background gradients
+    bg_samples = [
+        px[2, 2][:3],
+        px[w - 3, 2][:3],
+        px[2, h - 3][:3],
+        px[w - 3, h - 3][:3],
+    ]
+    bg_thr = 65  # sum abs channel distance
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            if a == 0:
+                continue
+            rr, gg, bb = r / 255.0, g / 255.0, b / 255.0
+            _, s, v = colorsys.rgb_to_hsv(rr, gg, bb)
+            keep_arc = (s >= 0.28 and v >= 0.10)
+            keep_tick = (v >= 0.78 and s <= 0.28)
+            if keep_arc or keep_tick:
+                continue
+            for br, bg, bb2 in bg_samples:
+                if abs(r - br) + abs(g - bg) + abs(b - bb2) <= bg_thr:
+                    px[x, y] = (r, g, b, 0)
+                    break
 
     d = ImageDraw.Draw(im)
     # Remove texts/number areas (user wants dynamic number elsewhere)
-    d.rectangle([0, 0, w, 60], fill=(0, 0, 0, 0))  # "Upload" header
-    d.rectangle([0, 92, w, 150], fill=(0, 0, 0, 0))  # big number
-    d.rectangle([0, 145, w, h], fill=(0, 0, 0, 0))  # "Mbps" + any leftover bottom text
+    # NOTE: Keep the arc; only clear the text blocks.
+    d.rectangle([0, 0, w, 62], fill=(0, 0, 0, 0))  # "Upload" header
+    # Clear a wider center region to remove any residual digits/labels.
+    d.rectangle([18, 72, w - 18, 200], fill=(0, 0, 0, 0))
 
     # Remove the static needle (approx wedge on right)
     cx, cy = w // 2, int(h * 0.52)
     d.polygon([(cx, cy), (w, cy - 35), (w, cy + 25)], fill=(0, 0, 0, 0))
+
+    # Final cleanup: drop any remaining low-saturation dark pixels (background remnants).
+    px = im.load()
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            if a == 0:
+                continue
+            rr, gg, bb = r / 255.0, g / 255.0, b / 255.0
+            _, s, v = colorsys.rgb_to_hsv(rr, gg, bb)
+            if s < 0.22 and v < 0.70:
+                px[x, y] = (r, g, b, 0)
 
     buf = io.BytesIO()
     im.save(buf, format="PNG", optimize=True)
