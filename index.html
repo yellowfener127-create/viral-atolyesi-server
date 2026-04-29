@@ -391,16 +391,6 @@
           <input type="range" id="crushHookOffY" min="-400" max="400" step="1" value="0" style="width:140px;vertical-align:middle" />
           <span id="crushHookOffYVal">0</span>
         </label>
-        <div style="margin-top:10px;padding-top:10px;border-top:1px solid #333;font-size:11px;color:var(--muted)">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-            <input type="checkbox" id="crushLabMeterEnabled" />
-            <span>Lab meter (küçük therapy/hope/chaos; nudge + hook önizlemede sürüklenebilir)</span>
-          </label>
-          <label style="display:block;margin-top:6px">Hedef %
-            <input type="range" id="crushLabMeterValue" min="0" max="100" step="1" value="80" style="width:min(100%,280px);vertical-align:middle" />
-            <span id="crushLabMeterValueVal" style="font-variant-numeric:tabular-nums">80</span>
-          </label>
-        </div>
       </div>
     </div>
 
@@ -712,11 +702,7 @@ var __crushManual = {
   cropRect: { x: 0, y: 0, w: 720, h: 1280 },
   hookXOffsetPx: 0,
   hookYOffsetPx: 0,
-  frameImg: null,
-  labMeterEnabled: false,
-  labMeterValue: 80,
-  labMeterX: 24,
-  labMeterY: 100
+  frameImg: null
 };
 
 function crushClampCropRect(r) {
@@ -891,215 +877,6 @@ function crushSplitHookLines55(text) {
   const l2 = s.slice(br + 1).trim();
   if (!l1) return ["", l2];
   return l2 ? [l1, l2] : [l1];
-}
-
-function crushGetLabMeterRefSize() {
-  return { w: 132, h: 142 };
-}
-
-/** Önizleme — therapy / hope / chaos meter görsel teması */
-function crushLabMeterBrandTheme(b) {
-  if (b === "umut") {
-    return {
-      accent: "#c67f12",
-      accentLight: "#fdeccd",
-      gradTop: "#fffbf5",
-      gradMid: "#fff6eb",
-      gradBot: "#ffefd9",
-      border: "#e8d4bc",
-      track: "#d4c4b0",
-      needleTip: "#c67f12",
-      subtitle: "progress",
-      badgeBg: "rgba(198,127,18,0.12)"
-    };
-  }
-  if (b === "kaos") {
-    return {
-      accent: "#7c3aed",
-      accentLight: "#ede9fe",
-      gradTop: "#faf8ff",
-      gradMid: "#f3effc",
-      gradBot: "#ebe4f8",
-      border: "#d4cce8",
-      track: "#c4bcd8",
-      needleTip: "#7c3aed",
-      subtitle: "intensity",
-      badgeBg: "rgba(124,58,237,0.12)"
-    };
-  }
-  return {
-    accent: "#0f766e",
-    accentLight: "#ccfbf1",
-    gradTop: "#f7fdfc",
-    gradMid: "#f0faf8",
-    gradBot: "#e8f5f3",
-    border: "#c5ddd8",
-    track: "#b8cac6",
-    needleTip: "#0f766e",
-    subtitle: "balance",
-    badgeBg: "rgba(15,118,110,0.12)"
-  };
-}
-function crushHitLabMeter(bx, by) {
-  if (!__crushManual.labMeterEnabled) return false;
-  const { w, h } = crushGetLabMeterRefSize();
-  const x = __crushManual.labMeterX;
-  const y = __crushManual.labMeterY;
-  return bx >= x && by >= y && bx <= x + w && by <= y + h;
-}
-function crushDrawLabMeterWidget(ctx) {
-  if (!__crushManual.labMeterEnabled) return;
-  const W = ctx.canvas.width, H = ctx.canvas.height;
-  const x = __crushManual.labMeterX;
-  const y = __crushManual.labMeterY;
-  const { w: rfw, h: rfh } = crushGetLabMeterRefSize();
-  const mw = Math.max(1, Math.round((rfw * W) / 720));
-  const mh = Math.max(1, Math.round((rfh * H) / 1280));
-  const b = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
-  const label = b === "umut" ? "hope" : (b === "kaos" ? "chaos" : "therapy");
-  const tm = crushLabMeterBrandTheme(b);
-  const val = Math.max(0, Math.min(100, Math.round(Number(__crushManual.labMeterValue) || 0)));
-  const cx = x + mw * 0.5;
-  const cy = y + mh - 11;
-  const R = Math.max(22, Math.min(mw, mh) * 0.37);
-  const a0 = Math.PI;
-  const a1 = 0;
-  const needleA = a0 * (1 - val / 100);
-  const fsT = Math.max(9, Math.round(10 * (W / 720)));
-  const fsSmall = Math.max(7, Math.round(8 * (W / 720)));
-  const gC = 255 * (1 - val / 100) | 0;
-  const progRgb = "rgb(255," + gC + ",0)";
-  const rad = Math.min(14, mw * 0.08);
-  ctx.save();
-  ctx.shadowColor = "rgba(15,23,42,0.18)";
-  ctx.shadowBlur = Math.max(8, mw * 0.14);
-  ctx.shadowOffsetY = Math.max(3, mh * 0.025);
-  ctx.shadowOffsetX = 0;
-  const g = ctx.createLinearGradient(x, y, x, y + mh);
-  g.addColorStop(0, tm.gradTop);
-  g.addColorStop(0.55, tm.gradMid);
-  g.addColorStop(1, tm.gradBot);
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  if (ctx.roundRect) { ctx.roundRect(x, y, mw, mh, rad); } else { ctx.rect(x, y, mw, mh); }
-  ctx.fill();
-  ctx.shadowColor = "transparent";
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
-  ctx.strokeStyle = tm.border;
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  const stripH = Math.max(4, Math.round(mh * 0.045));
-  if (ctx.roundRect) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(x, y, mw, mh, rad);
-    ctx.clip();
-    const gs = ctx.createLinearGradient(x, y, x + mw, y);
-    gs.addColorStop(0, tm.accent);
-    gs.addColorStop(1, tm.accentLight);
-    ctx.fillStyle = gs;
-    ctx.fillRect(x, y, mw, stripH);
-    ctx.restore();
-  } else {
-    ctx.fillStyle = tm.accent;
-    ctx.fillRect(x, y, mw, stripH);
-  }
-  ctx.textAlign = "center";
-  ctx.textBaseline = "top";
-  ctx.fillStyle = tm.accent;
-  ctx.font = "800 " + fsT + 'px "Segoe UI",system-ui,sans-serif';
-  ctx.letterSpacing = "0.06em";
-  ctx.fillText(label.toUpperCase(), cx, y + stripH + 5);
-  ctx.letterSpacing = "0";
-  ctx.fillStyle = "#64748b";
-  ctx.font = "500 " + fsSmall + 'px "Segoe UI",system-ui,sans-serif';
-  ctx.fillText("meter · " + tm.subtitle, cx, y + stripH + 5 + fsT + 2);
-  ctx.beginPath();
-  ctx.arc(cx, cy, R * 1.06, a1, a0, true);
-  ctx.strokeStyle = "rgba(148,163,184,0.35)";
-  ctx.lineWidth = Math.max(2, R * 0.06);
-  ctx.lineCap = "round";
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, a1, a0, true);
-  ctx.lineWidth = Math.max(5, R * 0.13);
-  ctx.strokeStyle = tm.track;
-  ctx.stroke();
-  const ticks = [a0, Math.PI / 2, a1];
-  ticks.forEach(function (ta) {
-    const ix = cx + (R - 4) * Math.cos(ta);
-    const iy = cy - (R - 4) * Math.sin(ta);
-    const ox = cx + (R + 5) * Math.cos(ta);
-    const oy = cy - (R + 5) * Math.sin(ta);
-    ctx.beginPath();
-    ctx.moveTo(ix, iy);
-    ctx.lineTo(ox, oy);
-    ctx.strokeStyle = "rgba(100,116,139,0.55)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-  });
-  if (val > 0) {
-    const aw = a0 * (1 - val / 100);
-    ctx.shadowColor = "rgba(255," + gC + ",0,0.42)";
-    ctx.shadowBlur = Math.max(4, R * 0.14);
-    ctx.beginPath();
-    ctx.arc(cx, cy, R * 0.9, aw, a0, true);
-    ctx.lineWidth = Math.max(4, R * 0.11);
-    ctx.strokeStyle = progRgb;
-    ctx.lineCap = "round";
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-  }
-  ctx.beginPath();
-  ctx.arc(cx, cy, Math.max(5, R * 0.14), 0, 2 * Math.PI);
-  ctx.strokeStyle = tm.accent;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(cx, cy, Math.max(4, R * 0.1), 0, 2 * Math.PI);
-  ctx.fillStyle = "#1e293b";
-  ctx.fill();
-  const L = R * 0.76;
-  const nx = cx + L * Math.cos(needleA);
-  const ny = cy - L * Math.sin(needleA);
-  ctx.beginPath();
-  ctx.moveTo(cx, cy);
-  ctx.lineTo(nx, ny);
-  ctx.lineWidth = Math.max(2.5, R * 0.045);
-  ctx.strokeStyle = "#f8fafc";
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(cx, cy);
-  ctx.lineTo(nx, ny);
-  ctx.lineWidth = Math.max(1.5, R * 0.028);
-  ctx.strokeStyle = "#0f172a";
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(nx, ny, Math.max(2, R * 0.045), 0, 2 * Math.PI);
-  ctx.fillStyle = tm.needleTip;
-  ctx.fill();
-  const pct = String(val) + "%";
-  ctx.font = "700 " + Math.max(11, fsT + 2) + 'px ui-monospace,"Segoe UI",sans-serif';
-  const tw = ctx.measureText(pct).width;
-  const padX = Math.max(8, mw * 0.06);
-  const ph = Math.max(18, fsT + 8);
-  const bx = cx - tw / 2 - padX;
-  const by = y + mh - ph - 4;
-  ctx.fillStyle = tm.badgeBg;
-  if (ctx.roundRect) {
-    ctx.beginPath();
-    ctx.roundRect(bx, by, tw + padX * 2, ph, ph / 2);
-    ctx.fill();
-  } else {
-    ctx.fillRect(bx, by, tw + padX * 2, ph);
-  }
-  ctx.fillStyle = "#0f172a";
-  ctx.textBaseline = "middle";
-  ctx.fillText(pct, cx, by + ph / 2);
-  ctx.restore();
 }
 
 function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
@@ -1292,6 +1069,8 @@ function crushDrawVideoFrameOntoCanvas(cv) {
 
 function crushDrawRectsOverlay(cv) {
   if (!cv) return;
+  // Blur canvas: her zaman "asıl blur" uzayı (kutuların uygulandığı v0base) + zoom/pan.
+  // Diğer canvaslar: kompozit önizleme.
   if (cv.id === "crushBlurCanvas") {
     crushDrawBlurBaseWithView(cv);
   } else {
@@ -1344,9 +1123,6 @@ function crushDrawRectsOverlay(cv) {
     ctx.fillRect(r.x - hs / 2, r.y + r.h - hs / 2, hs, hs);
     ctx.fillRect(r.x + r.w - hs / 2, r.y + r.h - hs / 2, hs, hs);
   }
-  if ((cv.id === "crushNudgeCanvas" || cv.id === "crushHookCanvas") && __crushManual.labMeterEnabled) {
-    crushDrawLabMeterWidget(ctx);
-  }
 }
 
 function crushRedrawAllPreviews() {
@@ -1393,21 +1169,10 @@ function onCrushCanvasMouseDown(ev) {
   const bx = bpt.bx, by = bpt.by;
   const hit = crushGetHitRect(bx, by);
 
+  // Blur canvas: right click = pan (milimetrik yerleştirme için)
   if (cv.id === "crushBlurCanvas" && (ev.button === 2 || ev.buttons === 2)) {
     const p = crushBlurViewParams(cv);
     __crushManual.drag = { type: "blur_pan", mx0: mx, my0: my, panX0: p.sx, panY0: p.sy, canvas: cv };
-    ev.preventDefault();
-    return;
-  }
-  if ((cv.id === "crushNudgeCanvas" || cv.id === "crushHookCanvas") && __crushManual.labMeterEnabled && crushHitLabMeter(bx, by) && !__crushManual.drawMode) {
-    __crushManual.drag = {
-      type: "lab_meter",
-      mx0: bx,
-      my0: by,
-      x0: __crushManual.labMeterX,
-      y0: __crushManual.labMeterY,
-      canvas: cv
-    };
     ev.preventDefault();
     return;
   }
@@ -1482,16 +1247,6 @@ function onCrushCanvasMouseMove(ev) {
     const dy = my - d.my0;
     __crushManual.blurPanX = Math.round(d.panX0 - dx / p.z);
     __crushManual.blurPanY = Math.round(d.panY0 - dy / p.z);
-    crushRedrawAllPreviews();
-    ev.preventDefault();
-    return;
-  }
-  if (d.type === "lab_meter") {
-    const dx = bx - d.mx0;
-    const dy = by - d.my0;
-    const { w: Mw, h: Mh } = crushGetLabMeterRefSize();
-    __crushManual.labMeterX = Math.max(0, Math.min(720 - Mw, Math.round(d.x0 + dx)));
-    __crushManual.labMeterY = Math.max(0, Math.min(1280 - Mh, Math.round(d.y0 + dy)));
     crushRedrawAllPreviews();
     ev.preventDefault();
     return;
@@ -1644,7 +1399,10 @@ function wireCrushManualBlurUi() {
   const wrap = document.getElementById("crushBlurPreviewWrap");
   if (!file || !v || !cv || !seek || !wrap) return;
 
+  // Right-click pan uses the context menu, disable it.
   cv.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  // Zoom slider wiring
   const z = document.getElementById("crushBlurZoom");
   const zv = document.getElementById("crushBlurZoomVal");
   if (z) {
@@ -1654,6 +1412,8 @@ function wireCrushManualBlurUi() {
       crushRedrawAllPreviews();
     });
   }
+
+  // Mouse wheel zoom centered at cursor (blur canvas only)
   cv.addEventListener("wheel", (ev) => {
     ev.preventDefault();
     const { mx, my } = crushCanvasCoords(ev, cv);
@@ -1666,7 +1426,7 @@ function wireCrushManualBlurUi() {
     const p = crushBlurViewParams(cv);
     __crushManual.blurPanX = Math.round(basePt.bx - (mx / p.z));
     __crushManual.blurPanY = Math.round(basePt.by - (my / p.z));
-    crushBlurViewParams(cv);
+    crushBlurViewParams(cv); // clamp
     if (z) z.value = String(__crushManual.blurZoom);
     if (zv) zv.textContent = (__crushManual.blurZoom).toFixed(2) + "×";
     crushRedrawAllPreviews();
@@ -1774,23 +1534,6 @@ function wireCrushManualBlurUi() {
       crushRedrawAllPreviews();
     });
   }
-  const le = document.getElementById("crushLabMeterEnabled");
-  if (le) {
-    le.addEventListener("change", function () {
-      __crushManual.labMeterEnabled = !!le.checked;
-      crushRedrawAllPreviews();
-    });
-  }
-  const lv = document.getElementById("crushLabMeterValue");
-  const lvv = document.getElementById("crushLabMeterValueVal");
-  if (lv) {
-    lv.addEventListener("input", function () {
-      const n = Number(lv.value);
-      __crushManual.labMeterValue = Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0;
-      if (lvv) lvv.textContent = String(__crushManual.labMeterValue);
-      crushRedrawAllPreviews();
-    });
-  }
   cv.addEventListener("mousedown", onCrushCanvasMouseDown);
   if (nudgeCv) nudgeCv.addEventListener("mousedown", onCrushCanvasMouseDown);
   if (cropCv) cropCv.addEventListener("mousedown", onCrushCanvasMouseDown);
@@ -1856,19 +1599,7 @@ async function crushVideo() {
         manual_reels_window_shift_y_px,
         hook_text,
         manual_reels_hook_x_offset_px,
-        manual_reels_hook_y_offset_px,
-        lab_meter: (function () {
-          if (!__crushManual.labMeterEnabled) return { enabled: false };
-          const b = String(document.getElementById("crushBrand")?.value || "terapi").toLowerCase();
-          const kind = b === "umut" ? "hope" : (b === "kaos" ? "chaos" : "therapy");
-          return {
-            enabled: true,
-            value: Math.max(0, Math.min(100, Math.round(Number(__crushManual.labMeterValue) || 0))),
-            x: Math.round(Number(__crushManual.labMeterX) || 0),
-            y: Math.round(Number(__crushManual.labMeterY) || 0),
-            kind
-          };
-        })()
+        manual_reels_hook_y_offset_px
       })
     });
     const localData = await localRes.json().catch(() => ({}));

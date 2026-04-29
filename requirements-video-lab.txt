@@ -1,0 +1,2 @@
+# Python 3.10+ — viral Lab meter processor (optional; separate from Node server deps)
+watchdog>=4.0

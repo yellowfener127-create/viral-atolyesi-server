@@ -702,156 +702,6 @@ function buildManualBlurDelogoChain(inputLabel, rects, outW, outH, finalLabel) {
   return { chain: parts.join(';'), outLabel: finalLabel };
 }
 
-/**
- * lab_meter: { enabled, value 0..100, x, y, kind: therapy|hope|chaos } (720×1280 ref px).
- */
-function parseLabMeterOptions(o) {
-  const r = o?.lab_meter ?? o?.labMeter;
-  if (!r || typeof r !== 'object') return { enabled: false };
-  const on =
-    r.enabled === true ||
-    r.enabled === 1 ||
-    r.enabled === '1' ||
-    o?.lab_meter_enabled === true ||
-    o?.lab_meter_enabled === 1;
-  if (!on) return { enabled: false };
-  const value = Math.max(0, Math.min(100, Math.round(Number(r.value != null ? r.value : 80))));
-  const x = Math.max(0, Math.min(MANUAL_BLUR_REF_W - 1, Math.round(Number(r.x != null ? r.x : 24))));
-  const y = Math.max(0, Math.min(MANUAL_BLUR_REF_H - 1, Math.round(Number(r.y != null ? r.y : 80))));
-  let kind = String(r.kind != null ? r.kind : o?.brand || 'therapy')
-    .toLowerCase();
-  if (kind === 'terapi') kind = 'therapy';
-  if (kind === 'umut') kind = 'hope';
-  if (kind === 'kaos') kind = 'chaos';
-  if (!['therapy', 'hope', 'chaos'].includes(kind)) {
-    const b = String(o?.brand || '')
-      .toLowerCase();
-    if (b === 'umut') kind = 'hope';
-    else if (b === 'kaos') kind = 'chaos';
-    else kind = 'therapy';
-  }
-  return { enabled: true, value, x, y, kind };
-}
-
-/**
- * [v1] (Lab tuval) üstüne küçük “meter” overlay → [v1lab]. Sadece Reels Instagram canvas sonrası.
- */
-function buildReelsLabMeterOverlayFilters({
-  outW,
-  outH,
-  outDur,
-  meter,
-  fontPart
-}) {
-  const m = meter;
-  if (!m || !m.enabled) return [];
-  const N = m.value;
-  const sxR = outW / MANUAL_BLUR_REF_W;
-  const syR = outH / MANUAL_BLUR_REF_H;
-  const _even = (n) => {
-    const v = Math.max(2, Math.round(n));
-    return v % 2 ? v - 1 : v;
-  };
-  let mw = _even(132 * sxR);
-  let mh = _even(142 * syR);
-  const stripH = Math.max(3, Math.round(5 * syR));
-  const bgHex =
-    m.kind === 'hope'
-      ? 'fff9f4'
-      : m.kind === 'chaos'
-        ? 'f7f4fc'
-        : 'f6faf9';
-  const accentHex =
-    m.kind === 'hope'
-      ? 'c67f12'
-      : m.kind === 'chaos'
-        ? '7c3aed'
-        : '0f766e';
-  let mx = Math.max(0, Math.min(outW - mw, Math.round(m.x * sxR)));
-  let my = Math.max(0, Math.min(outH - mh, Math.round(m.y * syR)));
-  if (my + mh > outH) mh = _even(outH - my);
-  if (mx + mw > outW) mw = _even(outW - mx);
-  const D = outDur;
-  const te = D >= 5 ? D - 5 : Math.max(0.1, D * 0.88);
-  const teF = te.toFixed(4);
-  const Nf = Number(N);
-  /** İlerleme çubuğu genişliği — geq içinde atan2/if/min virgülleri FFmpeg expr ile güvenilir değil; sadece lt/gte/floor */
-  const pad = Math.max(6, Math.round(8 * Math.min(sxR, syR)));
-  const barH = Math.max(8, Math.round(11 * syR));
-  const barGap = Math.max(8, Math.round(10 * syR));
-  const barY = Math.max(stripH + 36, mh - barH - barGap);
-  const pw = Math.max(4, mw - 2 * pad);
-  const barWExpr =
-    '(lt(t\\,' +
-    teF +
-    '))*floor(' +
-    pw +
-    '*' +
-    Nf +
-    '*t/(100*' +
-    teF +
-    '))+(gte(t\\,' +
-    teF +
-    '))*floor(' +
-    pw +
-    '*' +
-    Nf +
-    '/100)';
-  const kindTitle =
-    m.kind === 'hope'
-      ? 'HOPE · meter'
-      : m.kind === 'chaos'
-        ? 'CHAOS · meter'
-        : 'THERAPY · meter';
-  const title = escapeDrawtextText(kindTitle);
-  const fs = Math.max(10, Math.round(12 * Math.min(sxR, syR)));
-  const fsP = Math.max(9, Math.round(12 * Math.min(sxR, syR)));
-  const parts = [
-    `color=c=0x${bgHex}:s=${mw}x${mh}:d=9999,format=rgba[labp0]`,
-    `[labp0]drawbox=x=0:y=0:w=iw:h=${stripH}:color=0x${accentHex}:t=fill[labp1s]`,
-    `[labp1s]drawtext=text='${title}'${fontPart}:` +
-      `fontsize=${fs}:fontcolor=0x1e293b:borderw=0:shadowx=0:shadowy=0:fix_bounds=1:` +
-      `x='(w-text_w)/2':y=${stripH + 4}:enable='eq(1,1)'[labp2t]`
-  ];
-  const pctLabel = (str, en) => {
-    const tesc = escapeDrawtextText(String(str));
-    return (
-      `drawtext=text='${tesc}'${fontPart}:` +
-      `fontsize=${fsP}:fontcolor=0x1e293b:shadowx=0:shadowy=0:fix_bounds=1:` +
-      `x='(w-text_w)/2':y='h-text_h-6':enable='${en}'`
-    );
-  };
-  if (N <= 0) {
-    parts.push(`[labp2t]${pctLabel('0%', 'eq(1,1)')}[labp3]`);
-  } else {
-    let cur = 'labp2t';
-    let i = 0;
-    for (let v = 0; v < N; v += 5) {
-      const t0 = (v * te) / N;
-      const t1 = (Math.min(v + 5, N) * te) / N;
-      const show = String(Math.min(v + 5, N)) + '%';
-      const isLast = v + 5 >= N;
-      const t0F = t0.toFixed(4);
-      const en = isLast
-        ? `gte(t\\,${t0F})`
-        : `gte(t\\,${t0F})*lt(t\\,${t1.toFixed(4)})`;
-      const next = isLast ? 'labp3' : `labp2x${i}`;
-      parts.push(`[${cur}]${pctLabel(show, en)}[${next}]`);
-      cur = next;
-      i++;
-    }
-  }
-  parts.push(
-    `[labp3]drawbox=x=${pad}:y=${barY}:w=${pw}:h=${barH}:color=0xd8d8d8:t=fill[labtr]`,
-    `[labtr]drawbox=x=${pad}:y=${barY}:w='${barWExpr}':h=${barH}:color=0xff5522:t=fill[labtg]`,
-    `[labtg]format=rgba,scale=eval=frame:w=iw*\\(1+0.01*sin(2*PI*0.72*t)\\):` +
-      `h=ih*\\(1+0.01*sin(2*PI*0.72*t)\\):flags=bicubic,` +
-      `pad=${mw}:${mh}:(ow-iw)/2:(oh-ih)/2:color=0xFFFFFF@1,format=rgba[labh1]`,
-    `[v1][labh1]overlay=${mx}:${my}:shortest=1:format=auto[v1lab]`
-  );
-  return parts;
-}
-
 async function buildCrushRenderPlan(o) {
   const {
     inFile,
@@ -1122,8 +972,7 @@ async function buildCrushRenderPlan(o) {
   const noiseOpEff = useReelsInstagramCanvas ? 0.002 : noiseOpacity;
   const grainOpEff = useReelsInstagramCanvas ? 0.006 : grainOpacity;
 
-  const labMeterOpt = useReelsInstagramCanvas ? parseLabMeterOptions(o) : { enabled: false };
-  const preWmLabel = labMeterOpt.enabled && useReelsInstagramCanvas ? 'v1lab' : 'v1';
+  const preWmLabel = 'v1';
 
   const wmInputIdx = frameExists ? 2 : 1;
   const tailWmAndGrain = [
@@ -1221,15 +1070,6 @@ async function buildCrushRenderPlan(o) {
           hookYOffsetRefPx: manualReelsHookYOff
         })
       : legacyVisualStack),
-    ...(labMeterOpt.enabled && useReelsInstagramCanvas
-      ? buildReelsLabMeterOverlayFilters({
-        outW,
-        outH,
-        outDur,
-        meter: labMeterOpt,
-        fontPart
-      })
-      : []),
     ...tailWmAndGrain
   ];
 
@@ -1373,14 +1213,7 @@ async function buildCrushRenderPlan(o) {
       manualReelsHookYOff,
       musicFile: musicFile && fs.existsSync(musicFile) ? path.basename(musicFile) : null,
       hookFont: fontFile ? path.basename(fontFile) : null,
-      labMeter: labMeterOpt.enabled
-        ? {
-            value: labMeterOpt.value,
-            x: labMeterOpt.x,
-            y: labMeterOpt.y,
-            kind: labMeterOpt.kind
-          }
-        : null
+      labMeter: null
     }
   };
 }
@@ -1449,6 +1282,5 @@ module.exports = {
   parseManualReelsCropYNudgePx,
   parseManualReelsWindowShiftYPx,
   parseManualReelsHookOffsetPx,
-  parseManualCropRectInput,
-  parseLabMeterOptions
+  parseManualCropRectInput
 };
