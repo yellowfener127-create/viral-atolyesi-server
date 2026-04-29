@@ -754,7 +754,6 @@ function buildReelsLabMeterOverlayFilters({
   };
   let mw = _even(132 * sxR);
   let mh = _even(142 * syR);
-  const titleH = 26;
   const stripH = Math.max(3, Math.round(5 * syR));
   const bgHex =
     m.kind === 'hope'
@@ -768,15 +767,6 @@ function buildReelsLabMeterOverlayFilters({
       : m.kind === 'chaos'
         ? '7c3aed'
         : '0f766e';
-  const bg = [
-    parseInt(bgHex.slice(0, 2), 16),
-    parseInt(bgHex.slice(2, 4), 16),
-    parseInt(bgHex.slice(4, 6), 16)
-  ];
-  const cxi = Math.round(mw / 2);
-  const cyi = Math.min(mh - 8, titleH + Math.round(0.6 * mh));
-  const r1 = Math.max(6, Math.round(0.31 * Math.min(mw, mh - titleH - 6)));
-  const r0 = Math.max(1, Math.round(r1 * 0.58));
   let mx = Math.max(0, Math.min(outW - mw, Math.round(m.x * sxR)));
   let my = Math.max(0, Math.min(outH - mh, Math.round(m.y * syR)));
   if (my + mh > outH) mh = _even(outH - my);
@@ -785,8 +775,28 @@ function buildReelsLabMeterOverlayFilters({
   const te = D >= 5 ? D - 5 : Math.max(0.1, D * 0.88);
   const teF = te.toFixed(4);
   const Nf = Number(N);
-  const vExpr = `if(lt(t\\,${teF})\\,5*floor(min(${Nf}.0*min(1.0\\,t/${teF})\\,${Nf}.0-0.0001)/5)\\,${Nf}.0)`;
-  const gMul = `max(0\\,1-${vExpr}/100.0)`;
+  /** İlerleme çubuğu genişliği — geq içinde atan2/if/min virgülleri FFmpeg expr ile güvenilir değil; sadece lt/gte/floor */
+  const pad = Math.max(6, Math.round(8 * Math.min(sxR, syR)));
+  const barH = Math.max(8, Math.round(11 * syR));
+  const barGap = Math.max(8, Math.round(10 * syR));
+  const barY = Math.max(stripH + 36, mh - barH - barGap);
+  const pw = Math.max(4, mw - 2 * pad);
+  const barWExpr =
+    '(lt(t\\,' +
+    teF +
+    '))*floor(' +
+    pw +
+    '*' +
+    Nf +
+    '*t/(100*' +
+    teF +
+    '))+(gte(t\\,' +
+    teF +
+    '))*floor(' +
+    pw +
+    '*' +
+    Nf +
+    '/100)';
   const kindTitle =
     m.kind === 'hope'
       ? 'HOPE · meter'
@@ -796,75 +806,9 @@ function buildReelsLabMeterOverlayFilters({
   const title = escapeDrawtextText(kindTitle);
   const fs = Math.max(10, Math.round(12 * Math.min(sxR, syR)));
   const fsP = Math.max(9, Math.round(12 * Math.min(sxR, syR)));
-  const pexpr =
-    'sqrt(pow(X-' +
-    cxi +
-    ' \\,2)+pow(Y-' +
-    cyi +
-    ' \\,2))';
-  const angE =
-    'if(gt(sqrt(pow(X-' +
-    cxi +
-    ' \\,2)+pow(Y-' +
-    cyi +
-    ' \\,2))\\,0.001)\\,min(2*PI\\,max(0\\,2*PI+atan2(2*' +
-    cyi +
-    '-2*Y\\,2*X-2*' +
-    cxi +
-    ')))\\,0)';
-  const inArc =
-    'between(' +
-    pexpr +
-    '\\,' +
-    r0 +
-    '\\,' +
-    r1 +
-    ')*lt(Y\\,' +
-    cyi +
-    ')*' +
-    'gte(' +
-    angE +
-    '\\,PI*\\(1-' +
-    vExpr +
-    '/100.0\\))';
-  const inTrack = 'between(' + pexpr + '\\,' + r0 + '\\,' + r1 + ')*lt(Y\\,' + cyi + ')';
-  const tr = 178;
-  const rE =
-    'if(' +
-    inArc +
-    '\\,255\\,if(' +
-    inTrack +
-    '\\,' +
-    tr +
-    '\\,' +
-    bg[0] +
-    '))';
-  const gE =
-    'if(' +
-    inArc +
-    '\\,255*(' +
-    gMul +
-    ')\\,if(' +
-    inTrack +
-    '\\,' +
-    tr +
-    '\\,' +
-    bg[1] +
-    '))';
-  const bE =
-    'if(' +
-    inArc +
-    '\\,0\\,if(' +
-    inTrack +
-    '\\,' +
-    tr +
-    '\\,' +
-    bg[2] +
-    '))';
   const parts = [
     `color=c=0x${bgHex}:s=${mw}x${mh}:d=9999,format=rgba[labp0]`,
-    `[labp0]geq=r='${rE}':g='${gE}':b='${bE}':a='255'[labp1]`,
-    `[labp1]drawbox=x=0:y=0:w=iw:h=${stripH}:color=0x${accentHex}:t=fill[labp1s]`,
+    `[labp0]drawbox=x=0:y=0:w=iw:h=${stripH}:color=0x${accentHex}:t=fill[labp1s]`,
     `[labp1s]drawtext=text='${title}'${fontPart}:` +
       `fontsize=${fs}:fontcolor=0x1e293b:borderw=0:shadowx=0:shadowy=0:fix_bounds=1:` +
       `x='(w-text_w)/2':y=${stripH + 4}:enable='eq(1,1)'[labp2t]`
@@ -898,7 +842,9 @@ function buildReelsLabMeterOverlayFilters({
     }
   }
   parts.push(
-    `[labp3]format=rgba,scale=eval=frame:w=iw*\\(1+0.01*sin(2*PI*0.72*t)\\):` +
+    `[labp3]drawbox=x=${pad}:y=${barY}:w=${pw}:h=${barH}:color=0xd8d8d8:t=fill[labtr]`,
+    `[labtr]drawbox=x=${pad}:y=${barY}:w='${barWExpr}':h=${barH}:color=0xff5522:t=fill[labtg]`,
+    `[labtg]format=rgba,scale=eval=frame:w=iw*\\(1+0.01*sin(2*PI*0.72*t)\\):` +
       `h=ih*\\(1+0.01*sin(2*PI*0.72*t)\\):flags=bicubic,` +
       `pad=${mw}:${mh}:(ow-iw)/2:(oh-ih)/2:color=0xFFFFFF@1,format=rgba[labh1]`,
     `[v1][labh1]overlay=${mx}:${my}:shortest=1:format=auto[v1lab]`
