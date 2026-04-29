@@ -352,6 +352,24 @@ function buildHookFromCaption(caption) {
   return hook;
 }
 
+function isDanglingHookFragment(hook) {
+  const s = String(hook || '').trim();
+  if (!s) return true;
+  const plain = s.replace(/\s+/g, ' ').trim();
+  const words = plain.split(' ').filter(Boolean);
+  if (words.length <= 2) return true;
+  // Ends with a dangling connector / infinitive marker
+  const end = words[words.length - 1].toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  const badEnd = new Set(['to', 'and', 'or', 'but', 'because', 'when', 'while', 'if', 'with', 'for', 'of', 'in', 'on', 'at', 'like', 'that', 'which']);
+  if (badEnd.has(end)) return true;
+  // Common half-hooks from titles
+  if (/^(dad|mom|baby|babies)\s+tries\s+to$/i.test(plain)) return true;
+  if (/tries\s+to$/i.test(plain)) return true;
+  // No punctuation and looks cut off (very short)
+  if (!/[.!?…]$/.test(plain) && words.length <= 4) return true;
+  return false;
+}
+
 function pickOne(arr) {
   if (!arr || !arr.length) return '';
   return arr[Math.floor(Math.random() * arr.length)];
@@ -2241,6 +2259,12 @@ app.post('/crush', async (req, res) => {
           ? ensureHookUsesPoolEmoji(hookCore, emojiPool)
           : hookCore;
     hookText = stripBannedHookWords(hookText);
+    // Avoid half-sentences like "Dad tries to"
+    if (!manualHookTextRaw && isDanglingHookFragment(hookText)) {
+      const better = buildHookFromCaption(finalCaption) || fallbackHookTextForBrand(brand);
+      hookText = reelsEmojiBrand ? ensureHookUsesPoolEmoji(better, emojiPool) : better;
+      hookText = stripBannedHookWords(hookText) || better;
+    }
     // If stripping "ignore" makes it too short, fall back to a safe brand hook.
     if (!hookText || hookText.length < 6) {
         const fb = fallbackHookTextForBrand(brand);
