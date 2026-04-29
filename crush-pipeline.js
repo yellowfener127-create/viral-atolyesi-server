@@ -517,12 +517,17 @@ function buildReelsInstagramCanvasFilters({
  * Lab markası reels çıktısı [v1] üzerine animasyonlu meter çubuğu + hedef yüzde yazısı (alt orta).
  * Çıkış etiketi: [v1meter] — watermark zinciri buradan beslenir.
  */
-function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart }) {
-  let S = randInt(10, 30);
-  let T = randInt(85, 100);
-  if (T <= S) T = Math.min(100, S + 55);
+function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter }) {
+  const enabled = labMeter && typeof labMeter.enabled === 'boolean' ? labMeter.enabled : true;
+  if (!enabled) return { filters: [], debug: { enabled: false } };
+
+  let T = (labMeter && Number.isFinite(Number(labMeter.target_percent))) ? Math.round(Number(labMeter.target_percent)) : randInt(85, 100);
+  T = Math.max(0, Math.min(100, T));
+  let S = 0;
+
   const d = Math.max(0.01, Number(outDur) || 4);
-  const dLit = String(d).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  const pd = Math.max(0.10, d - 5.0); // output timeline: hit target exactly 5s before end
+  const pdLit = String(pd.toFixed(6)).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 
   let glowHex = '0xff8844';
   let mainHex = '0xff4422';
@@ -534,22 +539,94 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart }) {
     mainHex = '0xe6b422';
   }
 
-  const bx = 'floor(iw*0.085)-5';
-  const byGlow = 'ih-137';
-  const byMain = 'ih-132';
-  const wbar =
-    `max(4\\,floor(iw*0.83*min(${T}/100\\,(${S}/100+(${T}-${S})/100*min(t/${dLit}\\,1)))))`;
-  const wglow = `min(floor(iw*0.92)\\,${wbar}+14)`;
-  const pctEsc = escapeDrawtextText(String(T));
+  const pos720 = labMeter && labMeter.pos_720 && Number.isFinite(labMeter.pos_720.x) && Number.isFinite(labMeter.pos_720.y)
+    ? { x: Math.round(labMeter.pos_720.x), y: Math.round(labMeter.pos_720.y) }
+    : null;
+  const cx = pos720 ? Math.round((pos720.x / 720) * 1080) : 540;
+  const cy = pos720 ? Math.round((pos720.y / 1280) * 1920) : 1500;
+
+  const r = 320;
+  const a0 = -2.20; // rad
+  const a1 = 2.20;
+  const pExpr = `min(t/${pdLit}\\,1)`;
+  const ease = `(${pExpr})*(${pExpr})*(3-2*(${pExpr}))`;
+  const scoreExpr = `min(${T}\\,${T}*(${ease}))`;
+  const angleExpr = `(${a0})+(${a1 - a0})*(${scoreExpr}/100)`;
+
+  const wSeg = 14;
+  const hSeg = 14;
+  const segGlowW = 20;
+  const segGlowH = 20;
+
+  const arcSegs = [];
+  const arcGlowSegs = [];
+  const segCount = 28;
+  for (let i = 0; i <= segCount; i++) {
+    const u = i / segCount;
+    const th = (Math.PI * (1 - u)) * (a1 / Math.PI); // map to [-a0..a1] roughly, but keep symmetric by lerp
+    const ang = a0 + (a1 - a0) * u;
+    const x = Math.round(cx + Math.cos(ang) * r - wSeg / 2);
+    const y = Math.round(cy - Math.sin(ang) * r - hSeg / 2);
+    arcSegs.push(`drawbox=x=${x}:y=${y}:w=${wSeg}:h=${hSeg}:color=${mainHex}@0.88:t=fill`);
+    arcGlowSegs.push(`drawbox=x=${x - 3}:y=${y - 3}:w=${segGlowW}:h=${segGlowH}:color=${glowHex}@0.30:t=fill`);
+  }
+
+  const dots = [];
+  const labels = [];
+  for (let v = 0; v <= 100; v += 10) {
+    const u = v / 100;
+    const ang = a0 + (a1 - a0) * u;
+    const dx = Math.round(cx + Math.cos(ang) * (r - 10) - 3);
+    const dy = Math.round(cy - Math.sin(ang) * (r - 10) - 3);
+    dots.push(`drawbox=x=${dx}:y=${dy}:w=6:h=6:color=white@0.85:t=fill`);
+    const lx = Math.round(cx + Math.cos(ang) * (r - 62));
+    const ly = Math.round(cy - Math.sin(ang) * (r - 62));
+    const txt = escapeDrawtextText(String(v));
+    labels.push(
+      `drawtext=text='${txt}'${fontPart}:fontsize=26:fontcolor=white@0.80:borderw=0:` +
+        `x=${lx}-text_w/2:y=${ly}-text_h/2`
+    );
+  }
+
+  const pulseTerms = [];
+  for (let v = 10; v <= 100; v += 10) {
+    if (v > T) break;
+    const tk = pd * (v / Math.max(1, T));
+    const t0 = (tk - 0.08).toFixed(3);
+    const t1 = (tk + 0.08).toFixed(3);
+    pulseTerms.push(`between(t\\,${t0}\\,${t1})`);
+  }
+  const pulseEnable = pulseTerms.length ? pulseTerms.join('+') : '0';
+  const targetEnable = `between(t\\,${(pd - 0.12).toFixed(3)}\\,${(pd + 0.22).toFixed(3)})`;
+
+  const numText = `%{eif\\:${scoreExpr}\\:d}`;
+
+  // Needle constructed as a transparent layer, then rotated.
+  const needleSize = 760;
+  const nx0 = Math.round(cx - needleSize / 2);
+  const ny0 = Math.round(cy - needleSize / 2);
+  const needleLen = Math.round(r * 0.92);
+  const needleW = 10;
+  const hubR = 16;
 
   return {
     filters: [
-      `[v1]drawbox=x=${bx}:y=${byGlow}:w=${wglow}:h=38:color=${glowHex}@0.42:t=fill[lm_glow]`,
-      `[lm_glow]drawbox=x=${bx}:y=${byMain}:w=${wbar}:h=28:color=${mainHex}@0.94:t=fill[lm_bar]`,
-      `[lm_bar]drawtext=text='${pctEsc}'${fontPart}:fontsize=46:fontcolor=0xfff7f2:borderw=2:bordercolor=0x201010@0.85:` +
-        `shadowcolor=0xaa4400@0.45:shadowx=3:shadowy=3:x=w-text_w-floor(w*0.09):y=h-210[v1meter]`
+      // base arc + dots + numbers
+      `[v1]drawbox=x=0:y=0:w=0:h=0:color=black@0:t=fill,${arcSegs.join(',')},${dots.join(',')},${labels.join(',')}[lm0]`,
+      // checkpoint pulse glow (slight)
+      `[lm0]${arcGlowSegs.join(',')},boxblur=2:1:2:1:enable='${pulseEnable}'[lm1]`,
+      // target hit glow burst (stronger & whiter)
+      `[lm1]${arcGlowSegs.join(',')},lutrgb=r='min(255,val*1.6)':g='min(255,val*1.6)':b='min(255,val*1.75)',boxblur=3:1:3:1:enable='${targetEnable}'[lm2]`,
+      // needle layer
+      `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
+        `drawbox=x=${Math.round(needleSize / 2 - needleW / 2)}:y=${Math.round(needleSize / 2 - needleLen)}:w=${needleW}:h=${needleLen}:color=white@0.92:t=fill,` +
+        `drawbox=x=${Math.round(needleSize / 2 - hubR)}:y=${Math.round(needleSize / 2 - hubR)}:w=${hubR * 2}:h=${hubR * 2}:color=black@0.55:t=fill,` +
+        `rotate=angle='${angleExpr}':c=none:ow=iw:oh=ih[lmNeedle]`,
+      `[lm2][lmNeedle]overlay=x=${nx0}:y=${ny0}:format=auto[lm3]`,
+      `[lm3]drawtext=text='${numText}'${fontPart}:fontsize=78:fontcolor=0xfff7f2:borderw=3:bordercolor=0x201010@0.85:` +
+        `shadowcolor=0x000000@0.55:shadowx=4:shadowy=4:x=${cx}-text_w/2:y=${cy + 120}[v1meter]`
     ],
-    debug: { random_start_percent: S, target_percent: T, brandNorm }
+    debug: { enabled: true, random_start_percent: S, target_percent: T, brandNorm, pos_720: pos720 }
   };
 }
 
@@ -950,6 +1027,19 @@ async function buildCrushRenderPlan(o) {
   const manualReelsHookYOff = parseManualReelsHookOffsetPx(
     o.manual_reels_hook_y_offset_px ?? o.manualReelsHookYOffsetPx
   );
+  const labMeterOpt = (() => {
+    const raw = o.lab_meter ?? o.labMeter ?? null;
+    if (!raw || typeof raw !== 'object') return null;
+    const enabled = raw.enabled == null ? true : !!raw.enabled;
+    const tp = Number(raw.target_percent);
+    const target_percent = Number.isFinite(tp) ? Math.max(0, Math.min(100, Math.round(tp))) : null;
+    const p = raw.pos_720;
+    const pos_720 =
+      p && typeof p === 'object' && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y))
+        ? { x: Math.round(Number(p.x)), y: Math.round(Number(p.y)) }
+        : null;
+    return { enabled, target_percent, pos_720 };
+  })();
   const ubRects = scaleManualBlurRectsToOutputPx(rawManual, o.manualBlurRefW, o.manualBlurRefH, outW, outH);
   const ubChain = buildManualBlurDelogoChain('v0base', ubRects, outW, outH, 'v0postblur');
 
@@ -1072,7 +1162,7 @@ async function buildCrushRenderPlan(o) {
 
   let labMeterExtra = { filters: [], debug: null };
   if (useLabFrame) {
-    labMeterExtra = buildLabMeterOverlayParts({ brandNorm, outDur, fontPart });
+    labMeterExtra = buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter: labMeterOpt });
   }
   const preWmLabel = labMeterExtra.filters.length ? 'v1meter' : 'v1';
 

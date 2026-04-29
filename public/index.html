@@ -328,6 +328,7 @@
         <canvas id="crushBlurCanvas" width="720" height="1280" tabindex="0" style="max-width:100%;max-height:52vh;width:auto;height:auto;border:1px solid #333;border-radius:6px;background:#0a0a0a;display:block;touch-action:none"></canvas>
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center">
           <button type="button" class="tool-btn" id="crushBlurModeBtn" onclick="toggleCrushBlurDrawMode()">Blur Ekle</button>
+          <button type="button" class="tool-btn" id="crushMeterDragBtn" onclick="toggleCrushMeterDragMode()">Meter sürükle: KAPALI</button>
           <label style="font-size:11px;color:var(--muted)">Zoom
             <input type="range" id="crushBlurZoom" min="1" max="6" step="0.25" value="1" style="width:120px;vertical-align:middle" />
             <span id="crushBlurZoomVal" style="font-variant-numeric:tabular-nums">1.00×</span>
@@ -339,6 +340,17 @@
           <button type="button" class="tool-btn" id="crushRectDeleteBtn" onclick="deleteSelectedCrushRect()" style="display:none">Seçili kutuyu sil</button>
         </div>
         <div id="crushBlurRectList" style="font-size:11px;color:var(--muted);margin-top:6px;max-height:100px;overflow:auto"></div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px">
+        <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="crushLabMeterEnabled" checked />
+          Lab Meter (Speedometer)
+        </label>
+        <label style="font-size:11px;color:var(--muted)">Hedef (%)
+          <input type="range" id="crushLabMeterTarget" min="0" max="100" step="1" value="88" style="width:180px;vertical-align:middle;margin-left:6px" />
+          <span id="crushLabMeterTargetVal" style="font-variant-numeric:tabular-nums">88</span>
+        </label>
+        <span style="font-size:11px;color:var(--muted)">“Meter sürükle” açıkken önizlemede göstergenin merkezini tutup taşı.</span>
       </div>
       <button class="tool-btn" type="button" id="crushBtn" onclick="crushVideo()">⚡ İndir + Telif Ez (9:16)</button>
       <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
@@ -692,7 +704,7 @@ function copyToolText(resultId, btnId) {
 
 /** Manuel blur: 720×1280 px. videoCropYNudgePx: Lab üst kırpım. frameImg: marka zırh PNG. */
 var __crushManual = {
-  rects: [], selectedId: null, drawMode: false, hookDragMode: false, drag: null, nextId: 1, REF_W: 720, REF_H: 1280,
+  rects: [], selectedId: null, drawMode: false, hookDragMode: false, meterDragMode: false, drag: null, nextId: 1, REF_W: 720, REF_H: 1280,
   blurZoom: 1,
   blurPanX: 0,
   blurPanY: 0,
@@ -702,6 +714,9 @@ var __crushManual = {
   cropRect: { x: 0, y: 0, w: 720, h: 1280 },
   hookXOffsetPx: 0,
   hookYOffsetPx: 0,
+  labMeterEnabled: true,
+  labMeterTarget: 88,
+  labMeterPos: { x: 360, y: 1000 }, // 720×1280 referans (gösterge merkezi)
   frameImg: null
 };
 
@@ -841,8 +856,10 @@ function crushSyncHookSlidersFromState() {
 function toggleCrushHookDragMode() {
   __crushManual.hookDragMode = !__crushManual.hookDragMode;
   if (__crushManual.hookDragMode) __crushManual.drawMode = false;
+  if (__crushManual.hookDragMode) __crushManual.meterDragMode = false;
   const b = document.getElementById("crushHookDragBtn");
   const blurB = document.getElementById("crushBlurModeBtn");
+  const meterB = document.getElementById("crushMeterDragBtn");
   if (b) {
     b.textContent = __crushManual.hookDragMode ? "Hook sürükle: AÇIK" : "Hook sürükle: KAPALI";
     b.classList.toggle("saved", __crushManual.hookDragMode);
@@ -850,10 +867,41 @@ function toggleCrushHookDragMode() {
   if (blurB) {
     blurB.textContent = __crushManual.drawMode ? "Çizim: AÇIK" : "Blur Ekle";
   }
+  if (meterB && !__crushManual.hookDragMode) {
+    meterB.textContent = __crushManual.meterDragMode ? "Meter sürükle: AÇIK" : "Meter sürükle: KAPALI";
+    meterB.classList.toggle("saved", __crushManual.meterDragMode);
+  }
   const cv = document.getElementById("crushBlurCanvas");
   if (cv) {
-    cv.style.cursor = __crushManual.hookDragMode ? "move" : (__crushManual.drawMode ? "crosshair" : "default");
+    cv.style.cursor = __crushManual.hookDragMode ? "move" : (__crushManual.meterDragMode ? "move" : (__crushManual.drawMode ? "crosshair" : "default"));
   }
+}
+
+function toggleCrushMeterDragMode() {
+  __crushManual.meterDragMode = !__crushManual.meterDragMode;
+  if (__crushManual.meterDragMode) {
+    __crushManual.drawMode = false;
+    __crushManual.hookDragMode = false;
+  }
+  const b = document.getElementById("crushMeterDragBtn");
+  const blurB = document.getElementById("crushBlurModeBtn");
+  const hookB = document.getElementById("crushHookDragBtn");
+  if (b) {
+    b.textContent = __crushManual.meterDragMode ? "Meter sürükle: AÇIK" : "Meter sürükle: KAPALI";
+    b.classList.toggle("saved", __crushManual.meterDragMode);
+  }
+  if (blurB) {
+    blurB.textContent = __crushManual.drawMode ? "Çizim: AÇIK" : "Blur Ekle";
+  }
+  if (hookB) {
+    hookB.textContent = __crushManual.hookDragMode ? "Hook sürükle: AÇIK" : "Hook sürükle: KAPALI";
+    hookB.classList.toggle("saved", __crushManual.hookDragMode);
+  }
+  const cv = document.getElementById("crushBlurCanvas");
+  if (cv) {
+    cv.style.cursor = __crushManual.meterDragMode ? "move" : (__crushManual.hookDragMode ? "move" : (__crushManual.drawMode ? "crosshair" : "default"));
+  }
+  crushRedrawAllPreviews();
 }
 
 /** Sunucudaki splitHookIntoLines55 ile uyumlu (önizleme). */
@@ -911,6 +959,31 @@ function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
     const y = hookYTop + i * lineStep + fontSize * 0.52;
     ctx.fillText(ln, PREVIEW_W / 2 + hxOff, y);
   });
+  ctx.restore();
+}
+
+function crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H) {
+  const en = document.getElementById("crushLabMeterEnabled");
+  if (en && !en.checked) return;
+  const c = __crushManual.labMeterPos || { x: PREVIEW_W / 2, y: PREVIEW_H - 280 };
+  const x = Number(c.x) || (PREVIEW_W / 2);
+  const y = Number(c.y) || (PREVIEW_H - 280);
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  ctx.strokeStyle = "rgba(255,255,255,0.85)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(x, y, 8, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.fillRect(x - 90, y - 44, 180, 28);
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  ctx.font = '700 12px "Segoe UI",sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const tv = document.getElementById("crushLabMeterTargetVal");
+  const t = tv ? String(tv.textContent || "").trim() : String(__crushManual.labMeterTarget || 88);
+  ctx.fillText("Lab Meter @" + x.toFixed(0) + "," + y.toFixed(0) + "  target " + t + "%", x, y - 30);
   ctx.restore();
 }
 
@@ -991,6 +1064,7 @@ function crushDrawVideoFrameOntoCanvas(cv) {
       );
     }
     crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H);
+    crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H);
     return;
   }
 
@@ -1065,6 +1139,7 @@ function crushDrawVideoFrameOntoCanvas(cv) {
     ctx.drawImage(frm, 0, 0, PREVIEW_W, PREVIEW_H);
   }
   crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H);
+  crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H);
 }
 
 function crushDrawRectsOverlay(cv) {
@@ -1227,6 +1302,25 @@ function onCrushCanvasMouseDown(ev) {
     ev.preventDefault();
     return;
   }
+  // Meter drag: move gauge center in 720×1280 reference space
+  if (__crushManual.meterDragMode && !hit) {
+    const p0 = (cv.id === "crushBlurCanvas") ? { bx, by } : { bx: mx, by: my };
+    const m0 = __crushManual.labMeterPos || { x: 360, y: 1000 };
+    const dxm = p0.bx - (Number(m0.x) || 0);
+    const dym = p0.by - (Number(m0.y) || 0);
+    if (Math.hypot(dxm, dym) <= 42) {
+      __crushManual.drag = {
+        type: "meter",
+        mx0: p0.bx,
+        my0: p0.by,
+        x0: Number(m0.x) || 360,
+        y0: Number(m0.y) || 1000,
+        canvas: cv
+      };
+      ev.preventDefault();
+      return;
+    }
+  }
   __crushManual.selectedId = null;
   crushRedrawAllPreviews();
   crushUpdateDeleteBtn();
@@ -1285,6 +1379,16 @@ function onCrushCanvasMouseMove(ev) {
     __crushManual.hookXOffsetPx = Math.max(-400, Math.min(400, Math.round(d.hx0 + dx)));
     __crushManual.hookYOffsetPx = Math.max(-400, Math.min(400, Math.round(d.hy0 + dy)));
     crushSyncHookSlidersFromState();
+    crushRedrawAllPreviews();
+    ev.preventDefault();
+    return;
+  }
+  if (d.type === "meter") {
+    const dx = bx - d.mx0;
+    const dy = by - d.my0;
+    const nx = Math.max(40, Math.min(__crushManual.REF_W - 40, Math.round(d.x0 + dx)));
+    const ny = Math.max(120, Math.min(__crushManual.REF_H - 120, Math.round(d.y0 + dy)));
+    __crushManual.labMeterPos = { x: nx, y: ny };
     crushRedrawAllPreviews();
     ev.preventDefault();
     return;
@@ -1440,6 +1544,18 @@ function wireCrushManualBlurUi() {
     __crushManual.cropRect = { x: 0, y: 0, w: 720, h: 1280 };
     __crushManual.hookXOffsetPx = 0;
     __crushManual.hookYOffsetPx = 0;
+    __crushManual.meterDragMode = false;
+    __crushManual.labMeterEnabled = true;
+    __crushManual.labMeterTarget = 88;
+    __crushManual.labMeterPos = { x: 360, y: 1000 };
+    const me = document.getElementById("crushLabMeterEnabled");
+    const mt = document.getElementById("crushLabMeterTarget");
+    const mtv = document.getElementById("crushLabMeterTargetVal");
+    const mb = document.getElementById("crushMeterDragBtn");
+    if (me) me.checked = true;
+    if (mt) mt.value = "88";
+    if (mtv) mtv.textContent = "88";
+    if (mb) { mb.textContent = "Meter sürükle: KAPALI"; mb.classList.remove("saved"); }
     const ny = document.getElementById("crushVideoNudgeY");
     const nyv = document.getElementById("crushVideoNudgeYVal");
     if (ny) ny.value = "0";
@@ -1476,6 +1592,26 @@ function wireCrushManualBlurUi() {
     brandSel.addEventListener("change", function () {
       crushLoadZirhFramePng();
     });
+  }
+  const mEn = document.getElementById("crushLabMeterEnabled");
+  if (mEn) {
+    mEn.addEventListener("change", function () {
+      __crushManual.labMeterEnabled = !!mEn.checked;
+      crushRedrawAllPreviews();
+    });
+  }
+  const mT = document.getElementById("crushLabMeterTarget");
+  const mTv = document.getElementById("crushLabMeterTargetVal");
+  if (mT) {
+    mT.addEventListener("input", function () {
+      const n = Number(mT.value);
+      __crushManual.labMeterTarget = Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 88;
+      if (mTv) mTv.textContent = String(__crushManual.labMeterTarget);
+      crushRedrawAllPreviews();
+    });
+    const n0 = Number(mT.value);
+    __crushManual.labMeterTarget = Number.isFinite(n0) ? Math.max(0, Math.min(100, Math.round(n0))) : 88;
+    if (mTv) mTv.textContent = String(__crushManual.labMeterTarget);
   }
   v.addEventListener("loadeddata", () => {
     const dur = Math.max(0.05, v.duration || 0.1);
@@ -1573,6 +1709,11 @@ async function crushVideo() {
   const hook_text = (document.getElementById("crushHookManual") && String(document.getElementById("crushHookManual").value || "").trim()) || "";
   const manual_reels_hook_x_offset_px = Number(__crushManual.hookXOffsetPx) || 0;
   const manual_reels_hook_y_offset_px = Number(__crushManual.hookYOffsetPx) || 0;
+  const lab_meter_enabled = !!(__crushManual.labMeterEnabled);
+  const lab_meter_target_percent = Math.max(0, Math.min(100, Math.round(Number(__crushManual.labMeterTarget) || 0)));
+  const lab_meter_pos = __crushManual.labMeterPos || { x: 360, y: 1000 };
+  const lab_meter_pos_x_px = Math.round(Number(lab_meter_pos.x) || 360);
+  const lab_meter_pos_y_px = Math.round(Number(lab_meter_pos.y) || 1000);
 
   btn.disabled = true;
   btn.textContent = "⏳ Hazırlanıyor...";
@@ -1599,7 +1740,11 @@ async function crushVideo() {
         manual_reels_window_shift_y_px,
         hook_text,
         manual_reels_hook_x_offset_px,
-        manual_reels_hook_y_offset_px
+        manual_reels_hook_y_offset_px,
+        lab_meter_enabled,
+        lab_meter_target_percent,
+        lab_meter_pos_x_px,
+        lab_meter_pos_y_px
       })
     });
     const localData = await localRes.json().catch(() => ({}));
