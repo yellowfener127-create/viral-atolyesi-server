@@ -529,31 +529,27 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter }) {
   const pd = Math.max(0.10, d - 5.0); // output timeline: hit target exactly 5s before end
   const pdLit = String(pd.toFixed(6)).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 
-  // Palette (Speedtest-style: soft glow + vivid arc)
+  // Palette (only used for glow accents + needle; template itself is fixed)
   let glowHex = '0xff8844';
-  let mainHex = '0xff4422';
   let accentHex = '0xffffff';
   if (brandNorm === 'terapi') {
     glowHex = '0x44ccdd';
-    mainHex = '0x2288aa';
     accentHex = '0xeefcff';
   } else if (brandNorm === 'umut') {
     glowHex = '0xffee88';
-    mainHex = '0xe6b422';
     accentHex = '0xfffbf0';
   }
 
   const pos720 = labMeter && labMeter.pos_720 && Number.isFinite(labMeter.pos_720.x) && Number.isFinite(labMeter.pos_720.y)
     ? { x: Math.round(labMeter.pos_720.x), y: Math.round(labMeter.pos_720.y) }
     : null;
-  // Default: top-right, like user's screenshot (2nd image)
+  // Default: top-right, like user's screenshot
   const defaultPos720 = { x: 590, y: 260 };
   const posUse = pos720 || defaultPos720;
   const cx = Math.round((posUse.x / 720) * 1080);
   const cy = Math.round((posUse.y / 1280) * 1920);
 
-  // Gauge geometry: semi-circle, slightly tighter to look "Speedtest" (less wide than previous)
-  const r = 220;
+  // Needle motion range (semi-circle)
   const a0 = -2.45; // rad (left)
   const a1 = 2.45;  // rad (right)
   const pExpr = `min(t/${pdLit}\\,1)`;
@@ -561,44 +557,10 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter }) {
   const scoreExpr = `min(${T}\\,${T}*(${ease}))`;
   const angleExpr = `(${a0})+(${a1 - a0})*(${scoreExpr}/100)`;
 
-  // More segments + smaller size => less blocky arc.
-  const wSeg = 6;
-  const hSeg = 6;
-  const segGlowW = 12;
-  const segGlowH = 12;
-
-  const arcSegs = [];
-  const arcGlowSegs = [];
-  const segCount = 120;
-  for (let i = 0; i <= segCount; i++) {
-    const u = i / segCount;
-    const ang = a0 + (a1 - a0) * u;
-    const x = Math.round(cx + Math.cos(ang) * r - wSeg / 2);
-    const y = Math.round(cy - Math.sin(ang) * r - hSeg / 2);
-    // Two-tone arc (inner bright, outer softer) to mimic gradient without heavy filters.
-    arcSegs.push(`drawbox=x=${x}:y=${y}:w=${wSeg}:h=${hSeg}:color=${mainHex}@0.92:t=fill`);
-    arcGlowSegs.push(`drawbox=x=${x - 2}:y=${y - 2}:w=${segGlowW}:h=${segGlowH}:color=${glowHex}@0.22:t=fill`);
-  }
-
-  const dots = [];
-  const labels = [];
-  // Use fewer labels to avoid clutter (Speedtest look is mostly tick marks)
-  for (let v = 0; v <= 100; v += 10) {
-    const u = v / 100;
-    const ang = a0 + (a1 - a0) * u;
-    const dx = Math.round(cx + Math.cos(ang) * (r - 8) - 2);
-    const dy = Math.round(cy - Math.sin(ang) * (r - 8) - 2);
-    dots.push(`drawbox=x=${dx}:y=${dy}:w=4:h=4:color=${accentHex}@0.75:t=fill`);
-    // Only show numbers at 0, 50, 100 (cleaner)
-    if (v === 0 || v === 50 || v === 100) {
-      const lx = Math.round(cx + Math.cos(ang) * (r - 40));
-      const ly = Math.round(cy - Math.sin(ang) * (r - 40));
-      const txt = escapeDrawtextText(String(v));
-      labels.push(
-        `drawtext=text='${txt}'${fontPart}:fontsize=22:fontcolor=${accentHex}@0.70:borderw=0:` +
-          `x=${lx}-text_w/2:y=${ly}-text_h/2`
-      );
-    }
+  // Template overlay input index MUST be provided by caller.
+  const tmplIdx = labMeter && Number.isFinite(Number(labMeter.template_input_idx)) ? Math.round(Number(labMeter.template_input_idx)) : null;
+  if (tmplIdx == null) {
+    return { filters: [], debug: { enabled: true, error: 'missing_template_input_idx', target_percent: T } };
   }
 
   const pulseTerms = [];
@@ -618,18 +580,21 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter }) {
   const needleSize = 560;
   const nx0 = Math.round(cx - needleSize / 2);
   const ny0 = Math.round(cy - needleSize / 2);
-  const needleLen = Math.round(r * 0.92);
+  const needleLen = 210;
   const needleW = 8;
   const hubR = 14;
 
   return {
     filters: [
-      // base arc + dots + minimal numbers (smoothed by light blur)
-      `[v1]drawbox=x=0:y=0:w=0:h=0:color=black@0:t=fill,${arcSegs.join(',')},${dots.join(',')},${labels.join(',')},gblur=sigma=0.6:steps=1[lm0]`,
-      // checkpoint pulse glow (very subtle)
-      `[lm0]${arcGlowSegs.join(',')},gblur=sigma=1.4:steps=1:enable='${pulseEnable}'[lm1]`,
-      // target hit glow burst (brighter/whiter)
-      `[lm1]${arcGlowSegs.join(',')},lutrgb=r='min(255,val*1.8)':g='min(255,val*1.8)':b='min(255,val*2.0)',gblur=sigma=2.0:steps=1:enable='${targetEnable}'[lm2]`,
+      // Base: Speedtest gauge template (transparent PNG), scaled and overlaid at (cx,cy) center.
+      `[${tmplIdx}:v]format=rgba,scale=iw*2.30:ih*2.30[tmpl0]`,
+      `[v1][tmpl0]overlay=x=${cx}-w/2:y=${cy}-h/2:format=auto[lm0]`,
+      // Checkpoint subtle pulse: glow-tinted template, enabled briefly.
+      `[tmpl0]colorchannelmixer=aa=0.55,lutrgb=r='min(255,val*1.15)':g='min(255,val*1.15)':b='min(255,val*1.15)',gblur=sigma=2.0:steps=1[tmplPulse]`,
+      `[lm0][tmplPulse]overlay=x=${cx}-w/2:y=${cy}-h/2:format=auto:enable='${pulseEnable}'[lm1]`,
+      // Target hit burst: brighter + slightly warm/white.
+      `[tmpl0]colorchannelmixer=aa=0.80,lutrgb=r='min(255,val*1.45)':g='min(255,val*1.35)':b='min(255,val*1.55)',gblur=sigma=3.0:steps=1[tmplHit]`,
+      `[lm1][tmplHit]overlay=x=${cx}-w/2:y=${cy}-h/2:format=auto:enable='${targetEnable}'[lm2]`,
       // needle layer
       `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
         `drawbox=x=${Math.round(needleSize / 2 - needleW / 2)}:y=${Math.round(needleSize / 2 - needleLen)}:w=${needleW}:h=${needleLen}:color=${accentHex}@0.92:t=fill,` +
@@ -641,7 +606,7 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter }) {
       `[lm3]drawtext=text='${numText}'${fontPart}:fontsize=62:fontcolor=${accentHex}@0.92:borderw=2:bordercolor=0x000000@0.60:` +
         `shadowcolor=0x000000@0.55:shadowx=3:shadowy=3:x=${cx}-text_w/2:y=${cy + 64}[v1meter]`
     ],
-    debug: { enabled: true, random_start_percent: S, target_percent: T, brandNorm, pos_720: pos720 }
+    debug: { enabled: true, random_start_percent: S, target_percent: T, brandNorm, pos_720: posUse, template: 'lab_meter_speedtest_template.png' }
   };
 }
 
@@ -867,6 +832,9 @@ async function buildCrushRenderPlan(o) {
     : null;
   const frameExists = !!(framePng && fs.existsSync(framePng));
 
+  const meterTemplatePng = path.join(__dirname, 'public', 'lab_meter_speedtest_template.png');
+  const meterTemplateExists = fs.existsSync(meterTemplatePng);
+
   // Watermark boyutu yarıya indir
   const wmSize = outW >= 1080 ? 55 : 48;
   // Watermark: eski basit opaklık + tek ek: DVD gibi köşelerden seken hareket + hafif rastgele eğim
@@ -1058,6 +1026,14 @@ async function buildCrushRenderPlan(o) {
   const ubRects = scaleManualBlurRectsToOutputPx(rawManual, o.manualBlurRefW, o.manualBlurRefH, outW, outH);
   const ubChain = buildManualBlurDelogoChain('v0base', ubRects, outW, outH, 'v0postblur');
 
+  // Input index planning (0=inFile, 1=frame?, 2=template?, then wm, then music)
+  let nextInputIdx = 1;
+  if (frameExists) nextInputIdx += 1;
+  const useLabMeterTemplate = useLabFrame && (labMeterOpt ? labMeterOpt.enabled !== false : true) && meterTemplateExists;
+  const meterTemplateInputIdx = useLabMeterTemplate ? nextInputIdx++ : null;
+  const wmInputIdxPlanned = nextInputIdx++;
+  const musicInputIdxPlanned = nextInputIdx; // only valid if music input exists
+
   let vChain = `[0:v]setpts=PTS-STARTPTS,fps=${targetFps}`;
   vChain += `,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}[v0base0]`;
   // Manual crop rect: crop in outW×outH space, then scale back to outW×outH (fill).
@@ -1177,11 +1153,14 @@ async function buildCrushRenderPlan(o) {
 
   let labMeterExtra = { filters: [], debug: null };
   if (useLabFrame) {
-    labMeterExtra = buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter: labMeterOpt });
+    const labMeterForBuild = useLabMeterTemplate
+      ? { ...(labMeterOpt || {}), template_input_idx: meterTemplateInputIdx }
+      : { ...(labMeterOpt || {}), enabled: false };
+    labMeterExtra = buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter: labMeterForBuild });
   }
   const preWmLabel = labMeterExtra.filters.length ? 'v1meter' : 'v1';
 
-  const wmInputIdx = frameExists ? 2 : 1;
+  const wmInputIdx = wmInputIdxPlanned;
   const tailWmAndGrain = [
     `[${wmInputIdx}:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
       `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
@@ -1239,7 +1218,7 @@ async function buildCrushRenderPlan(o) {
       const musicStart = Math.random() * maxStart;
       const bgVol = randRange(0.07, 0.1);
 
-      const musicInputIdx = frameExists ? 3 : 2;
+      const musicInputIdx = musicInputIdxPlanned;
       if (useRubberband) {
         audioFilter =
           `[0:a]asetpts=PTS-STARTPTS,` +
@@ -1290,7 +1269,7 @@ async function buildCrushRenderPlan(o) {
     const maxStart = Math.max(0, musicDur - 0.25);
     const musicStart = Math.random() * maxStart;
     const bgVol = randRange(0.07, 0.1);
-    const musicInputIdx = frameExists ? 3 : 2;
+    const musicInputIdx = musicInputIdxPlanned;
     parts.push(
       `[${musicInputIdx}:a]atrim=start=${musicStart.toFixed(3)}:duration=${outDur.toFixed(3)},asetpts=PTS-STARTPTS,` +
         `aformat=sample_fmts=fltp:channel_layouts=stereo,` +
@@ -1303,6 +1282,7 @@ async function buildCrushRenderPlan(o) {
 
   const inputs = ['-y', '-i', inFile];
   if (frameExists) inputs.push('-loop', '1', '-i', framePng);
+  if (useLabMeterTemplate) inputs.push('-loop', '1', '-i', meterTemplatePng);
   inputs.push('-loop', '1', '-i', wmFile);
   if (musicFile && fs.existsSync(musicFile)) {
     inputs.push('-stream_loop', '-1', '-i', musicFile);

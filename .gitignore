@@ -16,3 +16,6 @@ __pycache__/
 
 keys/
 keys/*.json
+
+# temp artifacts
+_tmp_*.b64
