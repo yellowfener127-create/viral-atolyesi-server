@@ -529,63 +529,76 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter }) {
   const pd = Math.max(0.10, d - 5.0); // output timeline: hit target exactly 5s before end
   const pdLit = String(pd.toFixed(6)).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 
+  // Palette (Speedtest-style: soft glow + vivid arc)
   let glowHex = '0xff8844';
   let mainHex = '0xff4422';
+  let accentHex = '0xffffff';
   if (brandNorm === 'terapi') {
     glowHex = '0x44ccdd';
     mainHex = '0x2288aa';
+    accentHex = '0xeefcff';
   } else if (brandNorm === 'umut') {
     glowHex = '0xffee88';
     mainHex = '0xe6b422';
+    accentHex = '0xfffbf0';
   }
 
   const pos720 = labMeter && labMeter.pos_720 && Number.isFinite(labMeter.pos_720.x) && Number.isFinite(labMeter.pos_720.y)
     ? { x: Math.round(labMeter.pos_720.x), y: Math.round(labMeter.pos_720.y) }
     : null;
-  const cx = pos720 ? Math.round((pos720.x / 720) * 1080) : 540;
-  const cy = pos720 ? Math.round((pos720.y / 1280) * 1920) : 1500;
+  // Default: top-right, like user's screenshot (2nd image)
+  const defaultPos720 = { x: 590, y: 260 };
+  const posUse = pos720 || defaultPos720;
+  const cx = Math.round((posUse.x / 720) * 1080);
+  const cy = Math.round((posUse.y / 1280) * 1920);
 
-  const r = 320;
-  const a0 = -2.20; // rad
-  const a1 = 2.20;
+  // Gauge geometry: semi-circle, slightly tighter to look "Speedtest" (less wide than previous)
+  const r = 220;
+  const a0 = -2.45; // rad (left)
+  const a1 = 2.45;  // rad (right)
   const pExpr = `min(t/${pdLit}\\,1)`;
   const ease = `(${pExpr})*(${pExpr})*(3-2*(${pExpr}))`;
   const scoreExpr = `min(${T}\\,${T}*(${ease}))`;
   const angleExpr = `(${a0})+(${a1 - a0})*(${scoreExpr}/100)`;
 
-  const wSeg = 14;
-  const hSeg = 14;
-  const segGlowW = 20;
-  const segGlowH = 20;
+  // More segments + smaller size => less blocky arc.
+  const wSeg = 6;
+  const hSeg = 6;
+  const segGlowW = 12;
+  const segGlowH = 12;
 
   const arcSegs = [];
   const arcGlowSegs = [];
-  const segCount = 28;
+  const segCount = 120;
   for (let i = 0; i <= segCount; i++) {
     const u = i / segCount;
-    const th = (Math.PI * (1 - u)) * (a1 / Math.PI); // map to [-a0..a1] roughly, but keep symmetric by lerp
     const ang = a0 + (a1 - a0) * u;
     const x = Math.round(cx + Math.cos(ang) * r - wSeg / 2);
     const y = Math.round(cy - Math.sin(ang) * r - hSeg / 2);
-    arcSegs.push(`drawbox=x=${x}:y=${y}:w=${wSeg}:h=${hSeg}:color=${mainHex}@0.88:t=fill`);
-    arcGlowSegs.push(`drawbox=x=${x - 3}:y=${y - 3}:w=${segGlowW}:h=${segGlowH}:color=${glowHex}@0.30:t=fill`);
+    // Two-tone arc (inner bright, outer softer) to mimic gradient without heavy filters.
+    arcSegs.push(`drawbox=x=${x}:y=${y}:w=${wSeg}:h=${hSeg}:color=${mainHex}@0.92:t=fill`);
+    arcGlowSegs.push(`drawbox=x=${x - 2}:y=${y - 2}:w=${segGlowW}:h=${segGlowH}:color=${glowHex}@0.22:t=fill`);
   }
 
   const dots = [];
   const labels = [];
+  // Use fewer labels to avoid clutter (Speedtest look is mostly tick marks)
   for (let v = 0; v <= 100; v += 10) {
     const u = v / 100;
     const ang = a0 + (a1 - a0) * u;
-    const dx = Math.round(cx + Math.cos(ang) * (r - 10) - 3);
-    const dy = Math.round(cy - Math.sin(ang) * (r - 10) - 3);
-    dots.push(`drawbox=x=${dx}:y=${dy}:w=6:h=6:color=white@0.85:t=fill`);
-    const lx = Math.round(cx + Math.cos(ang) * (r - 62));
-    const ly = Math.round(cy - Math.sin(ang) * (r - 62));
-    const txt = escapeDrawtextText(String(v));
-    labels.push(
-      `drawtext=text='${txt}'${fontPart}:fontsize=26:fontcolor=white@0.80:borderw=0:` +
-        `x=${lx}-text_w/2:y=${ly}-text_h/2`
-    );
+    const dx = Math.round(cx + Math.cos(ang) * (r - 8) - 2);
+    const dy = Math.round(cy - Math.sin(ang) * (r - 8) - 2);
+    dots.push(`drawbox=x=${dx}:y=${dy}:w=4:h=4:color=${accentHex}@0.75:t=fill`);
+    // Only show numbers at 0, 50, 100 (cleaner)
+    if (v === 0 || v === 50 || v === 100) {
+      const lx = Math.round(cx + Math.cos(ang) * (r - 40));
+      const ly = Math.round(cy - Math.sin(ang) * (r - 40));
+      const txt = escapeDrawtextText(String(v));
+      labels.push(
+        `drawtext=text='${txt}'${fontPart}:fontsize=22:fontcolor=${accentHex}@0.70:borderw=0:` +
+          `x=${lx}-text_w/2:y=${ly}-text_h/2`
+      );
+    }
   }
 
   const pulseTerms = [];
@@ -602,29 +615,31 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter }) {
   const numText = `%{eif\\:${scoreExpr}\\:d}`;
 
   // Needle constructed as a transparent layer, then rotated.
-  const needleSize = 760;
+  const needleSize = 560;
   const nx0 = Math.round(cx - needleSize / 2);
   const ny0 = Math.round(cy - needleSize / 2);
   const needleLen = Math.round(r * 0.92);
-  const needleW = 10;
-  const hubR = 16;
+  const needleW = 8;
+  const hubR = 14;
 
   return {
     filters: [
-      // base arc + dots + numbers
-      `[v1]drawbox=x=0:y=0:w=0:h=0:color=black@0:t=fill,${arcSegs.join(',')},${dots.join(',')},${labels.join(',')}[lm0]`,
-      // checkpoint pulse glow (slight)
-      `[lm0]${arcGlowSegs.join(',')},boxblur=2:1:2:1:enable='${pulseEnable}'[lm1]`,
-      // target hit glow burst (stronger & whiter)
-      `[lm1]${arcGlowSegs.join(',')},lutrgb=r='min(255,val*1.6)':g='min(255,val*1.6)':b='min(255,val*1.75)',boxblur=3:1:3:1:enable='${targetEnable}'[lm2]`,
+      // base arc + dots + minimal numbers (smoothed by light blur)
+      `[v1]drawbox=x=0:y=0:w=0:h=0:color=black@0:t=fill,${arcSegs.join(',')},${dots.join(',')},${labels.join(',')},gblur=sigma=0.6:steps=1[lm0]`,
+      // checkpoint pulse glow (very subtle)
+      `[lm0]${arcGlowSegs.join(',')},gblur=sigma=1.4:steps=1:enable='${pulseEnable}'[lm1]`,
+      // target hit glow burst (brighter/whiter)
+      `[lm1]${arcGlowSegs.join(',')},lutrgb=r='min(255,val*1.8)':g='min(255,val*1.8)':b='min(255,val*2.0)',gblur=sigma=2.0:steps=1:enable='${targetEnable}'[lm2]`,
       // needle layer
       `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
-        `drawbox=x=${Math.round(needleSize / 2 - needleW / 2)}:y=${Math.round(needleSize / 2 - needleLen)}:w=${needleW}:h=${needleLen}:color=white@0.92:t=fill,` +
-        `drawbox=x=${Math.round(needleSize / 2 - hubR)}:y=${Math.round(needleSize / 2 - hubR)}:w=${hubR * 2}:h=${hubR * 2}:color=black@0.55:t=fill,` +
+        `drawbox=x=${Math.round(needleSize / 2 - needleW / 2)}:y=${Math.round(needleSize / 2 - needleLen)}:w=${needleW}:h=${needleLen}:color=${accentHex}@0.92:t=fill,` +
+        `drawbox=x=${Math.round(needleSize / 2 - hubR)}:y=${Math.round(needleSize / 2 - hubR)}:w=${hubR * 2}:h=${hubR * 2}:color=black@0.60:t=fill,` +
+        `drawbox=x=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:y=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:w=${Math.round(hubR * 1.1)}:h=${Math.round(hubR * 1.1)}:color=${accentHex}@0.88:t=fill,` +
         `rotate=angle='${angleExpr}':c=none:ow=iw:oh=ih[lmNeedle]`,
       `[lm2][lmNeedle]overlay=x=${nx0}:y=${ny0}:format=auto[lm3]`,
-      `[lm3]drawtext=text='${numText}'${fontPart}:fontsize=78:fontcolor=0xfff7f2:borderw=3:bordercolor=0x201010@0.85:` +
-        `shadowcolor=0x000000@0.55:shadowx=4:shadowy=4:x=${cx}-text_w/2:y=${cy + 120}[v1meter]`
+      // digital number under arc (Speedtest-like placement)
+      `[lm3]drawtext=text='${numText}'${fontPart}:fontsize=62:fontcolor=${accentHex}@0.92:borderw=2:bordercolor=0x000000@0.60:` +
+        `shadowcolor=0x000000@0.55:shadowx=3:shadowy=3:x=${cx}-text_w/2:y=${cy + 64}[v1meter]`
     ],
     debug: { enabled: true, random_start_percent: S, target_percent: T, brandNorm, pos_720: pos720 }
   };
