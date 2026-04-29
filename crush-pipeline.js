@@ -588,13 +588,8 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter }) {
     filters: [
       // Base: Speedtest gauge template (transparent PNG), scaled and overlaid at (cx,cy) center.
       `[${tmplIdx}:v]format=rgba,scale=iw*2.30:ih*2.30[tmpl0]`,
-      `[v1][tmpl0]overlay=x=${cx}-w/2:y=${cy}-h/2:format=auto[lm0]`,
-      // Checkpoint subtle pulse: glow-tinted template, enabled briefly.
-      `[tmpl0]colorchannelmixer=aa=0.55,lutrgb=r='min(255,val*1.15)':g='min(255,val*1.15)':b='min(255,val*1.15)',gblur=sigma=2.0:steps=1[tmplPulse]`,
-      `[lm0][tmplPulse]overlay=x=${cx}-w/2:y=${cy}-h/2:format=auto:enable='${pulseEnable}'[lm1]`,
-      // Target hit burst: brighter + slightly warm/white.
-      `[tmpl0]colorchannelmixer=aa=0.80,lutrgb=r='min(255,val*1.45)':g='min(255,val*1.35)':b='min(255,val*1.55)',gblur=sigma=3.0:steps=1[tmplHit]`,
-      `[lm1][tmplHit]overlay=x=${cx}-w/2:y=${cy}-h/2:format=auto:enable='${targetEnable}'[lm2]`,
+      // Important: do NOT blur the template; blur mixes transparent pixels into dark blocks.
+      `[v1][tmpl0]overlay=x=${cx}-w/2:y=${cy}-h/2:format=auto[lm2]`,
       // needle layer
       `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
         `drawbox=x=${Math.round(needleSize / 2 - needleW / 2)}:y=${Math.round(needleSize / 2 - needleLen)}:w=${needleW}:h=${needleLen}:color=${accentHex}@0.92:t=fill,` +
