@@ -254,134 +254,54 @@ function hookSeedFromCaption(caption) {
 }
 
 function buildHookFromCaption(caption) {
-  const s0 = toSingleSentenceCaption(String(caption || '').trim())
-    .replace(/[“”"']/g, '')
-    .replace(/\s+/g, ' ')
+  // Build a headline-like hook by lightly rewriting the caption.
+  // Important: do NOT inject unrelated topics/phrases. Only use caption text.
+  let s = String(caption || '');
+  // strip hashtags + normalize
+  s = stripHashtagsFromText(s);
+  s = toSingleSentenceCaption(s);
+  s = s.replace(/[“”"']/g, '').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+
+  // Remove common CTA tails
+  s = s
+    .replace(/,\s*follow\s+for\s+more\b.*$/i, '')
+    .replace(/\bfollow\s+for\s+more\b.*$/i, '')
+    .replace(/\bfor\s+more\b.*$/i, '')
     .trim();
-  if (!s0) return '';
 
-  const lower = s0.toLowerCase();
-  const stop = new Set([
-    'this','that','the','a','an','my','your','our','their','his','her','its',
-    'is','are','was','were','be','been','being',
-    'really','very','so','just','literally',
-    'when','while','because','and','but','or',
-    'in','on','at','to','from','with','for','of','as','it'
-  ]);
+  // Prefer the first clause (headline-like)
+  s = s.split(/[.;!?]/)[0] || s;
+  s = s.split(/\s-\s/)[0] || s;
+  s = s.split(/\s\|\s/)[0] || s;
+  s = s.trim();
 
-  function extractTopicWord() {
-    // Prefer explicit “X moment” pattern (e.g. rizz moment, baby moment)
-    const m = lower.match(/\b([a-z0-9][a-z0-9_-]{2,})\s+moment\b/);
-    if (m && m[1] && !stop.has(m[1])) return m[1];
-    // Otherwise pick first meaningful word not in stoplist/hashtags
-    const toks = lower
-      .replace(/#[a-z0-9_]+/g, ' ')
-      .replace(/[^\p{L}\p{N}\s-]+/gu, ' ')
-      .split(/\s+/)
-      .filter(Boolean)
-      .filter((w) => !stop.has(w) && w.length >= 3);
-    // Skip generic words that often appear in captions
-    const skip = new Set(['ranked','ranking','funny','funniest','viral','trending','follow','clips','clip','moment']);
-    for (const t of toks) {
-      if (skip.has(t)) continue;
-      return t;
+  // Light rewrite to not be identical to caption
+  // 1) "This ..." -> "Watch how ..." / "When ..."
+  if (/^this\b/i.test(s)) {
+    if (/\bwhen\b/i.test(s)) {
+      // This X when Y -> When Y, X
+      const m = s.match(/^this\s+(.+?)\s+when\s+(.+)$/i);
+      if (m) s = `When ${m[2].trim()}, ${m[1].trim()}`;
+    } else if (/\bfalls\s+apart\b/i.test(s) || /\bescalates\b/i.test(s) || /\bgoes\s+wrong\b/i.test(s)) {
+      s = s.replace(/^this\s+/i, 'Watch how ');
+    } else {
+      s = s.replace(/^this\s+/i, 'Watch ');
     }
-    return '';
   }
+  // 2) ranked/ranking phrasing: make it more title-like
+  s = s.replace(/\bthis\s+ranked\b/i, 'Ranked');
+  s = s.replace(/\branked\s+funniest\b/i, 'Funniest ranked');
 
-  const topic = extractTopicWord(); // e.g. "rizz", "dog", "baby"
-  const fallsApart = /\bfalls\s+apart\b|\bwent\s+wrong\b/.test(lower);
-  const escalates = /\bescalates\s+quickly\b|\bescalates\s+fast\b/.test(lower);
-  const hasTiming = /\bperfect\s+timing\b|\btiming\b/.test(lower);
+  // 3) Trim filler words a bit
+  s = s.replace(/\breally\b|\bliterally\b|\bjust\b|\bperfect\b/gi, '').replace(/\s+/g, ' ').trim();
 
-  const hasRanked = /\branked\b|\branking\b|\btop\s*\d+\b/.test(lower);
-  const hasBaby = /\bbaby\b|\bbabies\b|\binfant\b/.test(lower);
-  const hasDad = /\bdad\b|\bdads\b|\bfather\b/.test(lower);
-  const hasMom = /\bmom\b|\bmoms\b|\bmother\b/.test(lower);
-  const isFunny = /\bfunny\b|\bfunniest\b|\bhilarious\b/.test(lower);
+  // Ensure punctuation
+  if (!/[.!?…]$/.test(s)) s = s + '.';
 
-  // Subject phrase heuristics
-  let subject = '';
-  if (hasDad) subject = "dad";
-  else if (hasMom) subject = "mom";
-  else if (hasBaby) subject = (/\bbabies\b/.test(lower) ? "babies" : "baby");
-
-  const mThis = s0.match(/^(this|that|the)\s+([a-zA-Z][a-zA-Z0-9_-]*(?:\s+[a-zA-Z][a-zA-Z0-9_-]*){0,3})\s+(is|was|can|will|just|really|looks|feels)\b/i);
-  if (!subject && mThis) subject = mThis[2].trim();
-  if (!subject) {
-    // pick first 1-3 "content" words as subject
-    const toks = s0.replace(/[^\w\s-]/g, ' ').split(/\s+/).filter(Boolean);
-    const cand = [];
-    for (const t of toks) {
-      const tl = t.toLowerCase();
-      if (stop.has(tl)) continue;
-      if (tl.length < 3) continue;
-      cand.push(t);
-      if (cand.length >= 3) break;
-    }
-    subject = cand.join(' ').trim();
-  }
-
-  // Action/verb heuristics (very light NLP)
-  let action = '';
-  if (/\bruns?\b|\brunning\b/.test(lower)) action = 'running';
-  else if (/\bjumps?\b|\bjumping\b/.test(lower)) action = 'jumping';
-  else if (/\bdances?\b|\bdancing\b/.test(lower)) action = 'dancing';
-  else if (/\bfights?\b|\bfighting\b/.test(lower)) action = 'fighting';
-  else if (/\bdrives?\b|\bdriving\b/.test(lower)) action = 'driving';
-  else if (/\bsings?\b|\bsinging\b/.test(lower)) action = 'singing';
-  else if (/\blaughs?\b|\blaughing\b/.test(lower)) action = 'laughing';
-  else if (/\bcries?\b|\bcrying\b/.test(lower)) action = 'crying';
-  else if (/\bfast\b|\bspeed\b/.test(lower)) action = 'moving fast';
-  else if (/\bslow\b/.test(lower)) action = 'moving slowly';
-
-  const subjLower = String(subject || '').toLowerCase();
-  const needsThe = subjLower && !/^(the|a|an|my|your|our|their|his|her|this|that)\b/i.test(subject);
-
-  // Build hook sentence(s)
-  let hook = '';
-  // Strong intent phrases (highest priority) — but keep the topic from caption
-  if (hasTiming) {
-    hook = topic ? `The timing on this ${topic} moment is perfect.` : 'The timing on this is perfect.';
-  } else if (fallsApart) {
-    hook = topic
-      ? (hasRanked ? `This ranked ${topic} moment falls apart fast.` : `This ${topic} moment falls apart fast.`)
-      : 'This moment falls apart fast.';
-  } else if (escalates) {
-    hook = topic
-      ? (hasRanked ? `This ranked ${topic} moment escalates fast.` : `This ${topic} moment escalates fast.`)
-      : 'This escalates fast.';
-  }
-
-  if (hasRanked && hasBaby && isFunny) {
-    hook = 'Ranked funniest baby moment.';
-  } else if (hasRanked && hasBaby) {
-    hook = 'Ranked baby moment.';
-  } else if (hasBaby && isFunny) {
-    hook = 'This baby is too funny.';
-  } else if (hasDad && isFunny) {
-    hook = "Dad's being silly again.";
-  }
-
-  if (hook) {
-    // fall through to normalize/trim below
-  } else if (subject && action && action !== 'moving fast' && action !== 'moving slowly') {
-  if (subject && action && action !== 'moving fast' && action !== 'moving slowly') {
-    hook = `Look at the ${action} ${subject}.`;
-  } else if (subject && action === 'moving fast') {
-    hook = `Look how fast ${needsThe ? 'the ' : ''}${subject} moves.`;
-  } else if (subject && action === 'moving slowly') {
-    hook = `Wait… ${needsThe ? 'the ' : ''}${subject} is so slow.`;
-  } else if (subject) {
-    hook = `Look at ${needsThe ? 'the ' : ''}${subject}.`;
-  } else {
-    hook = 'Wait for it…';
-  }
-  }
-
-  hook = hook.replace(/\s+/g, ' ').trim();
-  if (hook.length > 80) hook = hook.slice(0, 78).trim() + '…';
-  return hook;
+  // Keep short headline size
+  if (s.length > 80) s = s.slice(0, 78).trim() + '…';
+  return s;
 }
 
 function isDanglingHookFragment(hook) {
