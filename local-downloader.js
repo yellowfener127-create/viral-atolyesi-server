@@ -253,6 +253,75 @@ function hookSeedFromCaption(caption) {
   return out.length > 6 ? out : s.slice(0, 60).trim();
 }
 
+function buildHookFromCaption(caption) {
+  const s0 = toSingleSentenceCaption(String(caption || '').trim())
+    .replace(/[“”"']/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!s0) return '';
+
+  const lower = s0.toLowerCase();
+  const stop = new Set([
+    'this','that','the','a','an','my','your','our','their','his','her','its',
+    'is','are','was','were','be','been','being',
+    'really','very','so','just','literally',
+    'when','while','because','and','but','or',
+    'in','on','at','to','from','with','for','of','as','it'
+  ]);
+
+  // Subject phrase heuristics
+  let subject = '';
+  const mThis = s0.match(/^(this|that|the)\s+([a-zA-Z][a-zA-Z0-9_-]*(?:\s+[a-zA-Z][a-zA-Z0-9_-]*){0,3})\s+(is|was|can|will|just|really|looks|feels)\b/i);
+  if (mThis) subject = mThis[2].trim();
+  if (!subject) {
+    // pick first 1-3 "content" words as subject
+    const toks = s0.replace(/[^\w\s-]/g, ' ').split(/\s+/).filter(Boolean);
+    const cand = [];
+    for (const t of toks) {
+      const tl = t.toLowerCase();
+      if (stop.has(tl)) continue;
+      if (tl.length < 3) continue;
+      cand.push(t);
+      if (cand.length >= 3) break;
+    }
+    subject = cand.join(' ').trim();
+  }
+
+  // Action/verb heuristics (very light NLP)
+  let action = '';
+  if (/\bruns?\b|\brunning\b/.test(lower)) action = 'running';
+  else if (/\bjumps?\b|\bjumping\b/.test(lower)) action = 'jumping';
+  else if (/\bdances?\b|\bdancing\b/.test(lower)) action = 'dancing';
+  else if (/\bfights?\b|\bfighting\b/.test(lower)) action = 'fighting';
+  else if (/\bdrives?\b|\bdriving\b/.test(lower)) action = 'driving';
+  else if (/\bsings?\b|\bsinging\b/.test(lower)) action = 'singing';
+  else if (/\blaughs?\b|\blaughing\b/.test(lower)) action = 'laughing';
+  else if (/\bcries?\b|\bcrying\b/.test(lower)) action = 'crying';
+  else if (/\bfast\b|\bspeed\b/.test(lower)) action = 'moving fast';
+  else if (/\bslow\b/.test(lower)) action = 'moving slowly';
+
+  const subjLower = String(subject || '').toLowerCase();
+  const needsThe = subjLower && !/^(the|a|an|my|your|our|their|his|her|this|that)\b/i.test(subject);
+
+  // Build hook sentence(s)
+  let hook = '';
+  if (subject && action && action !== 'moving fast' && action !== 'moving slowly') {
+    hook = `Look at the ${action} ${subject}.`;
+  } else if (subject && action === 'moving fast') {
+    hook = `Look how fast ${needsThe ? 'the ' : ''}${subject} moves.`;
+  } else if (subject && action === 'moving slowly') {
+    hook = `Wait… ${needsThe ? 'the ' : ''}${subject} is so slow.`;
+  } else if (subject) {
+    hook = `Look at ${needsThe ? 'the ' : ''}${subject}.`;
+  } else {
+    hook = 'Wait for it…';
+  }
+
+  hook = hook.replace(/\s+/g, ' ').trim();
+  if (hook.length > 80) hook = hook.slice(0, 78).trim() + '…';
+  return hook;
+}
+
 function pickOne(arr) {
   if (!arr || !arr.length) return '';
   return arr[Math.floor(Math.random() * arr.length)];
@@ -2121,12 +2190,13 @@ app.post('/crush', async (req, res) => {
     const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand), titleIsListicle));
     const finalCaption = toSingleSentenceCaption(fallbackCaptionBits.caption || fallbackCaptionForBrand(brand));
 
+    const captionHookSeed = buildHookFromCaption(finalCaption);
     const seed =
       manualHookTextRaw
         ? manualHookTextRaw
         : gemHook && gemHook.length > 8
           ? gemHook
-          : (hookSeedFromCaption(finalCaption) || titleHook || fallbackHookTextForBrand(brand));
+          : (captionHookSeed || hookSeedFromCaption(finalCaption) || titleHook || fallbackHookTextForBrand(brand));
     // Hook için listicle/ranked sinyalini tamamen yok say (Best one is #1 vb. istemiyoruz)
     const hookCore = manualHookTextRaw
       ? manualHookTextRaw.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)
