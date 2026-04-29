@@ -513,6 +513,46 @@ function buildReelsInstagramCanvasFilters({
   return parts;
 }
 
+/**
+ * Lab markası reels çıktısı [v1] üzerine animasyonlu meter çubuğu + hedef yüzde yazısı (alt orta).
+ * Çıkış etiketi: [v1meter] — watermark zinciri buradan beslenir.
+ */
+function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart }) {
+  let S = randInt(10, 30);
+  let T = randInt(85, 100);
+  if (T <= S) T = Math.min(100, S + 55);
+  const d = Math.max(0.01, Number(outDur) || 4);
+  const dLit = String(d).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+
+  let glowHex = '0xff8844';
+  let mainHex = '0xff4422';
+  if (brandNorm === 'terapi') {
+    glowHex = '0x44ccdd';
+    mainHex = '0x2288aa';
+  } else if (brandNorm === 'umut') {
+    glowHex = '0xffee88';
+    mainHex = '0xe6b422';
+  }
+
+  const bx = 'floor(iw*0.085)-5';
+  const byGlow = 'ih-137';
+  const byMain = 'ih-132';
+  const wbar =
+    `max(4\\,floor(iw*0.83*min(${T}/100\\,(${S}/100+(${T}-${S})/100*min(t/${dLit}\\,1)))))`;
+  const wglow = `min(floor(iw*0.92)\\,${wbar}+14)`;
+  const pctEsc = escapeDrawtextText(String(T));
+
+  return {
+    filters: [
+      `[v1]drawbox=x=${bx}:y=${byGlow}:w=${wglow}:h=38:color=${glowHex}@0.42:t=fill[lm_glow]`,
+      `[lm_glow]drawbox=x=${bx}:y=${byMain}:w=${wbar}:h=28:color=${mainHex}@0.94:t=fill[lm_bar]`,
+      `[lm_bar]drawtext=text='${pctEsc}'${fontPart}:fontsize=46:fontcolor=0xfff7f2:borderw=2:bordercolor=0x201010@0.85:` +
+        `shadowcolor=0xaa4400@0.45:shadowx=3:shadowy=3:x=w-text_w-floor(w*0.09):y=h-210[v1meter]`
+    ],
+    debug: { random_start_percent: S, target_percent: T, brandNorm }
+  };
+}
+
 /** ±%2–%4 hız varyasyonu (1.0 etrafında) */
 function pickSpeedRampFactor() {
   const sign = Math.random() < 0.5 ? -1 : 1;
@@ -972,29 +1012,6 @@ async function buildCrushRenderPlan(o) {
   const noiseOpEff = useReelsInstagramCanvas ? 0.002 : noiseOpacity;
   const grainOpEff = useReelsInstagramCanvas ? 0.006 : grainOpacity;
 
-  const preWmLabel = 'v1';
-
-  const wmInputIdx = frameExists ? 2 : 1;
-  const tailWmAndGrain = [
-    `[${wmInputIdx}:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
-      `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
-      `rotate='${tiltRotateExpr}':c=none:ow=iw:oh=ih[wm0]`,
-    // Watermark’ı tam yuvarlak “top” gibi yap: dairesel alpha mask
-    `[wm0]split=2[wmA][wmB]`,
-    `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[wmMask]`,
-    `[wmB][wmMask]alphamerge,format=rgba,colorchannelmixer=aa=${wmAlphaFinal.toFixed(4)}[wm]`,
-    `[${preWmLabel}][wm]overlay=x='${wmXExpr}':y='${wmYExpr}':format=auto[v1m]`,
-    `[v1m]split=2[vA][vB]`,
-    `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
-    `[vA][vN]blend=all_mode=overlay:all_opacity=${noiseOpEff},format=yuv420p[vblend]`,
-    `[vblend]split=2[vC][vD]`,
-    `[vD]noise=alls=3:allf=t+u,format=yuv420p[vGrain]`,
-    `[vC][vGrain]blend=all_mode=overlay:all_opacity=${grainOpEff},format=yuv420p[vpre]`,
-    useReelsInstagramCanvas
-      ? `[vpre]format=yuv420p[v]`
-      : `[vpre]vignette=PI/10:eval=frame,format=yuv420p[v]`
-  ];
-
   const legacyVisualStack = [
     `color=c=#${uniqHex}@${uniqAlpha}:s=${outW}x${outH}:d=1[uniq]`,
     `[v0][uniq]overlay=0:0:enable='eq(n,0)'[v0u]`,
@@ -1053,6 +1070,32 @@ async function buildCrushRenderPlan(o) {
         ])
   ];
 
+  let labMeterExtra = { filters: [], debug: null };
+  if (useLabFrame) {
+    labMeterExtra = buildLabMeterOverlayParts({ brandNorm, outDur, fontPart });
+  }
+  const preWmLabel = labMeterExtra.filters.length ? 'v1meter' : 'v1';
+
+  const wmInputIdx = frameExists ? 2 : 1;
+  const tailWmAndGrain = [
+    `[${wmInputIdx}:v]scale=${wmSize}:${wmSize}:force_original_aspect_ratio=decrease,format=rgba,` +
+      `pad=${wmSize}:${wmSize}:(ow-iw)/2:(oh-ih)/2:color=black@0,` +
+      `rotate='${tiltRotateExpr}':c=none:ow=iw:oh=ih[wm0]`,
+    `[wm0]split=2[wmA][wmB]`,
+    `[wmA]alphaextract,geq=lum='if(lte((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),(min(W,H)/2)*(min(W,H)/2)),255,0)'[wmMask]`,
+    `[wmB][wmMask]alphamerge,format=rgba,colorchannelmixer=aa=${wmAlphaFinal.toFixed(4)}[wm]`,
+    `[${preWmLabel}][wm]overlay=x='${wmXExpr}':y='${wmYExpr}':format=auto[v1m]`,
+    `[v1m]split=2[vA][vB]`,
+    `[vB]noise=alls=10:allf=t+u,format=yuv420p[vN]`,
+    `[vA][vN]blend=all_mode=overlay:all_opacity=${noiseOpEff},format=yuv420p[vblend]`,
+    `[vblend]split=2[vC][vD]`,
+    `[vD]noise=alls=3:allf=t+u,format=yuv420p[vGrain]`,
+    `[vC][vGrain]blend=all_mode=overlay:all_opacity=${grainOpEff},format=yuv420p[vpre]`,
+    useReelsInstagramCanvas
+      ? `[vpre]format=yuv420p[v]`
+      : `[vpre]vignette=PI/10:eval=frame,format=yuv420p[v]`
+  ];
+
   const parts = [
     vChain,
     ...(useLabFrame
@@ -1070,6 +1113,7 @@ async function buildCrushRenderPlan(o) {
           hookYOffsetRefPx: manualReelsHookYOff
         })
       : legacyVisualStack),
+    ...labMeterExtra.filters,
     ...tailWmAndGrain
   ];
 
@@ -1213,7 +1257,7 @@ async function buildCrushRenderPlan(o) {
       manualReelsHookYOff,
       musicFile: musicFile && fs.existsSync(musicFile) ? path.basename(musicFile) : null,
       hookFont: fontFile ? path.basename(fontFile) : null,
-      labMeter: null
+      labMeter: labMeterExtra.debug
     }
   };
 }
