@@ -269,11 +269,30 @@ function buildHookFromCaption(caption) {
     'in','on','at','to','from','with','for','of','as','it'
   ]);
 
-  // Strong intent phrases (highest priority)
-  if (/\bfalls\s+apart\b/.test(lower) || /\bescalates\s+quickly\b/.test(lower) || /\bwent\s+wrong\b/.test(lower)) {
-    if (/\bperfect\s+timing\b/.test(lower) || /\btiming\b/.test(lower)) return 'The timing on this is perfect.';
-    return 'Wait… this falls apart fast.';
+  function extractTopicWord() {
+    // Prefer explicit “X moment” pattern (e.g. rizz moment, baby moment)
+    const m = lower.match(/\b([a-z0-9][a-z0-9_-]{2,})\s+moment\b/);
+    if (m && m[1] && !stop.has(m[1])) return m[1];
+    // Otherwise pick first meaningful word not in stoplist/hashtags
+    const toks = lower
+      .replace(/#[a-z0-9_]+/g, ' ')
+      .replace(/[^\p{L}\p{N}\s-]+/gu, ' ')
+      .split(/\s+/)
+      .filter(Boolean)
+      .filter((w) => !stop.has(w) && w.length >= 3);
+    // Skip generic words that often appear in captions
+    const skip = new Set(['ranked','ranking','funny','funniest','viral','trending','follow','clips','clip','moment']);
+    for (const t of toks) {
+      if (skip.has(t)) continue;
+      return t;
+    }
+    return '';
   }
+
+  const topic = extractTopicWord(); // e.g. "rizz", "dog", "baby"
+  const fallsApart = /\bfalls\s+apart\b|\bwent\s+wrong\b/.test(lower);
+  const escalates = /\bescalates\s+quickly\b|\bescalates\s+fast\b/.test(lower);
+  const hasTiming = /\bperfect\s+timing\b|\btiming\b/.test(lower);
 
   const hasRanked = /\branked\b|\branking\b|\btop\s*\d+\b/.test(lower);
   const hasBaby = /\bbaby\b|\bbabies\b|\binfant\b/.test(lower);
@@ -321,6 +340,19 @@ function buildHookFromCaption(caption) {
 
   // Build hook sentence(s)
   let hook = '';
+  // Strong intent phrases (highest priority) — but keep the topic from caption
+  if (hasTiming) {
+    hook = topic ? `The timing on this ${topic} moment is perfect.` : 'The timing on this is perfect.';
+  } else if (fallsApart) {
+    hook = topic
+      ? (hasRanked ? `This ranked ${topic} moment falls apart fast.` : `This ${topic} moment falls apart fast.`)
+      : 'This moment falls apart fast.';
+  } else if (escalates) {
+    hook = topic
+      ? (hasRanked ? `This ranked ${topic} moment escalates fast.` : `This ${topic} moment escalates fast.`)
+      : 'This escalates fast.';
+  }
+
   if (hasRanked && hasBaby && isFunny) {
     hook = 'Ranked funniest baby moment.';
   } else if (hasRanked && hasBaby) {
