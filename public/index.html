@@ -894,7 +894,51 @@ function crushSplitHookLines55(text) {
 }
 
 function crushGetLabMeterRefSize() {
-  return { w: 120, h: 130 };
+  return { w: 132, h: 142 };
+}
+
+/** Önizleme — therapy / hope / chaos meter görsel teması */
+function crushLabMeterBrandTheme(b) {
+  if (b === "umut") {
+    return {
+      accent: "#c67f12",
+      accentLight: "#fdeccd",
+      gradTop: "#fffbf5",
+      gradMid: "#fff6eb",
+      gradBot: "#ffefd9",
+      border: "#e8d4bc",
+      track: "#d4c4b0",
+      needleTip: "#c67f12",
+      subtitle: "progress",
+      badgeBg: "rgba(198,127,18,0.12)"
+    };
+  }
+  if (b === "kaos") {
+    return {
+      accent: "#7c3aed",
+      accentLight: "#ede9fe",
+      gradTop: "#faf8ff",
+      gradMid: "#f3effc",
+      gradBot: "#ebe4f8",
+      border: "#d4cce8",
+      track: "#c4bcd8",
+      needleTip: "#7c3aed",
+      subtitle: "intensity",
+      badgeBg: "rgba(124,58,237,0.12)"
+    };
+  }
+  return {
+    accent: "#0f766e",
+    accentLight: "#ccfbf1",
+    gradTop: "#f7fdfc",
+    gradMid: "#f0faf8",
+    gradBot: "#e8f5f3",
+    border: "#c5ddd8",
+    track: "#b8cac6",
+    needleTip: "#0f766e",
+    subtitle: "balance",
+    badgeBg: "rgba(15,118,110,0.12)"
+  };
 }
 function crushHitLabMeter(bx, by) {
   if (!__crushManual.labMeterEnabled) return false;
@@ -913,63 +957,148 @@ function crushDrawLabMeterWidget(ctx) {
   const mh = Math.max(1, Math.round((rfh * H) / 1280));
   const b = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
   const label = b === "umut" ? "hope" : (b === "kaos" ? "chaos" : "therapy");
+  const tm = crushLabMeterBrandTheme(b);
   const val = Math.max(0, Math.min(100, Math.round(Number(__crushManual.labMeterValue) || 0)));
   const cx = x + mw * 0.5;
-  const cy = y + mh - 10;
-  const R = Math.max(20, Math.min(mw, mh) * 0.36);
+  const cy = y + mh - 11;
+  const R = Math.max(22, Math.min(mw, mh) * 0.37);
   const a0 = Math.PI;
   const a1 = 0;
   const needleA = a0 * (1 - val / 100);
-  const fsT = Math.max(8, Math.round(9 * (W / 720)));
+  const fsT = Math.max(9, Math.round(10 * (W / 720)));
+  const fsSmall = Math.max(7, Math.round(8 * (W / 720)));
   const gC = 255 * (1 - val / 100) | 0;
   const progRgb = "rgb(255," + gC + ",0)";
+  const rad = Math.min(14, mw * 0.08);
   ctx.save();
-  ctx.fillStyle = "#ffffff";
-  ctx.strokeStyle = "#c8c8c8";
-  ctx.lineWidth = 1;
+  ctx.shadowColor = "rgba(15,23,42,0.18)";
+  ctx.shadowBlur = Math.max(8, mw * 0.14);
+  ctx.shadowOffsetY = Math.max(3, mh * 0.025);
+  ctx.shadowOffsetX = 0;
+  const g = ctx.createLinearGradient(x, y, x, y + mh);
+  g.addColorStop(0, tm.gradTop);
+  g.addColorStop(0.55, tm.gradMid);
+  g.addColorStop(1, tm.gradBot);
+  ctx.fillStyle = g;
   ctx.beginPath();
-  if (ctx.roundRect) { ctx.roundRect(x, y, mw, mh, 8); } else { ctx.rect(x, y, mw, mh); }
+  if (ctx.roundRect) { ctx.roundRect(x, y, mw, mh, rad); } else { ctx.rect(x, y, mw, mh); }
   ctx.fill();
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.strokeStyle = tm.border;
+  ctx.lineWidth = 1;
   ctx.stroke();
+  const stripH = Math.max(4, Math.round(mh * 0.045));
+  if (ctx.roundRect) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(x, y, mw, mh, rad);
+    ctx.clip();
+    const gs = ctx.createLinearGradient(x, y, x + mw, y);
+    gs.addColorStop(0, tm.accent);
+    gs.addColorStop(1, tm.accentLight);
+    ctx.fillStyle = gs;
+    ctx.fillRect(x, y, mw, stripH);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = tm.accent;
+    ctx.fillRect(x, y, mw, stripH);
+  }
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  ctx.fillStyle = "#000000";
-  ctx.font = "600 " + fsT + 'px "Segoe UI",sans-serif';
-  ctx.fillText(label + " / meter", cx, y + 4);
+  ctx.fillStyle = tm.accent;
+  ctx.font = "800 " + fsT + 'px "Segoe UI",system-ui,sans-serif';
+  ctx.letterSpacing = "0.06em";
+  ctx.fillText(label.toUpperCase(), cx, y + stripH + 5);
+  ctx.letterSpacing = "0";
+  ctx.fillStyle = "#64748b";
+  ctx.font = "500 " + fsSmall + 'px "Segoe UI",system-ui,sans-serif';
+  ctx.fillText("meter · " + tm.subtitle, cx, y + stripH + 5 + fsT + 2);
   ctx.beginPath();
-  ctx.arc(cx, cy, R, a1, a0, true);
-  ctx.lineWidth = Math.max(4, R * 0.12);
-  ctx.strokeStyle = "#cccccc";
+  ctx.arc(cx, cy, R * 1.06, a1, a0, true);
+  ctx.strokeStyle = "rgba(148,163,184,0.35)";
+  ctx.lineWidth = Math.max(2, R * 0.06);
   ctx.lineCap = "round";
   ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, a1, a0, true);
+  ctx.lineWidth = Math.max(5, R * 0.13);
+  ctx.strokeStyle = tm.track;
+  ctx.stroke();
+  const ticks = [a0, Math.PI / 2, a1];
+  ticks.forEach(function (ta) {
+    const ix = cx + (R - 4) * Math.cos(ta);
+    const iy = cy - (R - 4) * Math.sin(ta);
+    const ox = cx + (R + 5) * Math.cos(ta);
+    const oy = cy - (R + 5) * Math.sin(ta);
+    ctx.beginPath();
+    ctx.moveTo(ix, iy);
+    ctx.lineTo(ox, oy);
+    ctx.strokeStyle = "rgba(100,116,139,0.55)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
   if (val > 0) {
     const aw = a0 * (1 - val / 100);
+    ctx.shadowColor = "rgba(255," + gC + ",0,0.42)";
+    ctx.shadowBlur = Math.max(4, R * 0.14);
     ctx.beginPath();
-    ctx.arc(cx, cy, R * 0.92, aw, a0, true);
-    ctx.lineWidth = Math.max(3, R * 0.1);
+    ctx.arc(cx, cy, R * 0.9, aw, a0, true);
+    ctx.lineWidth = Math.max(4, R * 0.11);
     ctx.strokeStyle = progRgb;
     ctx.lineCap = "round";
     ctx.stroke();
+    ctx.shadowBlur = 0;
   }
   ctx.beginPath();
-  ctx.arc(cx, cy, Math.max(4, R * 0.12), 0, 2 * Math.PI);
-  ctx.fillStyle = "#333333";
+  ctx.arc(cx, cy, Math.max(5, R * 0.14), 0, 2 * Math.PI);
+  ctx.strokeStyle = tm.accent;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.max(4, R * 0.1), 0, 2 * Math.PI);
+  ctx.fillStyle = "#1e293b";
   ctx.fill();
-  const L = R * 0.78;
+  const L = R * 0.76;
   const nx = cx + L * Math.cos(needleA);
   const ny = cy - L * Math.sin(needleA);
   ctx.beginPath();
   ctx.moveTo(cx, cy);
   ctx.lineTo(nx, ny);
-  ctx.lineWidth = Math.max(2, R * 0.04);
-  ctx.strokeStyle = "#000000";
+  ctx.lineWidth = Math.max(2.5, R * 0.045);
+  ctx.strokeStyle = "#f8fafc";
   ctx.lineJoin = "round";
+  ctx.lineCap = "round";
   ctx.stroke();
-  ctx.fillStyle = "#000000";
-  ctx.font = "600 " + (fsT + 1) + 'px "Segoe UI",sans-serif';
-  ctx.textAlign = "center";
-  ctx.textBaseline = "bottom";
-  ctx.fillText(String(val) + "%", cx, y + mh - 3);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(nx, ny);
+  ctx.lineWidth = Math.max(1.5, R * 0.028);
+  ctx.strokeStyle = "#0f172a";
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(nx, ny, Math.max(2, R * 0.045), 0, 2 * Math.PI);
+  ctx.fillStyle = tm.needleTip;
+  ctx.fill();
+  const pct = String(val) + "%";
+  ctx.font = "700 " + Math.max(11, fsT + 2) + 'px ui-monospace,"Segoe UI",sans-serif';
+  const tw = ctx.measureText(pct).width;
+  const padX = Math.max(8, mw * 0.06);
+  const ph = Math.max(18, fsT + 8);
+  const bx = cx - tw / 2 - padX;
+  const by = y + mh - ph - 4;
+  ctx.fillStyle = tm.badgeBg;
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(bx, by, tw + padX * 2, ph, ph / 2);
+    ctx.fill();
+  } else {
+    ctx.fillRect(bx, by, tw + padX * 2, ph);
+  }
+  ctx.fillStyle = "#0f172a";
+  ctx.textBaseline = "middle";
+  ctx.fillText(pct, cx, by + ph / 2);
   ctx.restore();
 }
 

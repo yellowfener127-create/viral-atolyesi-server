@@ -752,12 +752,30 @@ function buildReelsLabMeterOverlayFilters({
     const v = Math.max(2, Math.round(n));
     return v % 2 ? v - 1 : v;
   };
-  let mw = _even(120 * sxR);
-  let mh = _even(130 * syR);
-  const titleH = 22;
+  let mw = _even(132 * sxR);
+  let mh = _even(142 * syR);
+  const titleH = 26;
+  const stripH = Math.max(3, Math.round(5 * syR));
+  const bgHex =
+    m.kind === 'hope'
+      ? 'fff9f4'
+      : m.kind === 'chaos'
+        ? 'f7f4fc'
+        : 'f6faf9';
+  const accentHex =
+    m.kind === 'hope'
+      ? 'c67f12'
+      : m.kind === 'chaos'
+        ? '7c3aed'
+        : '0f766e';
+  const bg = [
+    parseInt(bgHex.slice(0, 2), 16),
+    parseInt(bgHex.slice(2, 4), 16),
+    parseInt(bgHex.slice(4, 6), 16)
+  ];
   const cxi = Math.round(mw / 2);
-  const cyi = Math.min(mh - 6, titleH + Math.round(0.62 * mh));
-  const r1 = Math.max(6, Math.round(0.31 * Math.min(mw, mh - titleH - 4)));
+  const cyi = Math.min(mh - 8, titleH + Math.round(0.6 * mh));
+  const r1 = Math.max(6, Math.round(0.31 * Math.min(mw, mh - titleH - 6)));
   const r0 = Math.max(1, Math.round(r1 * 0.58));
   let mx = Math.max(0, Math.min(outW - mw, Math.round(m.x * sxR)));
   let my = Math.max(0, Math.min(outH - mh, Math.round(m.y * syR)));
@@ -771,10 +789,10 @@ function buildReelsLabMeterOverlayFilters({
   const gMul = `max(0\\,1-${vExpr}/100.0)`;
   const kindTitle =
     m.kind === 'hope'
-      ? 'hope / meter'
+      ? 'HOPE · meter'
       : m.kind === 'chaos'
-        ? 'chaos / meter'
-        : 'therapy / meter';
+        ? 'CHAOS · meter'
+        : 'THERAPY · meter';
   const title = escapeDrawtextText(kindTitle);
   const fs = Math.max(10, Math.round(12 * Math.min(sxR, syR)));
   const fsP = Math.max(9, Math.round(12 * Math.min(sxR, syR)));
@@ -810,21 +828,52 @@ function buildReelsLabMeterOverlayFilters({
     vExpr +
     '/100.0\\))';
   const inTrack = 'between(' + pexpr + '\\,' + r0 + '\\,' + r1 + ')*lt(Y\\,' + cyi + ')';
-  const rE = 'if(' + inArc + '\\,255\\,if(' + inTrack + '\\,200\\,255))';
-  const gE = 'if(' + inArc + '\\,255*(' + gMul + ')\\,if(' + inTrack + '\\,200\\,255))';
-  const bE = 'if(' + inArc + '\\,0\\,if(' + inTrack + '\\,200\\,255))';
+  const tr = 178;
+  const rE =
+    'if(' +
+    inArc +
+    '\\,255\\,if(' +
+    inTrack +
+    '\\,' +
+    tr +
+    '\\,' +
+    bg[0] +
+    '))';
+  const gE =
+    'if(' +
+    inArc +
+    '\\,255*(' +
+    gMul +
+    ')\\,if(' +
+    inTrack +
+    '\\,' +
+    tr +
+    '\\,' +
+    bg[1] +
+    '))';
+  const bE =
+    'if(' +
+    inArc +
+    '\\,0\\,if(' +
+    inTrack +
+    '\\,' +
+    tr +
+    '\\,' +
+    bg[2] +
+    '))';
   const parts = [
-    `color=c=white:s=${mw}x${mh}:d=9999,format=rgba[labp0]`,
+    `color=c=0x${bgHex}:s=${mw}x${mh}:d=9999,format=rgba[labp0]`,
     `[labp0]geq=r='${rE}':g='${gE}':b='${bE}':a='255'[labp1]`,
-    `[labp1]drawtext=text='${title}'${fontPart}:` +
-      `fontsize=${fs}:fontcolor=0x000000:borderw=0:shadowx=0:shadowy=0:fix_bounds=1:` +
-      `x='(w-text_w)/2':y=4:enable='eq(1,1)'[labp2t]`
+    `[labp1]drawbox=x=0:y=0:w=iw:h=${stripH}:color=0x${accentHex}:t=fill[labp1s]`,
+    `[labp1s]drawtext=text='${title}'${fontPart}:` +
+      `fontsize=${fs}:fontcolor=0x1e293b:borderw=0:shadowx=0:shadowy=0:fix_bounds=1:` +
+      `x='(w-text_w)/2':y=${stripH + 4}:enable='eq(1,1)'[labp2t]`
   ];
   const pctLabel = (str, en) => {
     const tesc = escapeDrawtextText(String(str));
     return (
       `drawtext=text='${tesc}'${fontPart}:` +
-      `fontsize=${fsP}:fontcolor=0x000000:shadowx=0:shadowy=0:fix_bounds=1:` +
+      `fontsize=${fsP}:fontcolor=0x1e293b:shadowx=0:shadowy=0:fix_bounds=1:` +
       `x='(w-text_w)/2':y='h-text_h-6':enable='${en}'`
     );
   };
