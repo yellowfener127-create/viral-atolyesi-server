@@ -269,10 +269,26 @@ function buildHookFromCaption(caption) {
     'in','on','at','to','from','with','for','of','as','it'
   ]);
 
+  // Strong intent phrases (highest priority)
+  if (/\bfalls\s+apart\b/.test(lower) || /\bescalates\s+quickly\b/.test(lower) || /\bwent\s+wrong\b/.test(lower)) {
+    if (/\bperfect\s+timing\b/.test(lower) || /\btiming\b/.test(lower)) return 'The timing on this is perfect.';
+    return 'Wait… this falls apart fast.';
+  }
+
+  const hasRanked = /\branked\b|\branking\b|\btop\s*\d+\b/.test(lower);
+  const hasBaby = /\bbaby\b|\bbabies\b|\binfant\b/.test(lower);
+  const hasDad = /\bdad\b|\bdads\b|\bfather\b/.test(lower);
+  const hasMom = /\bmom\b|\bmoms\b|\bmother\b/.test(lower);
+  const isFunny = /\bfunny\b|\bfunniest\b|\bhilarious\b/.test(lower);
+
   // Subject phrase heuristics
   let subject = '';
+  if (hasDad) subject = "dad";
+  else if (hasMom) subject = "mom";
+  else if (hasBaby) subject = (/\bbabies\b/.test(lower) ? "babies" : "baby");
+
   const mThis = s0.match(/^(this|that|the)\s+([a-zA-Z][a-zA-Z0-9_-]*(?:\s+[a-zA-Z][a-zA-Z0-9_-]*){0,3})\s+(is|was|can|will|just|really|looks|feels)\b/i);
-  if (mThis) subject = mThis[2].trim();
+  if (!subject && mThis) subject = mThis[2].trim();
   if (!subject) {
     // pick first 1-3 "content" words as subject
     const toks = s0.replace(/[^\w\s-]/g, ' ').split(/\s+/).filter(Boolean);
@@ -305,6 +321,19 @@ function buildHookFromCaption(caption) {
 
   // Build hook sentence(s)
   let hook = '';
+  if (hasRanked && hasBaby && isFunny) {
+    hook = 'Ranked funniest baby moment.';
+  } else if (hasRanked && hasBaby) {
+    hook = 'Ranked baby moment.';
+  } else if (hasBaby && isFunny) {
+    hook = 'This baby is too funny.';
+  } else if (hasDad && isFunny) {
+    hook = "Dad's being silly again.";
+  }
+
+  if (hook) {
+    // fall through to normalize/trim below
+  } else if (subject && action && action !== 'moving fast' && action !== 'moving slowly') {
   if (subject && action && action !== 'moving fast' && action !== 'moving slowly') {
     hook = `Look at the ${action} ${subject}.`;
   } else if (subject && action === 'moving fast') {
@@ -315,6 +344,7 @@ function buildHookFromCaption(caption) {
     hook = `Look at ${needsThe ? 'the ' : ''}${subject}.`;
   } else {
     hook = 'Wait for it…';
+  }
   }
 
   hook = hook.replace(/\s+/g, ' ').trim();
