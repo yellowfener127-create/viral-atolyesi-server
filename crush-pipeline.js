@@ -517,7 +517,7 @@ function buildReelsInstagramCanvasFilters({
  * Lab markası reels çıktısı [v1] üzerine animasyonlu meter çubuğu + hedef yüzde yazısı (alt orta).
  * Çıkış etiketi: [v1meter] — watermark zinciri buradan beslenir.
  */
-function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter }) {
+function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW, outH }) {
   const enabled = labMeter && typeof labMeter.enabled === 'boolean' ? labMeter.enabled : true;
   if (!enabled) return { filters: [], debug: { enabled: false } };
 
@@ -546,8 +546,10 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter }) {
   // Default: top-right, like user's screenshot
   const defaultPos720 = { x: 590, y: 260 };
   const posUse = pos720 || defaultPos720;
-  const cx = Math.round((posUse.x / 720) * 1080);
-  const cy = Math.round((posUse.y / 1280) * 1920);
+  const wOut = Math.max(2, Math.round(Number(outW) || 1080));
+  const hOut = Math.max(2, Math.round(Number(outH) || 1920));
+  const cx = Math.round((posUse.x / 720) * wOut);
+  const cy = Math.round((posUse.y / 1280) * hOut);
 
   // Needle motion range (semi-circle)
   const a0 = -2.45; // rad (left)
@@ -576,18 +578,22 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter }) {
 
   const numText = `%{eif\\:${scoreExpr}\\:d}`;
 
+  // Template is a small PNG (≈233×238). Scale by output width for consistent on-screen size.
+  // Keep this in the same visual size range as the reference Speedtest screenshot.
+  const tmplW = Math.max(360, Math.round(wOut * 0.62)); // 1080 -> ~670px
+
   // Needle constructed as a transparent layer, then rotated.
-  const needleSize = 560;
+  const needleSize = Math.max(420, Math.round(tmplW * 1.06));
   const nx0 = Math.round(cx - needleSize / 2);
   const ny0 = Math.round(cy - needleSize / 2);
-  const needleLen = 210;
-  const needleW = 8;
-  const hubR = 14;
+  const needleLen = Math.max(140, Math.round(tmplW * 0.44));
+  const needleW = Math.max(6, Math.round(tmplW * 0.018));
+  const hubR = Math.max(10, Math.round(tmplW * 0.030));
 
   return {
     filters: [
       // Base: Speedtest gauge template (transparent PNG), scaled and overlaid at (cx,cy) center.
-      `[${tmplIdx}:v]format=rgba,scale=iw*2.30:ih*2.30[tmpl0]`,
+      `[${tmplIdx}:v]format=rgba,scale=${tmplW}:-1[tmpl0]`,
       // Important: do NOT blur the template; blur mixes transparent pixels into dark blocks.
       `[v1][tmpl0]overlay=x=${cx}-w/2:y=${cy}-h/2:format=auto[lm2]`,
       // needle layer
@@ -598,10 +604,18 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter }) {
         `rotate=angle='${angleExpr}':c=none:ow=iw:oh=ih[lmNeedle]`,
       `[lm2][lmNeedle]overlay=x=${nx0}:y=${ny0}:format=auto[lm3]`,
       // digital number under arc (Speedtest-like placement)
-      `[lm3]drawtext=text='${numText}'${fontPart}:fontsize=62:fontcolor=${accentHex}@0.92:borderw=2:bordercolor=0x000000@0.60:` +
-        `shadowcolor=0x000000@0.55:shadowx=3:shadowy=3:x=${cx}-text_w/2:y=${cy + 64}[v1meter]`
+      `[lm3]drawtext=text='${numText}'${fontPart}:fontsize=${Math.max(52, Math.round(tmplW * 0.125))}:fontcolor=${accentHex}@0.92:borderw=2:bordercolor=0x000000@0.60:` +
+        `shadowcolor=0x000000@0.55:shadowx=3:shadowy=3:x=${cx}-text_w/2:y=${cy + Math.round(tmplW * 0.14)}[v1meter]`
     ],
-    debug: { enabled: true, random_start_percent: S, target_percent: T, brandNorm, pos_720: posUse, template: 'lab_meter_speedtest_template.png' }
+    debug: {
+      enabled: true,
+      random_start_percent: S,
+      target_percent: T,
+      brandNorm,
+      pos_720: posUse,
+      template: 'lab_meter_speedtest_template.png',
+      tmplW
+    }
   };
 }
 
@@ -1151,7 +1165,7 @@ async function buildCrushRenderPlan(o) {
     const labMeterForBuild = useLabMeterTemplate
       ? { ...(labMeterOpt || {}), template_input_idx: meterTemplateInputIdx }
       : { ...(labMeterOpt || {}), enabled: false };
-    labMeterExtra = buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter: labMeterForBuild });
+    labMeterExtra = buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter: labMeterForBuild, outW, outH });
   }
   const preWmLabel = labMeterExtra.filters.length ? 'v1meter' : 'v1';
 
