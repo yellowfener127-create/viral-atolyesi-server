@@ -1152,6 +1152,9 @@ function crushDrawRectsOverlay(cv) {
     crushDrawVideoFrameOntoCanvas(cv);
   }
   const ctx = cv.getContext("2d");
+  // Meter preview handle should also appear on the main crush preview (blur canvas).
+  // Draw after base video/frame so it's always visible.
+  try { crushDrawMeterPreview(ctx, cv.width, cv.height); } catch (eM) {}
   for (const rec of __crushManual.rects) {
     const sel = rec.id === __crushManual.selectedId;
     ctx.strokeStyle = sel ? "#6ae" : "#e8b84a";

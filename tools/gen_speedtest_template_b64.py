@@ -21,17 +21,19 @@ def main() -> None:
     px = im.load()
 
     # Keep only arc/tick pixels via HSV mask; everything else becomes transparent.
+    # We key by HUE to avoid keeping dark background rectangles.
     # - Ticks/markers are near-white (high V, low S)
-    # - Arc is saturated (higher S), can be dark (lower V)
+    # - Arc is saturated and in blue/purple hue range (Speedtest palette)
     for y in range(h):
         for x in range(w):
             r, g, b, a = px[x, y]
             if a == 0:
                 continue
             rr, gg, bb = r / 255.0, g / 255.0, b / 255.0
-            _, s, v = colorsys.rgb_to_hsv(rr, gg, bb)
+            hue, s, v = colorsys.rgb_to_hsv(rr, gg, bb)
             keep_tick = (v >= 0.72 and s <= 0.28)
-            keep_arc = (s >= 0.42 and v >= 0.08)
+            # hue range ~ [0.55..0.86] = cyan/blue/purple
+            keep_arc = (s >= 0.45 and v >= 0.10 and 0.55 <= hue <= 0.86)
             if not (keep_tick or keep_arc):
                 px[x, y] = (r, g, b, 0)
 
