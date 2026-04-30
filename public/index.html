@@ -962,12 +962,19 @@ function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
   ctx.restore();
 }
 
-function crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H) {
+function crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H, canvasEl) {
   const en = document.getElementById("crushLabMeterEnabled");
   if (en && !en.checked) return;
   const c = __crushManual.labMeterPos || { x: PREVIEW_W / 2, y: PREVIEW_H - 280 };
-  const x = Number(c.x) || (PREVIEW_W / 2);
-  const y = Number(c.y) || (PREVIEW_H - 280);
+  let x = Number(c.x) || (PREVIEW_W / 2);
+  let y = Number(c.y) || (PREVIEW_H - 280);
+  // labMeterPos is stored in 720×1280 BASE coordinates.
+  // On crushBlurCanvas we render with zoom/pan, so convert BASE -> SCREEN.
+  if (canvasEl && canvasEl.id === "crushBlurCanvas") {
+    const p = crushBlurBaseToScreen(canvasEl, x, y);
+    x = p.x;
+    y = p.y;
+  }
   ctx.save();
   ctx.globalAlpha = 0.92;
   ctx.strokeStyle = "rgba(255,255,255,0.85)";
@@ -1064,7 +1071,7 @@ function crushDrawVideoFrameOntoCanvas(cv) {
       );
     }
     crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H);
-    crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H);
+    crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H, cv);
     return;
   }
 
@@ -1139,7 +1146,7 @@ function crushDrawVideoFrameOntoCanvas(cv) {
     ctx.drawImage(frm, 0, 0, PREVIEW_W, PREVIEW_H);
   }
   crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H);
-  crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H);
+  crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H, cv);
 }
 
 function crushDrawRectsOverlay(cv) {
@@ -1154,7 +1161,7 @@ function crushDrawRectsOverlay(cv) {
   const ctx = cv.getContext("2d");
   // Meter preview handle should also appear on the main crush preview (blur canvas).
   // Draw after base video/frame so it's always visible.
-  try { crushDrawMeterPreview(ctx, cv.width, cv.height); } catch (eM) {}
+  try { crushDrawMeterPreview(ctx, cv.width, cv.height, cv); } catch (eM) {}
   for (const rec of __crushManual.rects) {
     const sel = rec.id === __crushManual.selectedId;
     ctx.strokeStyle = sel ? "#6ae" : "#e8b84a";
