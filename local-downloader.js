@@ -240,6 +240,13 @@ function toSingleSentenceCaption(text) {
   return out ? `${out}.` : '';
 }
 
+function stripBannedCaptionPhrases(text) {
+  let s = String(text || '');
+  // Ban overused phrase; keep meaning with a safer alternative.
+  s = s.replace(/\bfalls\s+apart\s+fast\b/gi, 'goes wrong fast');
+  return s;
+}
+
 function hookSeedFromCaption(caption) {
   const s = toSingleSentenceCaption(String(caption || '').trim())
     .replace(/[“”"']/g, '')
@@ -259,6 +266,7 @@ function buildHookFromCaption(caption) {
   let s = String(caption || '');
   // strip hashtags + normalize
   s = stripHashtagsFromText(s);
+  s = stripBannedCaptionPhrases(s);
   s = toSingleSentenceCaption(s);
   s = s.replace(/[“”"']/g, '').replace(/\s+/g, ' ').trim();
   if (!s) return '';
@@ -308,6 +316,7 @@ function buildHookFromCaption(caption) {
 
   // 3) Trim filler words a bit
   s = s.replace(/\breally\b|\bliterally\b|\bjust\b|\bperfect\b/gi, '').replace(/\s+/g, ' ').trim();
+  s = stripBannedCaptionPhrases(s);
 
   // Ensure punctuation
   if (!/[.!?…]$/.test(s)) s = s + '.';
@@ -682,7 +691,7 @@ function buildFallbackCaptionFromTitle(title, isListicle = false) {
   const kw = extractKeywordsFromTitle(title);
   const topic = kw.slice(0, 2).join(' ') || 'this moment';
   const line1 = isListicle
-    ? `This ranked ${topic} moment falls apart fast, follow for more ranked clips like this.`
+    ? `This ranked ${topic} moment goes wrong fast, follow for more ranked clips like this.`
     : pickOne([
         `This ${topic} moment goes off the rails fast and lands hard.`,
         `This ${topic} clip escalates quickly and hits with perfect timing.`,
@@ -2201,7 +2210,9 @@ app.post('/crush', async (req, res) => {
     }
     // Caption first: hook should align with the caption text
     const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand), titleIsListicle));
-    const finalCaption = toSingleSentenceCaption(fallbackCaptionBits.caption || fallbackCaptionForBrand(brand));
+    const finalCaption = stripBannedCaptionPhrases(
+      toSingleSentenceCaption(fallbackCaptionBits.caption || fallbackCaptionForBrand(brand))
+    );
 
     const captionHookSeed = buildHookFromCaption(finalCaption);
     const seed =
