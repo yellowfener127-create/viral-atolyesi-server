@@ -240,11 +240,26 @@ function toSingleSentenceCaption(text) {
   return out ? `${out}.` : '';
 }
 
+/** Bu metinler caption/hook’ta geçmemeli; yerine alternatif YAZILMAZ — sadece silinir. */
+function stripFastBanPhrases(s) {
+  return String(s || '')
+    .replace(/\bfalls\s+apart\s+fast\b/gi, '')
+    .replace(/\bgoes\s+wrong\s+fast\b/gi, '');
+}
+
+function cleanupAfterPhraseRemoval(s) {
+  let t = String(s || '')
+    .replace(/\s+/g, ' ')
+    .replace(/,\s*,+/g, ',')
+    .replace(/\s+,/g, ',')
+    .replace(/,\s+/g, ', ')
+    .trim();
+  t = t.replace(/^[,.\s;:–-]+|[,.\s;:–-]+$/g, '').trim();
+  return t;
+}
+
 function stripBannedCaptionPhrases(text) {
-  let s = String(text || '');
-  // Ban overused phrase; keep meaning with a safer alternative.
-  s = s.replace(/\bfalls\s+apart\s+fast\b/gi, 'goes wrong fast');
-  return s;
+  return cleanupAfterPhraseRemoval(stripFastBanPhrases(text));
 }
 
 function hookSeedFromCaption(caption) {
@@ -583,10 +598,12 @@ function ensureHookUsesPoolEmoji(text, pool) {
 
 function stripBannedHookWords(text) {
   // Hard-ban "ignore" everywhere (any casing, standalone).
-  return String(text || '')
+  // Aynı hızlı “ban list” caption ile ortak — yerine başka cümle konmaz.
+  let s = String(text || '')
     .replace(/\bignore\b/gi, '')
-    .replace(/\s+/g, ' ')
     .trim();
+  s = cleanupAfterPhraseRemoval(stripFastBanPhrases(s));
+  return s;
 }
 
 /** Yarım kalmış başlık: son kelime yardımcı fiil/bağlaç ile bitmesin */
@@ -691,7 +708,7 @@ function buildFallbackCaptionFromTitle(title, isListicle = false) {
   const kw = extractKeywordsFromTitle(title);
   const topic = kw.slice(0, 2).join(' ') || 'this moment';
   const line1 = isListicle
-    ? `This ranked ${topic} moment goes wrong fast, follow for more ranked clips like this.`
+    ? `This ranked ${topic} moment, follow for more ranked clips like this.`
     : pickOne([
         `This ${topic} moment goes off the rails fast and lands hard.`,
         `This ${topic} clip escalates quickly and hits with perfect timing.`,
