@@ -716,9 +716,26 @@ var __crushManual = {
   hookYOffsetPx: 0,
   labMeterEnabled: true,
   labMeterTarget: 88,
-  labMeterPos: { x: 360, y: 1000 }, // 720×1280 referans (gösterge merkezi)
+  labMeterPos: { x: 360, y: 988 }, // 720×1280: liste altı orta — design_refs/lab_meter_terapi_list_overlay_ref.png
   frameImg: null
 };
+
+function crushDefaultLabMeterPos() {
+  return { x: 360, y: 988 };
+}
+
+function crushEnsureLabMeterDefaults() {
+  const p = __crushManual.labMeterPos;
+  const x = p && Number(p.x);
+  const y = p && Number(p.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    __crushManual.labMeterPos = crushDefaultLabMeterPos();
+    return;
+  }
+  const nx = Math.max(40, Math.min(__crushManual.REF_W - 40, Math.round(x)));
+  const ny = Math.max(120, Math.min(__crushManual.REF_H - 120, Math.round(y)));
+  __crushManual.labMeterPos = { x: nx, y: ny };
+}
 
 function crushClampCropRect(r) {
   const RW = __crushManual.REF_W, RH = __crushManual.REF_H;
@@ -962,12 +979,19 @@ function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
   ctx.restore();
 }
 
-function crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H) {
+function crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H, canvasEl) {
   const en = document.getElementById("crushLabMeterEnabled");
   if (en && !en.checked) return;
   const c = __crushManual.labMeterPos || { x: PREVIEW_W / 2, y: PREVIEW_H - 280 };
-  const x = Number(c.x) || (PREVIEW_W / 2);
-  const y = Number(c.y) || (PREVIEW_H - 280);
+  let x = Number(c.x) || (PREVIEW_W / 2);
+  let y = Number(c.y) || (PREVIEW_H - 280);
+  // labMeterPos is stored in 720×1280 BASE coordinates.
+  // On crushBlurCanvas we render with zoom/pan, so convert BASE -> SCREEN.
+  if (canvasEl && canvasEl.id === "crushBlurCanvas") {
+    const p = crushBlurBaseToScreen(canvasEl, x, y);
+    x = p.x;
+    y = p.y;
+  }
   ctx.save();
   ctx.globalAlpha = 0.92;
   ctx.strokeStyle = "rgba(255,255,255,0.85)";
@@ -1064,7 +1088,7 @@ function crushDrawVideoFrameOntoCanvas(cv) {
       );
     }
     crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H);
-    crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H);
+    crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H, cv);
     return;
   }
 
@@ -1139,7 +1163,7 @@ function crushDrawVideoFrameOntoCanvas(cv) {
     ctx.drawImage(frm, 0, 0, PREVIEW_W, PREVIEW_H);
   }
   crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H);
-  crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H);
+  crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H, cv);
 }
 
 function crushDrawRectsOverlay(cv) {
@@ -1152,6 +1176,9 @@ function crushDrawRectsOverlay(cv) {
     crushDrawVideoFrameOntoCanvas(cv);
   }
   const ctx = cv.getContext("2d");
+  // Meter preview handle should also appear on the main crush preview (blur canvas).
+  // Draw after base video/frame so it's always visible.
+  try { crushDrawMeterPreview(ctx, cv.width, cv.height, cv); } catch (eM) {}
   for (const rec of __crushManual.rects) {
     const sel = rec.id === __crushManual.selectedId;
     ctx.strokeStyle = sel ? "#6ae" : "#e8b84a";
@@ -1305,7 +1332,8 @@ function onCrushCanvasMouseDown(ev) {
   // Meter drag: move gauge center in 720×1280 reference space
   if (__crushManual.meterDragMode && !hit) {
     const p0 = (cv.id === "crushBlurCanvas") ? { bx, by } : { bx: mx, by: my };
-    const m0 = __crushManual.labMeterPos || { x: 360, y: 1000 };
+    try { crushEnsureLabMeterDefaults(); } catch (eMD) {}
+    const m0 = __crushManual.labMeterPos || crushDefaultLabMeterPos();
     const dxm = p0.bx - (Number(m0.x) || 0);
     const dym = p0.by - (Number(m0.y) || 0);
     if (Math.hypot(dxm, dym) <= 42) {
@@ -1547,7 +1575,7 @@ function wireCrushManualBlurUi() {
     __crushManual.meterDragMode = false;
     __crushManual.labMeterEnabled = true;
     __crushManual.labMeterTarget = 88;
-    __crushManual.labMeterPos = { x: 360, y: 1000 };
+    __crushManual.labMeterPos = { x: 360, y: 988 };
     const me = document.getElementById("crushLabMeterEnabled");
     const mt = document.getElementById("crushLabMeterTarget");
     const mtv = document.getElementById("crushLabMeterTargetVal");
@@ -1682,6 +1710,8 @@ function wireCrushManualBlurUi() {
       deleteSelectedCrushRect();
     }
   });
+  // Ensure meter defaults exist (cached older state or accidental clears).
+  try { crushEnsureLabMeterDefaults(); } catch (eDef) {}
   crushLoadZirhFramePng();
   try { crushRedrawAllPreviews(); } catch (eInit) {}
 }
@@ -1711,9 +1741,10 @@ async function crushVideo() {
   const manual_reels_hook_y_offset_px = Number(__crushManual.hookYOffsetPx) || 0;
   const lab_meter_enabled = !!(__crushManual.labMeterEnabled);
   const lab_meter_target_percent = Math.max(0, Math.min(100, Math.round(Number(__crushManual.labMeterTarget) || 0)));
-  const lab_meter_pos = __crushManual.labMeterPos || { x: 360, y: 1000 };
+  try { crushEnsureLabMeterDefaults(); } catch (e0) {}
+  const lab_meter_pos = __crushManual.labMeterPos || crushDefaultLabMeterPos();
   const lab_meter_pos_x_px = Math.round(Number(lab_meter_pos.x) || 360);
-  const lab_meter_pos_y_px = Math.round(Number(lab_meter_pos.y) || 1000);
+  const lab_meter_pos_y_px = Math.round(Number(lab_meter_pos.y) || 988);
 
   btn.disabled = true;
   btn.textContent = "⏳ Hazırlanıyor...";
