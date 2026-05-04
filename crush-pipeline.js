@@ -534,7 +534,6 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   let accentHex = '0xffffff';
   if (brandNorm === 'terapi') {
     glowHex = '0x44ccdd';
-    accentHex = '0xeefcff';
   } else if (brandNorm === 'umut') {
     glowHex = '0xffee88';
     accentHex = '0xfffbf0';
@@ -543,8 +542,8 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   const pos720 = labMeter && labMeter.pos_720 && Number.isFinite(labMeter.pos_720.x) && Number.isFinite(labMeter.pos_720.y)
     ? { x: Math.round(labMeter.pos_720.x), y: Math.round(labMeter.pos_720.y) }
     : null;
-  // Default: top-right, like user's screenshot
-  const defaultPos720 = { x: 590, y: 260 };
+  // Default: liste alanı alt-orta, koyu kutu içi (public/design_refs/lab_meter_terapi_list_overlay_ref.png)
+  const defaultPos720 = { x: 360, y: 988 };
   const posUse = pos720 || defaultPos720;
   const wOut = Math.max(2, Math.round(Number(outW) || 1080));
   const hOut = Math.max(2, Math.round(Number(outH) || 1920));
@@ -578,44 +577,49 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
 
   const numText = `%{eif\\:${scoreExpr}\\:d}`;
 
-  // Template is a small PNG (≈233×238). Scale by output width for consistent on-screen size.
-  // Keep this in the same visual size range as the reference Speedtest screenshot.
-  const tmplW = Math.max(360, Math.round(wOut * 0.62)); // 1080 -> ~670px
-  // Match source template aspect (233×238) so plate + gauge share exact WxH.
+  // Template küçük PNG (~233×238). Yerleşim SS: public/design_refs/lab_meter_terapi_list_overlay_ref.png
+  const tmplW = Math.max(336, Math.round(wOut * 0.48));
   const tmplH = Math.max(2, Math.round(tmplW * (238 / 233)));
-  // Supersample then downscale (Lanczos) to reduce jaggies on the arc mask.
   const tmplSuperW = Math.min(2000, Math.max(tmplW + 2, Math.round(tmplW * 2)));
-  // Speedtest-style gauge has a transparent “hole” inside the arc; composite onto an opaque
-  // backing plate so the video never shows through any part of the meter stack.
-  const plateHex = '0x12121A';
+  const plateHex = '0x0C0E12';
+  const padSide = Math.max(8, Math.round(tmplW * 0.10));
+  const padTop = Math.max(8, Math.round(tmplW * 0.07));
+  const padBottom = Math.max(16, Math.round(tmplW * 0.22));
+  const plateW = tmplW + 2 * padSide;
+  const plateH = tmplH + padTop + padBottom;
+  const arcCyPx = Math.round(tmplH * 0.46);
+  const plateOx = Math.round(cx - padSide - tmplW / 2);
+  const plateOy = Math.round(cy - padTop - arcCyPx);
+  const digitFromBottomPx = Math.max(24, Math.round(tmplW * 0.12));
+  const digitFontPx = Math.max(56, Math.round(tmplW * 0.22));
 
-  // Needle constructed as a transparent layer, then rotated.
-  const needleSize = Math.max(420, Math.round(tmplW * 1.06));
+  const needleSize = Math.max(380, Math.round(tmplW * 1.06));
   const nx0 = Math.round(cx - needleSize / 2);
   const ny0 = Math.round(cy - needleSize / 2);
-  const needleLen = Math.max(140, Math.round(tmplW * 0.44));
+  const needleLen = Math.max(120, Math.round(tmplW * 0.44));
   const needleW = Math.max(6, Math.round(tmplW * 0.018));
   const hubR = Math.max(10, Math.round(tmplW * 0.030));
 
   return {
     filters: [
-      // Base: gauge mask (RGBA) scaled, then flattened onto a fully opaque plate (no video bleed).
       `[${tmplIdx}:v]format=rgba,` +
         `scale=${tmplSuperW}:-1:flags=lanczos+accurate_rnd+full_chroma_inp,` +
         `scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp[tmplG];` +
-        `color=c=${plateHex}:s=${tmplW}x${tmplH}:d=99999,format=rgba[lmPlt];` +
-        `[lmPlt][tmplG]overlay=0:0:format=auto[tmplA];[tmplA]format=rgb24[tmpl0]`,
-      `[v1][tmpl0]overlay=x=${cx}-w/2:y=${cy}-h/2:format=auto[lm2]`,
-      // needle layer
+        `color=c=${plateHex}:s=${tmplW}x${tmplH}:d=99999,format=rgba[lmFg];` +
+        `[lmFg][tmplG]overlay=0:0:format=auto[tmplFill];` +
+        `color=c=${plateHex}:s=${plateW}x${plateH}:d=99999,format=rgba[lmPlt];` +
+        `[lmPlt][tmplFill]overlay=x=${padSide}:y=${padTop}:format=auto[tmplA];` +
+        `[tmplA]drawtext=text='${numText}'${fontPart}:fontsize=${digitFontPx}:` +
+        `fontcolor=${accentHex}@1:borderw=3:bordercolor=0x000000@1:` +
+        `x=(w-text_w)/2:y=h-${digitFromBottomPx}:shadowcolor=0x000000@0.45:shadowx=2:shadowy=2[tmplB];` +
+        `[tmplB]format=rgb24[tmpl0]`,
+      `[v1][tmpl0]overlay=x=${plateOx}:y=${plateOy}:format=auto[lm2]`,
       `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
         `drawbox=x=${Math.round(needleSize / 2 - needleW / 2)}:y=${Math.round(needleSize / 2 - needleLen)}:w=${needleW}:h=${needleLen}:color=${accentHex}@1:t=fill,` +
         `drawbox=x=${Math.round(needleSize / 2 - hubR)}:y=${Math.round(needleSize / 2 - hubR)}:w=${hubR * 2}:h=${hubR * 2}:color=black@1:t=fill,` +
         `drawbox=x=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:y=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:w=${Math.round(hubR * 1.1)}:h=${Math.round(hubR * 1.1)}:color=${accentHex}@1:t=fill,` +
         `rotate=angle='${angleExpr}':c=none:ow=iw:oh=ih[lmNeedle]`,
-      `[lm2][lmNeedle]overlay=x=${nx0}:y=${ny0}:format=auto[lm3]`,
-      // digital number under arc (Speedtest-like placement)
-      `[lm3]drawtext=text='${numText}'${fontPart}:fontsize=${Math.max(52, Math.round(tmplW * 0.125))}:fontcolor=${accentHex}@1:borderw=2:bordercolor=0x000000@1:` +
-        `shadowcolor=0x000000@0.55:shadowx=3:shadowy=3:x=${cx}-text_w/2:y=${cy + Math.round(tmplW * 0.14)}[v1meter]`
+      `[lm2][lmNeedle]overlay=x=${nx0}:y=${ny0}:format=auto[v1meter]`
     ],
     debug: {
       enabled: true,
@@ -627,7 +631,9 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
       tmplW,
       tmplH,
       tmplSuperW,
-      plateHex
+      plateHex,
+      plateWxH: `${plateW}x${plateH}`,
+      plate_xy_out: `${plateOx}x${plateOy}`
     }
   };
 }
