@@ -581,6 +581,10 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   // Template is a small PNG (≈233×238). Scale by output width for consistent on-screen size.
   // Keep this in the same visual size range as the reference Speedtest screenshot.
   const tmplW = Math.max(360, Math.round(wOut * 0.62)); // 1080 -> ~670px
+  // Supersample then downscale (Lanczos) to reduce jaggies; slight alpha-only blur softens mask edges
+  // without reintroducing the old “blur whole RGBA → black block” artifact.
+  const tmplSuperW = Math.min(2000, Math.max(tmplW + 2, Math.round(tmplW * 2)));
+  const tmplAlphaBlur = 0.55;
 
   // Needle constructed as a transparent layer, then rotated.
   const needleSize = Math.max(420, Math.round(tmplW * 1.06));
@@ -593,8 +597,12 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   return {
     filters: [
       // Base: Speedtest gauge template (transparent PNG), scaled and overlaid at (cx,cy) center.
-      `[${tmplIdx}:v]format=rgba,scale=${tmplW}:-1[tmpl0]`,
-      // Important: do NOT blur the template; blur mixes transparent pixels into dark blocks.
+      `[${tmplIdx}:v]format=rgba,` +
+        `scale=${tmplSuperW}:-1:flags=lanczos+accurate_rnd+full_chroma_inp,` +
+        `scale=${tmplW}:-1:flags=lanczos+accurate_rnd+full_chroma_inp,` +
+        `split[tRgb][tAlp];[tAlp]alphaextract,gblur=sigma=${tmplAlphaBlur.toFixed(2)}[tAm];` +
+        `[tRgb][tAm]alphamerge,format=rgba[tmpl0]`,
+      // Important: do NOT gblur full RGBA of the template (premultiplied black bleeds into transparent).
       `[v1][tmpl0]overlay=x=${cx}-w/2:y=${cy}-h/2:format=auto[lm2]`,
       // needle layer
       `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
@@ -614,7 +622,8 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
       brandNorm,
       pos_720: posUse,
       template: 'lab_meter_speedtest_template.png',
-      tmplW
+      tmplW,
+      tmplSuperW
     }
   };
 }
