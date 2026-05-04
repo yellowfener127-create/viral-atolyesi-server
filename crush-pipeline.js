@@ -581,10 +581,13 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   // Template is a small PNG (≈233×238). Scale by output width for consistent on-screen size.
   // Keep this in the same visual size range as the reference Speedtest screenshot.
   const tmplW = Math.max(360, Math.round(wOut * 0.62)); // 1080 -> ~670px
-  // Supersample then downscale (Lanczos) to reduce jaggies; slight alpha-only blur softens mask edges
-  // without reintroducing the old “blur whole RGBA → black block” artifact.
+  // Match source template aspect (233×238) so plate + gauge share exact WxH.
+  const tmplH = Math.max(2, Math.round(tmplW * (238 / 233)));
+  // Supersample then downscale (Lanczos) to reduce jaggies on the arc mask.
   const tmplSuperW = Math.min(2000, Math.max(tmplW + 2, Math.round(tmplW * 2)));
-  const tmplAlphaBlur = 0.55;
+  // Speedtest-style gauge has a transparent “hole” inside the arc; composite onto an opaque
+  // backing plate so the video never shows through any part of the meter stack.
+  const plateHex = '0x12121A';
 
   // Needle constructed as a transparent layer, then rotated.
   const needleSize = Math.max(420, Math.round(tmplW * 1.06));
@@ -596,23 +599,22 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
 
   return {
     filters: [
-      // Base: Speedtest gauge template (transparent PNG), scaled and overlaid at (cx,cy) center.
+      // Base: gauge mask (RGBA) scaled, then flattened onto a fully opaque plate (no video bleed).
       `[${tmplIdx}:v]format=rgba,` +
         `scale=${tmplSuperW}:-1:flags=lanczos+accurate_rnd+full_chroma_inp,` +
-        `scale=${tmplW}:-1:flags=lanczos+accurate_rnd+full_chroma_inp,` +
-        `split[tRgb][tAlp];[tAlp]alphaextract,gblur=sigma=${tmplAlphaBlur.toFixed(2)}[tAm];` +
-        `[tRgb][tAm]alphamerge,format=rgba[tmpl0]`,
-      // Important: do NOT gblur full RGBA of the template (premultiplied black bleeds into transparent).
+        `scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp[tmplG];` +
+        `color=c=${plateHex}:s=${tmplW}x${tmplH}:d=99999,format=rgba[lmPlt];` +
+        `[lmPlt][tmplG]overlay=0:0:format=auto[tmplA];[tmplA]format=rgb24[tmpl0]`,
       `[v1][tmpl0]overlay=x=${cx}-w/2:y=${cy}-h/2:format=auto[lm2]`,
       // needle layer
       `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
-        `drawbox=x=${Math.round(needleSize / 2 - needleW / 2)}:y=${Math.round(needleSize / 2 - needleLen)}:w=${needleW}:h=${needleLen}:color=${accentHex}@0.92:t=fill,` +
-        `drawbox=x=${Math.round(needleSize / 2 - hubR)}:y=${Math.round(needleSize / 2 - hubR)}:w=${hubR * 2}:h=${hubR * 2}:color=black@0.60:t=fill,` +
-        `drawbox=x=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:y=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:w=${Math.round(hubR * 1.1)}:h=${Math.round(hubR * 1.1)}:color=${accentHex}@0.88:t=fill,` +
+        `drawbox=x=${Math.round(needleSize / 2 - needleW / 2)}:y=${Math.round(needleSize / 2 - needleLen)}:w=${needleW}:h=${needleLen}:color=${accentHex}@1:t=fill,` +
+        `drawbox=x=${Math.round(needleSize / 2 - hubR)}:y=${Math.round(needleSize / 2 - hubR)}:w=${hubR * 2}:h=${hubR * 2}:color=black@1:t=fill,` +
+        `drawbox=x=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:y=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:w=${Math.round(hubR * 1.1)}:h=${Math.round(hubR * 1.1)}:color=${accentHex}@1:t=fill,` +
         `rotate=angle='${angleExpr}':c=none:ow=iw:oh=ih[lmNeedle]`,
       `[lm2][lmNeedle]overlay=x=${nx0}:y=${ny0}:format=auto[lm3]`,
       // digital number under arc (Speedtest-like placement)
-      `[lm3]drawtext=text='${numText}'${fontPart}:fontsize=${Math.max(52, Math.round(tmplW * 0.125))}:fontcolor=${accentHex}@0.92:borderw=2:bordercolor=0x000000@0.60:` +
+      `[lm3]drawtext=text='${numText}'${fontPart}:fontsize=${Math.max(52, Math.round(tmplW * 0.125))}:fontcolor=${accentHex}@1:borderw=2:bordercolor=0x000000@1:` +
         `shadowcolor=0x000000@0.55:shadowx=3:shadowy=3:x=${cx}-text_w/2:y=${cy + Math.round(tmplW * 0.14)}[v1meter]`
     ],
     debug: {
@@ -623,7 +625,9 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
       pos_720: posUse,
       template: 'lab_meter_speedtest_template.png',
       tmplW,
-      tmplSuperW
+      tmplH,
+      tmplSuperW,
+      plateHex
     }
   };
 }
