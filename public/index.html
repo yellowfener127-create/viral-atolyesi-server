@@ -1541,6 +1541,13 @@ function wireCrushManualBlurUi() {
   const wrap = document.getElementById("crushBlurPreviewWrap");
   if (!file || !v || !cv || !seek || !wrap) return;
 
+  // Cache-safe cleanup: if any old gauge preview block exists, remove it.
+  try { const x = document.getElementById("labGaugeWrap"); if (x) x.remove(); } catch {}
+  try {
+    document.querySelectorAll(".lab-gauge-wrap,.lab-gauge-card,.gauge-container,.gauge-bg,.gauge-progress")
+      .forEach((n) => { try { n.remove(); } catch {} });
+  } catch {}
+
   // Right-click pan uses the context menu, disable it.
   cv.addEventListener("contextmenu", (e) => e.preventDefault());
 

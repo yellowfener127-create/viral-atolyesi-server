@@ -205,24 +205,12 @@
   .soon-card{opacity:0.5}
   .soon-card .tool-btn{cursor:not-allowed;background:var(--surface);color:var(--muted);border:1px solid var(--border)}
 
-  /* --- Lab Meter Gauge (UI preview) --- */
-  .lab-gauge-wrap{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;margin-top:10px}
-  .lab-gauge-card{background:#0b0b12;border:1px solid #24243a;border-radius:12px;padding:12px}
-  .gauge-container{position:relative;width:300px;height:250px}
-  .gauge-bg{width:100%;height:100%;border:20px solid #1a1a2e;border-bottom:none;border-radius:150px 150px 0 0;box-sizing:border-box;position:absolute;opacity:0.95}
-  .gauge-progress{width:100%;height:100%;border:20px solid transparent;border-bottom:none;border-radius:150px 150px 0 0;box-sizing:border-box;position:absolute;border-top-color:#6a11cb;filter:drop-shadow(0 0 10px rgba(140,80,255,0.25))}
-  .gauge-progress::after{content:"";position:absolute;inset:-20px;border-radius:150px 150px 0 0;border:20px solid transparent;border-bottom:none;background:conic-gradient(from 180deg,#1c2fff,#6a11cb,#c13cff);-webkit-mask:radial-gradient(circle at 50% 100%,transparent 0 110px,#000 111px);mask:radial-gradient(circle at 50% 100%,transparent 0 110px,#000 111px);opacity:0.95}
-  .labels{position:absolute;width:100%;height:100%;color:#fff;font-weight:800;font-size:14px;text-shadow:0 1px 2px rgba(0,0,0,0.7)}
-  .label{position:absolute}
-  .l0{bottom:10px;left:30px}
-  .l1000{bottom:10px;right:20px}
-  .l500{top:-10px;left:50%;transform:translateX(-50%)}
-  .needle{position:absolute;bottom:0;left:50%;width:4px;height:110px;background:linear-gradient(to top,#fff,rgba(255,255,255,0.2));transform-origin:bottom center;transform:translateX(-50%) rotate(-90deg);z-index:5;border-radius:4px;box-shadow:0 0 10px rgba(255,255,255,0.12)}
-  .center-node{position:absolute;bottom:-15px;left:50%;width:40px;height:40px;background:#050510;border:3px solid #6a11cb;border-radius:50%;transform:translateX(-50%);display:flex;justify-content:center;align-items:center;z-index:10}
-  .value-display{position:absolute;bottom:-70px;left:50%;transform:translateX(-50%);text-align:center;color:#fff;width:100%}
-  .main-value{font-size:48px;font-weight:900;display:block;letter-spacing:0.5px}
-  .unit{font-size:18px;color:#cfcfe8}
-  .lab-gauge-muted{font-size:11px;color:var(--muted);line-height:1.35;max-width:360px}
+  /* İnce uzun seek çizgisi (eski gibi) */
+  #crushPreviewSeek{width:280px;height:14px;appearance:none;-webkit-appearance:none;background:transparent}
+  #crushPreviewSeek::-webkit-slider-runnable-track{height:4px;background:#2a2a2a;border-radius:999px}
+  #crushPreviewSeek::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);margin-top:-5px;border:2px solid #000}
+  #crushPreviewSeek::-moz-range-track{height:4px;background:#2a2a2a;border-radius:999px}
+  #crushPreviewSeek::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid #000}
 
   /* (Transcript yıldızı kaldırıldı) */
 
@@ -365,35 +353,11 @@
           <input type="checkbox" id="crushLabMeterEnabled" checked />
           Lab Meter (Speedometer)
         </label>
-        <label style="font-size:11px;color:var(--muted)">Target (Mbps)
-          <input type="range" id="crushLabMeterTarget" min="0" max="1000" step="1" value="586" style="width:220px;vertical-align:middle;margin-left:6px" />
-          <span id="crushLabMeterTargetVal" style="font-variant-numeric:tabular-nums">586</span>
+        <label style="font-size:11px;color:var(--muted)">Target (Score)
+          <input type="range" id="crushLabMeterTarget" min="0" max="100" step="1" value="85" style="width:220px;vertical-align:middle;margin-left:6px" />
+          <span id="crushLabMeterTargetVal" style="font-variant-numeric:tabular-nums">85</span>
         </label>
         <span style="font-size:11px;color:var(--muted)">“Meter sürükle” açıkken önizlemede göstergenin merkezini tutup taşı.</span>
-      </div>
-      <div class="lab-gauge-wrap" id="labGaugeWrap">
-        <div class="lab-gauge-card">
-          <div class="gauge-container" aria-label="Lab Meter Gauge Preview">
-            <div class="gauge-bg"></div>
-            <div class="gauge-progress" id="labGaugeProgress"></div>
-            <div class="needle" id="labGaugeNeedle"></div>
-            <div class="labels">
-              <span class="label l0">0</span>
-              <span class="label l500">500</span>
-              <span class="label l1000">1000</span>
-            </div>
-            <div class="center-node">
-              <span style="color:white; font-size:20px;">↑</span>
-            </div>
-            <div class="value-display">
-              <span class="main-value" id="labGaugeVal">0</span>
-              <span class="unit">Mbps</span>
-            </div>
-          </div>
-        </div>
-        <div class="lab-gauge-muted">
-          Bu UI önizleme. Video render’da da aynı <strong>target_value</strong> kullanılır. Animasyon ease-out.
-        </div>
       </div>
       <button class="tool-btn" type="button" id="crushBtn" onclick="crushVideo()">⚡ İndir + Telif Ez (9:16)</button>
       <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
@@ -758,8 +722,9 @@ var __crushManual = {
   hookXOffsetPx: 0,
   hookYOffsetPx: 0,
   labMeterEnabled: true,
-  labMeterTargetValue: 586,
+  labMeterTargetValue: 85,
   labMeterPos: { x: 360, y: 988 }, // 720×1280: liste altı orta — design_refs/lab_meter_terapi_list_overlay_ref.png
+  previewStartSec: 0,
   frameImg: null
 };
 
@@ -1054,35 +1019,7 @@ function crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H, canvasEl) {
   ctx.restore();
 }
 
-function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
-
-function labGaugeSetEnabled(enabled) {
-  const w = document.getElementById("labGaugeWrap");
-  if (w) w.style.opacity = enabled ? "1" : "0.35";
-}
-
-function labGaugeAnimateTo(targetValue) {
-  const needle = document.getElementById("labGaugeNeedle");
-  const valEl = document.getElementById("labGaugeVal");
-  if (!needle || !valEl) return;
-  const max = 1000;
-  const minRot = -90;
-  const maxRot = 90;
-  const to = Math.max(0, Math.min(max, Math.round(Number(targetValue) || 0)));
-  const from = Math.max(0, Math.min(max, Math.round(Number(valEl.textContent) || 0)));
-  const dur = 1500;
-  const t0 = performance.now();
-  function step(now) {
-    const p = Math.max(0, Math.min(1, (now - t0) / dur));
-    const e = easeOutCubic(p);
-    const cur = Math.round(from + (to - from) * e);
-    const rot = minRot + (cur / max) * (maxRot - minRot);
-    needle.style.transform = `translateX(-50%) rotate(${rot.toFixed(3)}deg)`;
-    valEl.textContent = String(cur);
-    if (p < 1) requestAnimationFrame(step);
-  }
-  requestAnimationFrame(step);
-}
+// (Lab meter UI gauge preview removed; only slider + canvas drag handle remain.)
 
 /** Manuel blur için: sadece tam 9:16 (v0base) önizlemesi. */
 function crushDrawBlurBaseOnly(cv) {
@@ -1604,6 +1541,13 @@ function wireCrushManualBlurUi() {
   const wrap = document.getElementById("crushBlurPreviewWrap");
   if (!file || !v || !cv || !seek || !wrap) return;
 
+  // Cache-safe cleanup: if any old gauge preview block exists, remove it.
+  try { const x = document.getElementById("labGaugeWrap"); if (x) x.remove(); } catch {}
+  try {
+    document.querySelectorAll(".lab-gauge-wrap,.lab-gauge-card,.gauge-container,.gauge-bg,.gauge-progress")
+      .forEach((n) => { try { n.remove(); } catch {} });
+  } catch {}
+
   // Right-click pan uses the context menu, disable it.
   cv.addEventListener("contextmenu", (e) => e.preventDefault());
 
@@ -1698,7 +1642,6 @@ function wireCrushManualBlurUi() {
   if (mEn) {
     mEn.addEventListener("change", function () {
       __crushManual.labMeterEnabled = !!mEn.checked;
-      try { labGaugeSetEnabled(__crushManual.labMeterEnabled); } catch (eG0) {}
       crushRedrawAllPreviews();
     });
   }
@@ -1707,13 +1650,12 @@ function wireCrushManualBlurUi() {
   if (mT) {
     mT.addEventListener("input", function () {
       const n = Number(mT.value);
-      __crushManual.labMeterTargetValue = Number.isFinite(n) ? Math.max(0, Math.min(1000, Math.round(n))) : 586;
+      __crushManual.labMeterTargetValue = Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 85;
       if (mTv) mTv.textContent = String(__crushManual.labMeterTargetValue);
-      try { labGaugeAnimateTo(__crushManual.labMeterTargetValue); } catch (eG1) {}
       crushRedrawAllPreviews();
     });
     const n0 = Number(mT.value);
-    __crushManual.labMeterTargetValue = Number.isFinite(n0) ? Math.max(0, Math.min(1000, Math.round(n0))) : 586;
+    __crushManual.labMeterTargetValue = Number.isFinite(n0) ? Math.max(0, Math.min(100, Math.round(n0))) : 85;
     if (mTv) mTv.textContent = String(__crushManual.labMeterTargetValue);
   }
   v.addEventListener("loadeddata", () => {
@@ -1721,9 +1663,11 @@ function wireCrushManualBlurUi() {
     seek.max = String(dur);
     seek.value = String(Math.min(0.25, dur * 0.1));
     seek.disabled = false;
+    __crushManual.previewStartSec = Number(seek.value) || 0;
     v.currentTime = Number(seek.value);
   });
   seek.addEventListener("input", () => {
+    __crushManual.previewStartSec = Number(seek.value) || 0;
     v.currentTime = Number(seek.value) || 0;
   });
   v.addEventListener("seeked", () => { crushRedrawAllPreviews(); });
@@ -1787,8 +1731,6 @@ function wireCrushManualBlurUi() {
   });
   // Ensure meter defaults exist (cached older state or accidental clears).
   try { crushEnsureLabMeterDefaults(); } catch (eDef) {}
-  try { labGaugeSetEnabled(!!__crushManual.labMeterEnabled); } catch (eG2) {}
-  try { labGaugeAnimateTo(Number(__crushManual.labMeterTargetValue) || 0); } catch (eG3) {}
   crushLoadZirhFramePng();
   try { crushRedrawAllPreviews(); } catch (eInit) {}
 }
@@ -1817,7 +1759,8 @@ async function crushVideo() {
   const manual_reels_hook_x_offset_px = Number(__crushManual.hookXOffsetPx) || 0;
   const manual_reels_hook_y_offset_px = Number(__crushManual.hookYOffsetPx) || 0;
   const lab_meter_enabled = !!(__crushManual.labMeterEnabled);
-  const lab_meter_target_value = Math.max(0, Math.min(1000, Math.round(Number(__crushManual.labMeterTargetValue) || 0)));
+  const lab_meter_target_value = Math.max(0, Math.min(100, Math.round(Number(__crushManual.labMeterTargetValue) || 0)));
+  const manual_start_sec = Math.max(0, Number(__crushManual.previewStartSec) || 0);
   try { crushEnsureLabMeterDefaults(); } catch (e0) {}
   const lab_meter_pos = __crushManual.labMeterPos || crushDefaultLabMeterPos();
   const lab_meter_pos_x_px = Math.round(Number(lab_meter_pos.x) || 360);
@@ -1852,7 +1795,8 @@ async function crushVideo() {
         lab_meter_enabled,
         lab_meter_target_value,
         lab_meter_pos_x_px,
-        lab_meter_pos_y_px
+        lab_meter_pos_y_px,
+        manual_start_sec
       })
     });
     const localData = await localRes.json().catch(() => ({}));
