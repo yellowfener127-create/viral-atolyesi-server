@@ -575,7 +575,13 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   const pulseEnable = pulseTerms.length ? pulseTerms.join('+') : '0';
   const targetEnable = `between(t\\,${(pd - 0.12).toFixed(3)}\\,${(pd + 0.22).toFixed(3)})`;
 
-  const numText = `%{eif\\:${scoreExpr}\\:d}`;
+  // FFmpeg filtergraphs use commas as separators between filters, so commas inside expressions must be escaped
+  // when they appear inside any option value (enable=..., rotate angle=..., drawtext text=...).
+  const escapeExprCommas = (s) => String(s || '').replace(/,/g, '\\,');
+  const scoreExprEsc = escapeExprCommas(scoreExpr);
+  const angleExprEsc = escapeExprCommas(angleExpr);
+
+  const numText = `%{eif\\:${scoreExprEsc}\\:d}`;
 
   // New single template: `public/lab_meter_score_template.png` (green background removed).
   // If template input is missing, fall back to a solid panel so meter still renders.
@@ -609,14 +615,26 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   // Purple/blue like template; small glow pulse near milestones.
   const barHex = brandNorm === 'terapi' ? '0x6E5BFF' : brandNorm === 'umut' ? '0x8D79FF' : '0x6E5BFF';
 
+  // Template cleanup: the PNG template contains a baked "0" in the score area.
+  // We must remove it, otherwise we see two "0" (template + dynamic drawtext).
+  // Do this by making that region fully transparent in the template's alpha channel.
+  const scoreBoxW = Math.max(80, Math.round(tmplW * 0.40));
+  const scoreBoxH = Math.max(60, Math.round(digitFontPx * 1.10));
+  const scoreBoxX = Math.round(anchorX - scoreBoxW / 2);
+  const scoreBoxY = Math.round(tmplH - digitFromBottomPx - scoreBoxH + Math.round(digitFontPx * 0.10));
+
   return {
     filters: [
       ...(hasTemplateInput
         ? [
             // Robust path: avoid any blend between template and full-size video.
             // Directly overlay the RGBA template at desired coordinates.
-            `[${Math.round(Number(labMeter.template_input_idx))}:v]scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp,format=rgba[tmpl]`,
-            `[v1][tmpl]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT0]`,
+            `[${Math.round(Number(labMeter.template_input_idx))}:v]scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp,format=rgba,split=2[tmplRgba0][tmplRgba1]`,
+            `[tmplRgba0]alphaextract,format=gray,` +
+              `drawbox=x=${scoreBoxX}:y=${scoreBoxY}:w=${scoreBoxW}:h=${scoreBoxH}:color=black@1:t=fill[tmplA]`,
+            `[tmplRgba1]format=rgb24[tmplRgb]`,
+            `[tmplRgb][tmplA]alphamerge[tmplClean]`,
+            `[v1][tmplClean]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT0]`,
             // Single dynamic number (template center is cleared).
             `[lmT0]drawtext=text='${numText}'${fontPart}:fontsize=${digitFontPx}:` +
               `fontcolor=${accentHex}@1:borderw=3:bordercolor=0x000000@1:` +
@@ -644,7 +662,7 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
           const segLabel = `lmSeg${i}`;
           const segRot = `lmSegR${i}`;
           const next = `lmBar${i}`;
-          const enableExpr = `gte(${scoreExpr}\\,${thr})`;
+          const enableExpr = `gte(${scoreExprEsc}\\,${thr})`;
           // Glow pulses around milestones/target using enable (alpha can't be an expression in drawbox color).
           const glowEnable = `${pulseEnable}+${targetEnable}`;
           out.push(
@@ -665,7 +683,7 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
         `drawbox=x=${Math.round(needleSize / 2 - needleW / 2)}:y=${Math.round(needleSize / 2 - needleLen)}:w=${needleW}:h=${needleLen}:color=${accentHex}@1:t=fill,` +
         `drawbox=x=${Math.round(needleSize / 2 - hubR)}:y=${Math.round(needleSize / 2 - hubR)}:w=${hubR * 2}:h=${hubR * 2}:color=black@1:t=fill,` +
         `drawbox=x=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:y=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:w=${Math.round(hubR * 1.1)}:h=${Math.round(hubR * 1.1)}:color=${accentHex}@1:t=fill,` +
-        `rotate=angle='${angleExpr}':c=none:ow=iw:oh=ih[lmNeedle]`,
+        `rotate=angle='${angleExprEsc}':c=none:ow=iw:oh=ih[lmNeedle]`,
       `[lmBarDone][lmNeedle]overlay=x=${nx0}:y=${ny0}:format=auto[v1meter]`
     ],
     debug: {
