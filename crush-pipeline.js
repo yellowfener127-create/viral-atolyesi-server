@@ -840,8 +840,7 @@ async function buildCrushRenderPlan(o) {
     : null;
   const frameExists = !!(framePng && fs.existsSync(framePng));
 
-  const meterTemplatePng = path.join(__dirname, 'public', 'lab_meter_speedtest_template.png');
-  const meterTemplateExists = fs.existsSync(meterTemplatePng);
+  // Lab meter no longer depends on an external template PNG.
 
   // Watermark boyutu yarıya indir
   const wmSize = outW >= 1080 ? 55 : 48;
@@ -1039,11 +1038,9 @@ async function buildCrushRenderPlan(o) {
   const ubRects = scaleManualBlurRectsToOutputPx(rawManual, o.manualBlurRefW, o.manualBlurRefH, outW, outH);
   const ubChain = buildManualBlurDelogoChain('v0base', ubRects, outW, outH, 'v0postblur');
 
-  // Input index planning (0=inFile, 1=frame?, 2=template?, then wm, then music)
+  // Input index planning (0=inFile, 1=frame?, then wm, then music)
   let nextInputIdx = 1;
   if (frameExists) nextInputIdx += 1;
-  const useLabMeterTemplate = useLabFrame && (labMeterOpt ? labMeterOpt.enabled !== false : true) && meterTemplateExists;
-  const meterTemplateInputIdx = useLabMeterTemplate ? nextInputIdx++ : null;
   const wmInputIdxPlanned = nextInputIdx++;
   const musicInputIdxPlanned = nextInputIdx; // only valid if music input exists
 
@@ -1166,9 +1163,7 @@ async function buildCrushRenderPlan(o) {
 
   let labMeterExtra = { filters: [], debug: null };
   if (useLabFrame) {
-    const labMeterForBuild = useLabMeterTemplate
-      ? { ...(labMeterOpt || {}), template_input_idx: meterTemplateInputIdx }
-      : { ...(labMeterOpt || {}), enabled: false };
+    const labMeterForBuild = { ...(labMeterOpt || {}) };
     labMeterExtra = buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter: labMeterForBuild, outW, outH });
   }
   const preWmLabel = labMeterExtra.filters.length ? 'v1meter' : 'v1';
@@ -1295,7 +1290,6 @@ async function buildCrushRenderPlan(o) {
 
   const inputs = ['-y', '-i', inFile];
   if (frameExists) inputs.push('-loop', '1', '-i', framePng);
-  if (useLabMeterTemplate) inputs.push('-loop', '1', '-i', meterTemplatePng);
   inputs.push('-loop', '1', '-i', wmFile);
   if (musicFile && fs.existsSync(musicFile)) {
     inputs.push('-stream_loop', '-1', '-i', musicFile);
