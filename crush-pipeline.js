@@ -600,48 +600,10 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
     filters: [
       ...(hasTemplateInput
         ? [
-            // IMPORTANT: alphaextract must only run on an RGBA stream (never on main yuv420p video).
-            // Force RGBA here, then split into (alpha source) + (RGB source).
-            `[${Math.round(Number(labMeter.template_input_idx))}:v]scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp,format=rgba,split=2[tmplRgbaA][tmplRgbaB]`,
-            // Original alpha (from template PNG)
-            `[tmplRgbaA]alphaextract,format=gray,scale=${tmplW}:${tmplH}:flags=neighbor[tmplA]`,
-            // Split RGB branch: one for plane analysis, one for final rgb24
-            `[tmplRgbaB]split=2[tmplRgbaPlanes][tmplRgbaRgb]`,
-            // RGB path for color tests / recomposition
-            `[tmplRgbaPlanes]format=rgb24,split=3[tmplR0][tmplG0][tmplB0]`,
-            // Split RGB into planes so we can build masks without geq r()/g()/b().
-            `[tmplR0]extractplanes=r,scale=${tmplW}:${tmplH}:flags=neighbor[pr]`,
-            `[tmplG0]extractplanes=g,scale=${tmplW}:${tmplH}:flags=neighbor[pg]`,
-            `[tmplB0]extractplanes=b,scale=${tmplW}:${tmplH}:flags=neighbor[pb]`,
-            // Keep one rgb24 copy for final alphamerge
-            `[tmplRgbaRgb]format=rgb24,scale=${tmplW}:${tmplH}:flags=neighbor[tmplRgb]`,
-            // max(r,g,b) and min(r,g,b)
-            `[pr][pg]blend=all_expr='max(A,B)'[pmaxrg];[pmaxrg][pb]blend=all_expr='max(A,B)'[pmax]`,
-            `[pr][pg]blend=all_expr='min(A,B)'[pminrg];[pminrg][pb]blend=all_expr='min(A,B)'[pmin]`,
-            // chroma = max-min
-            `[pmax][pmin]blend=all_expr='A-B'[pchroma]`,
-            // sum = r+g+b (clamped by blend)
-            `[pr][pg]blend=all_expr='A+B'[psumrg];[psumrg][pb]blend=all_expr='min(255,A+B)'[psum]`,
-            // Threshold masks (0/255)
-            `[pchroma]lut=y='if(gte(val,26),255,0)'[mChroma]`,
-            `[pb]lut=y='if(gte(val,70),255,0)'[mB]`,
-            `[pg]lut=y='if(lte(val,210),255,0)'[mG]`,
-            `[psum]lut=y='if(gte(val,120),255,0)'[mSum]`,
-            // arcMask = mChroma * mB * mG * mSum
-            `[mChroma][mB]blend=all_expr='A*B/255'[m1];[m1][mG]blend=all_expr='A*B/255'[m2];[m2][mSum]blend=all_expr='A*B/255'[arcMask]`,
-            // Static alpha: original alpha minus arcMask (removes colored arc from template).
-            `[tmplA]scale=${tmplW}:${tmplH}:flags=neighbor[tmplA2]`,
-            `[arcMask]scale=${tmplW}:${tmplH}:flags=neighbor[arcMask2]`,
-            `[tmplA2][arcMask2]blend=all_mode=subtract:all_opacity=1,format=gray[staticA]`,
-            // Progress alpha: arcMask (no angle-sweep; avoids geq parser issues on this build).
-            `[arcMask2]format=gray[progA]`,
-            // Merge RGB with new alphas.
-            `[tmplRgb][staticA]alphamerge[tmplStatic]`,
-            // Fade-in progress layer over pd seconds using alpha fade (no expressions).
-            `[tmplRgb][progA]alphamerge,fade=t=in:st=0:d=${pdLit}:alpha=1[tmplProg]`,
-            // Overlay static then progress onto video.
-            `[v1][tmplStatic]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT1]`,
-            `[lmT1][tmplProg]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT0]`,
+            // Robust path: avoid any blend between template and full-size video.
+            // Directly overlay the RGBA template at desired coordinates.
+            `[${Math.round(Number(labMeter.template_input_idx))}:v]scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp,format=rgba[tmpl]`,
+            `[v1][tmpl]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT0]`,
             // Single dynamic number (template center is cleared).
             `[lmT0]drawtext=text='${numText}'${fontPart}:fontsize=${digitFontPx}:` +
               `fontcolor=${accentHex}@1:borderw=3:bordercolor=0x000000@1:` +
