@@ -604,17 +604,17 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
             // Force RGBA here, then split into (alpha source) + (RGB source).
             `[${Math.round(Number(labMeter.template_input_idx))}:v]scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp,format=rgba,split=2[tmplRgbaA][tmplRgbaB]`,
             // Original alpha (from template PNG)
-            `[tmplRgbaA]alphaextract,format=gray[tmplA]`,
+            `[tmplRgbaA]alphaextract,format=gray,scale=${tmplW}:${tmplH}:flags=neighbor[tmplA]`,
             // Split RGB branch: one for plane analysis, one for final rgb24
             `[tmplRgbaB]split=2[tmplRgbaPlanes][tmplRgbaRgb]`,
             // RGB path for color tests / recomposition
             `[tmplRgbaPlanes]format=rgb24,split=3[tmplR0][tmplG0][tmplB0]`,
             // Split RGB into planes so we can build masks without geq r()/g()/b().
-            `[tmplR0]extractplanes=r[pr]`,
-            `[tmplG0]extractplanes=g[pg]`,
-            `[tmplB0]extractplanes=b[pb]`,
+            `[tmplR0]extractplanes=r,scale=${tmplW}:${tmplH}:flags=neighbor[pr]`,
+            `[tmplG0]extractplanes=g,scale=${tmplW}:${tmplH}:flags=neighbor[pg]`,
+            `[tmplB0]extractplanes=b,scale=${tmplW}:${tmplH}:flags=neighbor[pb]`,
             // Keep one rgb24 copy for final alphamerge
-            `[tmplRgbaRgb]format=rgb24[tmplRgb]`,
+            `[tmplRgbaRgb]format=rgb24,scale=${tmplW}:${tmplH}:flags=neighbor[tmplRgb]`,
             // max(r,g,b) and min(r,g,b)
             `[pr][pg]blend=all_expr='max(A,B)'[pmaxrg];[pmaxrg][pb]blend=all_expr='max(A,B)'[pmax]`,
             `[pr][pg]blend=all_expr='min(A,B)'[pminrg];[pminrg][pb]blend=all_expr='min(A,B)'[pmin]`,
@@ -630,9 +630,11 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
             // arcMask = mChroma * mB * mG * mSum
             `[mChroma][mB]blend=all_expr='A*B/255'[m1];[m1][mG]blend=all_expr='A*B/255'[m2];[m2][mSum]blend=all_expr='A*B/255'[arcMask]`,
             // Static alpha: original alpha minus arcMask (removes colored arc from template).
-            `[tmplA][arcMask]blend=all_mode=subtract:all_opacity=1,format=gray[staticA]`,
+            `[tmplA]scale=${tmplW}:${tmplH}:flags=neighbor[tmplA2]`,
+            `[arcMask]scale=${tmplW}:${tmplH}:flags=neighbor[arcMask2]`,
+            `[tmplA2][arcMask2]blend=all_mode=subtract:all_opacity=1,format=gray[staticA]`,
             // Progress alpha: arcMask (no angle-sweep; avoids geq parser issues on this build).
-            `[arcMask]format=gray[progA]`,
+            `[arcMask2]format=gray[progA]`,
             // Merge RGB with new alphas.
             `[tmplRgb][staticA]alphamerge[tmplStatic]`,
             // Fade-in progress layer over pd seconds using alpha fade (no expressions).
