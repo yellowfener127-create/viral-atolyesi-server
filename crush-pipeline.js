@@ -557,11 +557,11 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   const a0 = -2.45; // rad (left)
   const a1 = 2.45;  // rad (right)
   // Progress fraction in [0..1] without using min(t/x,1) (some builds mis-parse commas/escapes).
-  // IMPORTANT: inside geq expressions, commas must arrive as '\,'.
-  // We therefore double-escape here so the final ffmpeg string contains '\,' (not ',').
-  const fracExpr = `if(lt(t\\\\,${pdLit})\\\\,t/${pdLit}\\\\,1)`;
+  // IMPORTANT: for this Windows FFmpeg build, escaping commas inside geq expressions breaks parsing.
+  // Use normal commas in the expression itself.
+  const fracExpr = `if(lt(t,${pdLit}),t/${pdLit},1)`;
   // Linear progress: reach target at (outDur-5s).
-  const scoreExpr = `if(lt(t\\\\,${pdLit})\\\\,(${T})*t/${pdLit}\\\\,${T})`;
+  const scoreExpr = `if(lt(t,${pdLit}),(${T})*t/${pdLit},${T})`;
   const angleExpr = `(${a0})+(${a1 - a0})*(${scoreExpr}/100)`;
 
   const pulseTerms = [];
@@ -622,9 +622,9 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
             `[mChroma][mB]blend=all_expr='A*B/255'[m1];[m1][mG]blend=all_expr='A*B/255'[m2];[m2][mSum]blend=all_expr='A*B/255'[arcMask]`,
             // Angle mask (0/255) up to current score (left=-PI to right=0).
             `[arcMask]geq=lum='if(` +
-              `between(atan2(Y-${anchorY}\\,X-${anchorX})\\,-PI\\,0)` +
-              `*lte(atan2(Y-${anchorY}\\,X-${anchorX})\\,(-PI+PI*((${fracExpr})*${T}/100)))` +
-              `\\,255\\,0)'[angMask]`,
+              `between(atan2(Y-${anchorY},X-${anchorX}),-PI,0)` +
+              `*lte(atan2(Y-${anchorY},X-${anchorX}),(-PI+PI*((${fracExpr})*${T}/100)))` +
+              `,255,0)'[angMask]`,
             // Static alpha: original alpha minus arcMask (removes colored arc from template).
             `[tmplA][arcMask]blend=all_mode=subtract:all_opacity=1,format=gray[staticA]`,
             // Progress alpha: arcMask * angMask.
