@@ -601,13 +601,22 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
             `[${Math.round(Number(labMeter.template_input_idx))}:v]format=rgba,scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp,split=2[tmpl0][tmpl1]`,
             `[tmpl0]format=rgb24[tmplRgb]`,
             `[tmpl1]alphaextract,format=gray[tmplA]`,
-            // Color-arc mask (0/255) derived from RGB (high chroma + blue/purple range-ish).
-            `[tmplRgb]format=rgb24,geq=lum='if(` +
-              `gt(max(r(X,Y)\\,max(g(X,Y)\\,b(X,Y)))-min(r(X,Y)\\,min(g(X,Y)\\,b(X,Y)))\\,26)` +
-              `*gt(b(X,Y)\\,70)` +
-              `*lt(g(X,Y)\\,210)` +
-              `*gt(r(X,Y)+g(X,Y)+b(X,Y)\\,120)` +
-              `\\,255\\,0)'[arcMask]`,
+            // Split RGB into planes so we can build masks without r()/g()/b() functions.
+            `[tmplRgb]extractplanes=r[pr];[tmplRgb]extractplanes=g[pg];[tmplRgb]extractplanes=b[pb]`,
+            // max(r,g,b) and min(r,g,b)
+            `[pr][pg]blend=all_expr='max(A,B)'[pmaxrg];[pmaxrg][pb]blend=all_expr='max(A,B)'[pmax]`,
+            `[pr][pg]blend=all_expr='min(A,B)'[pminrg];[pminrg][pb]blend=all_expr='min(A,B)'[pmin]`,
+            // chroma = max-min
+            `[pmax][pmin]blend=all_expr='A-B'[pchroma]`,
+            // sum = r+g+b (clamped by blend)
+            `[pr][pg]blend=all_expr='A+B'[psumrg];[psumrg][pb]blend=all_expr='min(255,A+B)'[psum]`,
+            // Threshold masks (0/255)
+            `[pchroma]lut=y='if(gte(val,26),255,0)'[mChroma]`,
+            `[pb]lut=y='if(gte(val,70),255,0)'[mB]`,
+            `[pg]lut=y='if(lte(val,210),255,0)'[mG]`,
+            `[psum]lut=y='if(gte(val,120),255,0)'[mSum]`,
+            // arcMask = mChroma * mB * mG * mSum
+            `[mChroma][mB]blend=all_expr='A*B/255'[m1];[m1][mG]blend=all_expr='A*B/255'[m2];[m2][mSum]blend=all_expr='A*B/255'[arcMask]`,
             // Angle mask (0/255) up to current score (left=-PI to right=0).
             `[arcMask]geq=lum='if(` +
               `between(atan2(Y-${anchorY}\\,X-${anchorX})\\,-PI\\,0)` +
