@@ -596,6 +596,19 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   const needleW = Math.max(6, Math.round(needleSize * 0.018));
   const hubR = Math.max(10, Math.round(needleSize * 0.030));
 
+  // Progress bar (arc) as cumulative segments.
+  // We avoid geq/alphamerge/blend between mismatched sizes by generating each segment in a same-size
+  // square (needleSize x needleSize) and overlaying it onto the already composited frame.
+  const segCount = 72; // smoother arc fill
+  const segRadius = Math.round(needleSize * 0.44);
+  const segThick = Math.max(10, Math.round(needleSize * 0.065));
+  const segLen = Math.max(12, Math.round(needleSize * 0.11));
+  const segW = Math.max(10, Math.round(segThick * 0.92));
+  const segX = Math.round(needleSize / 2 - segW / 2);
+  const segY = Math.round(needleSize / 2 - segRadius - segLen + Math.round(segThick * 0.20));
+  // Purple/blue like template; small glow pulse near milestones.
+  const barHex = brandNorm === 'terapi' ? '0x6E5BFF' : brandNorm === 'umut' ? '0x8D79FF' : '0x6E5BFF';
+
   return {
     filters: [
       ...(hasTemplateInput
@@ -617,12 +630,42 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
               `fontcolor=${accentHex}@1:borderw=3:bordercolor=0x000000@1:` +
               `x=${cx}-text_w/2:y=${tmplOy + tmplH - digitFromBottomPx}[lm2]`
           ]),
+      // Build the cumulative progress bar as many small segments, enabled as the score increases.
+      // Each segment becomes visible once scoreExpr reaches its threshold.
+      ...(() => {
+        const out = [];
+        // First, pass through the current frame as the working label.
+        // We'll overlay segments one-by-one onto [lm2].
+        let cur = 'lm2';
+        for (let i = 0; i < segCount; i++) {
+          const frac = segCount <= 1 ? 1 : i / (segCount - 1);
+          const thr = (frac * 100).toFixed(3);
+          const ang = (a0 + (a1 - a0) * frac).toFixed(6);
+          const segLabel = `lmSeg${i}`;
+          const segRot = `lmSegR${i}`;
+          const next = `lmBar${i}`;
+          const enableExpr = `gte(${scoreExpr}\\,${thr})`;
+          // small pulse alpha boost around milestone ticks
+          const pulseAlpha = `if(${targetEnable}+${pulseEnable}\\,1\\,0)`;
+          out.push(
+            `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
+              `drawbox=x=${segX}:y=${segY}:w=${segW}:h=${segLen}:color=${barHex}@1:t=fill,` +
+              `drawbox=x=${segX}:y=${Math.round(segY + segLen - Math.round(segThick * 0.25))}:w=${segW}:h=${Math.round(segThick * 0.25)}:color=${glowHex}@${pulseAlpha}:t=fill[${segLabel}]`
+          );
+          out.push(`[${segLabel}]rotate=angle='${ang}':c=none:ow=iw:oh=ih[${segRot}]`);
+          out.push(`[${cur}][${segRot}]overlay=x=${nx0}:y=${ny0}:format=auto:enable='${enableExpr}'[${next}]`);
+          cur = next;
+        }
+        // Rename final to a stable label for downstream needle overlay.
+        out.push(`[${cur}]null[lmBarDone]`);
+        return out;
+      })(),
       `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
         `drawbox=x=${Math.round(needleSize / 2 - needleW / 2)}:y=${Math.round(needleSize / 2 - needleLen)}:w=${needleW}:h=${needleLen}:color=${accentHex}@1:t=fill,` +
         `drawbox=x=${Math.round(needleSize / 2 - hubR)}:y=${Math.round(needleSize / 2 - hubR)}:w=${hubR * 2}:h=${hubR * 2}:color=black@1:t=fill,` +
         `drawbox=x=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:y=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:w=${Math.round(hubR * 1.1)}:h=${Math.round(hubR * 1.1)}:color=${accentHex}@1:t=fill,` +
         `rotate=angle='${angleExpr}':c=none:ow=iw:oh=ih[lmNeedle]`,
-      `[lm2][lmNeedle]overlay=x=${nx0}:y=${ny0}:format=auto[v1meter]`
+      `[lmBarDone][lmNeedle]overlay=x=${nx0}:y=${ny0}:format=auto[v1meter]`
     ],
     debug: {
       enabled: true,
