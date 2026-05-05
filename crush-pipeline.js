@@ -557,9 +557,11 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   const a0 = -2.45; // rad (left)
   const a1 = 2.45;  // rad (right)
   // Progress fraction in [0..1] without using min(t/x,1) (some builds mis-parse commas/escapes).
-  const fracExpr = `if(lt(t\\,${pdLit})\\,t/${pdLit}\\,1)`;
+  // IMPORTANT: inside geq expressions, commas must arrive as '\,'.
+  // We therefore double-escape here so the final ffmpeg string contains '\,' (not ',').
+  const fracExpr = `if(lt(t\\\\,${pdLit})\\\\,t/${pdLit}\\\\,1)`;
   // Linear progress: reach target at (outDur-5s).
-  const scoreExpr = `if(lt(t\\,${pdLit})\\,(${T})*t/${pdLit}\\,${T})`;
+  const scoreExpr = `if(lt(t\\\\,${pdLit})\\\\,(${T})*t/${pdLit}\\\\,${T})`;
   const angleExpr = `(${a0})+(${a1 - a0})*(${scoreExpr}/100)`;
 
   const pulseTerms = [];
