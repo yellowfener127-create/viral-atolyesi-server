@@ -626,7 +626,8 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
             `[arcMask]format=gray[progA]`,
             // Merge RGB with new alphas.
             `[tmplRgb][staticA]alphamerge[tmplStatic]`,
-            `[tmplRgb][progA]alphamerge,colorchannelmixer=aa='t/${pdLit}'[tmplProg]`,
+            // Fade-in progress layer over pd seconds using alpha fade (no expressions).
+            `[tmplRgb][progA]alphamerge,fade=t=in:st=0:d=${pdLit}:alpha=1[tmplProg]`,
             // Overlay static then progress onto video.
             `[v1][tmplStatic]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT1]`,
             `[lmT1][tmplProg]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT0]`,
