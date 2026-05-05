@@ -212,40 +212,6 @@
   #crushPreviewSeek::-moz-range-track{height:4px;background:#2a2a2a;border-radius:999px}
   #crushPreviewSeek::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid #000}
 
-  /* --- Lab Meter Gauge (UI preview, SCORE 0-100) --- */
-  .lab-gauge-wrap{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;margin-top:10px}
-  .lab-gauge-card{background:#050510;border:1px solid #24243a;border-radius:12px;padding:14px}
-  .score-gauge-container{position:relative;width:350px;height:280px}
-  .score-gauge-outline{
-    width:300px;height:300px;
-    border:15px solid #1a1a2e;
-    border-radius:50%;
-    position:absolute;
-    top:0;left:25px;
-    clip-path:polygon(0 0,100% 0,100% 75%,0 75%);
-  }
-  .score-gauge-labels{position:absolute;width:300px;height:300px;top:0;left:25px}
-  .score-gauge-label{
-    position:absolute;color:#fff;font-weight:600;font-size:14px;width:30px;text-align:center;
-    text-shadow:0 1px 2px rgba(0,0,0,0.65);
-  }
-  .score-gauge-needle{
-    position:absolute;bottom:75px;left:50%;
-    width:4px;height:120px;
-    background:linear-gradient(to top,#fff,rgba(255,255,255,0.1));
-    transform-origin:bottom center;
-    transform:translateX(-50%) rotate(-90deg);
-    z-index:5;border-radius:4px;
-  }
-  .score-gauge-center{
-    position:absolute;bottom:60px;left:50%;
-    width:350px;transform:translateX(-50%);
-    text-align:center;
-  }
-  .score-gauge-main{font-size:60px;font-weight:800;color:#fff;display:block;line-height:1}
-  .score-gauge-unit{font-size:20px;color:#888;letter-spacing:2px}
-  .lab-gauge-muted{font-size:11px;color:var(--muted);line-height:1.35;max-width:360px}
-
   /* (Transcript yıldızı kaldırıldı) */
 
 </style>
@@ -392,22 +358,6 @@
           <span id="crushLabMeterTargetVal" style="font-variant-numeric:tabular-nums">85</span>
         </label>
         <span style="font-size:11px;color:var(--muted)">“Meter sürükle” açıkken önizlemede göstergenin merkezini tutup taşı.</span>
-      </div>
-      <div class="lab-gauge-wrap" id="labGaugeWrap">
-        <div class="lab-gauge-card">
-          <div class="score-gauge-container" aria-label="Lab Meter Gauge Preview">
-            <div class="score-gauge-outline"></div>
-            <div class="score-gauge-labels" id="labGaugeLabelContainer"></div>
-            <div class="score-gauge-needle" id="labGaugeNeedle"></div>
-            <div class="score-gauge-center">
-              <span class="score-gauge-main" id="labGaugeVal">0</span>
-              <span class="score-gauge-unit">SCORE</span>
-            </div>
-          </div>
-        </div>
-        <div class="lab-gauge-muted">
-          Bu UI önizleme. Video render’da da aynı <strong>target_value</strong> kullanılır. Animasyon ease-out.
-        </div>
       </div>
       <button class="tool-btn" type="button" id="crushBtn" onclick="crushVideo()">⚡ İndir + Telif Ez (9:16)</button>
       <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
@@ -1069,57 +1019,7 @@ function crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H, canvasEl) {
   ctx.restore();
 }
 
-function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
-
-function labGaugeSetEnabled(enabled) {
-  const w = document.getElementById("labGaugeWrap");
-  if (w) w.style.opacity = enabled ? "1" : "0.35";
-}
-
-function labGaugeAnimateTo(targetValue) {
-  const needle = document.getElementById("labGaugeNeedle");
-  const valEl = document.getElementById("labGaugeVal");
-  if (!needle || !valEl) return;
-  const max = 100;
-  const minRot = -90;
-  const maxRot = 90;
-  const to = Math.max(0, Math.min(max, Math.round(Number(targetValue) || 0)));
-  const from = Math.max(0, Math.min(max, Math.round(Number(valEl.textContent) || 0)));
-  const dur = 1500;
-  const t0 = performance.now();
-  function step(now) {
-    const p = Math.max(0, Math.min(1, (now - t0) / dur));
-    const e = easeOutCubic(p);
-    const cur = Math.round(from + (to - from) * e);
-    const rot = minRot + (cur / max) * (maxRot - minRot);
-    needle.style.transform = `translateX(-50%) rotate(${rot.toFixed(3)}deg)`;
-    valEl.textContent = String(cur);
-    if (p < 1) requestAnimationFrame(step);
-  }
-  requestAnimationFrame(step);
-}
-
-function labGaugeEnsureScoreLabels() {
-  const el = document.getElementById("labGaugeLabelContainer");
-  if (!el) return;
-  if (el.dataset && el.dataset.ready === "1") return;
-  try { el.textContent = ""; } catch (e0) {}
-  const values = [0,10,20,30,40,50,60,70,80,90,100];
-  const radius = 130;
-  for (let i = 0; i < values.length; i++) {
-    const v = values[i];
-    const angle = (i * 18) - 180;
-    const x = 150 + radius * Math.cos(angle * Math.PI / 180) - 15;
-    const y = 150 + radius * Math.sin(angle * Math.PI / 180) - 10;
-    const sp = document.createElement("span");
-    sp.className = "score-gauge-label";
-    sp.style.left = x + "px";
-    sp.style.top = y + "px";
-    sp.textContent = String(v);
-    el.appendChild(sp);
-  }
-  try { el.dataset.ready = "1"; } catch (e1) {}
-}
+// (Lab meter UI gauge preview removed; only slider + canvas drag handle remain.)
 
 /** Manuel blur için: sadece tam 9:16 (v0base) önizlemesi. */
 function crushDrawBlurBaseOnly(cv) {
@@ -1735,7 +1635,6 @@ function wireCrushManualBlurUi() {
   if (mEn) {
     mEn.addEventListener("change", function () {
       __crushManual.labMeterEnabled = !!mEn.checked;
-      try { labGaugeSetEnabled(__crushManual.labMeterEnabled); } catch (eG0) {}
       crushRedrawAllPreviews();
     });
   }
@@ -1746,7 +1645,6 @@ function wireCrushManualBlurUi() {
       const n = Number(mT.value);
       __crushManual.labMeterTargetValue = Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 85;
       if (mTv) mTv.textContent = String(__crushManual.labMeterTargetValue);
-      try { labGaugeAnimateTo(__crushManual.labMeterTargetValue); } catch (eG1) {}
       crushRedrawAllPreviews();
     });
     const n0 = Number(mT.value);
@@ -1826,9 +1724,6 @@ function wireCrushManualBlurUi() {
   });
   // Ensure meter defaults exist (cached older state or accidental clears).
   try { crushEnsureLabMeterDefaults(); } catch (eDef) {}
-  try { labGaugeEnsureScoreLabels(); } catch (eGL) {}
-  try { labGaugeSetEnabled(!!__crushManual.labMeterEnabled); } catch (eG2) {}
-  try { labGaugeAnimateTo(Number(__crushManual.labMeterTargetValue) || 0); } catch (eG3) {}
   crushLoadZirhFramePng();
   try { crushRedrawAllPreviews(); } catch (eInit) {}
 }

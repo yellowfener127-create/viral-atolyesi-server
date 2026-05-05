@@ -556,12 +556,10 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   // Needle motion range (semi-circle)
   const a0 = -2.45; // rad (left)
   const a1 = 2.45;  // rad (right)
-  const pExpr = `min(t/${pdLit}\\,1)`;
-  // Some FFmpeg builds are picky about commas inside geq expressions; use an extra-escaped variant.
-  // This must reach ffmpeg as `min(t/..\,1)` (comma escaped), otherwise the expression parser breaks.
-  const pExprAng = `min(t/${pdLit}\\\\,1)`;
+  // Progress fraction in [0..1] without using min(t/x,1) (some builds mis-parse commas/escapes).
+  const fracExpr = `if(lt(t\\,${pdLit})\\,t/${pdLit}\\,1)`;
   // Linear progress: reach target at (outDur-5s).
-  const scoreExpr = `min(${T}\\,${T}*(${pExpr}))`;
+  const scoreExpr = `if(lt(t\\,${pdLit})\\,(${T})*t/${pdLit}\\,${T})`;
   const angleExpr = `(${a0})+(${a1 - a0})*(${scoreExpr}/100)`;
 
   const pulseTerms = [];
@@ -621,10 +619,9 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
             // arcMask = mChroma * mB * mG * mSum
             `[mChroma][mB]blend=all_expr='A*B/255'[m1];[m1][mG]blend=all_expr='A*B/255'[m2];[m2][mSum]blend=all_expr='A*B/255'[arcMask]`,
             // Angle mask (0/255) up to current score (left=-PI to right=0).
-            // Note: FFmpeg expr commas must be escaped with '\,' even inside quotes.
             `[arcMask]geq=lum='if(` +
               `between(atan2(Y-${anchorY}\\,X-${anchorX})\\,-PI\\,0)` +
-              `*lte(atan2(Y-${anchorY}\\,X-${anchorX})\\,(-PI+PI*((${pExprAng})*${T}/100)))` +
+              `*lte(atan2(Y-${anchorY}\\,X-${anchorX})\\,(-PI+PI*((${fracExpr})*${T}/100)))` +
               `\\,255\\,0)'[angMask]`,
             // Static alpha: original alpha minus arcMask (removes colored arc from template).
             `[tmplA][arcMask]blend=all_mode=subtract:all_opacity=1,format=gray[staticA]`,
