@@ -574,17 +574,19 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
 
   const numText = `%{eif\\:${scoreExpr}\\:d}`;
 
-  // Render without any external PNG template: draw an opaque panel + value + needle.
-  // (User asked to delete the half-circle template PNG; meter must still appear in final video.)
-  const plateHex = '0x0C0E12';
-  const plateW = Math.max(420, Math.round(wOut * 0.56));
-  const plateH = Math.max(520, Math.round(plateW * 1.08));
-  const plateOx = Math.round(cx - plateW / 2);
-  const plateOy = Math.round(cy - Math.round(plateH * 0.54));
-  const digitFromBottomPx = Math.max(30, Math.round(plateW * 0.12));
-  const digitFontPx = Math.max(64, Math.round(plateW * 0.22));
+  // New single template: `public/lab_meter_score_template.png` (green background removed).
+  // If template input is missing, fall back to a solid panel so meter still renders.
+  const hasTemplateInput = labMeter && Number.isFinite(Number(labMeter.template_input_idx));
+  const tmplW = Math.max(520, Math.round(wOut * 0.62));
+  const tmplH = Math.round(tmplW * (810 / 1024));
+  const anchorX = Math.round(tmplW * 0.50);
+  const anchorY = Math.round(tmplH * 0.62);
+  const tmplOx = Math.round(cx - anchorX);
+  const tmplOy = Math.round(cy - anchorY);
+  const digitFromBottomPx = Math.max(44, Math.round(tmplW * 0.11));
+  const digitFontPx = Math.max(80, Math.round(tmplW * 0.20));
 
-  const needleSize = Math.max(380, Math.round(plateW * 0.90));
+  const needleSize = Math.max(420, Math.round(tmplW * 0.78));
   const nx0 = Math.round(cx - needleSize / 2);
   const ny0 = Math.round(cy - needleSize / 2);
   const needleLen = Math.max(120, Math.round(needleSize * 0.42));
@@ -593,11 +595,22 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
 
   return {
     filters: [
-      `color=c=${plateHex}:s=${plateW}x${plateH}:d=99999,format=rgba[lmPlt];` +
-        `[lmPlt]drawtext=text='${numText}'${fontPart}:fontsize=${digitFontPx}:` +
-        `fontcolor=${accentHex}@1:borderw=3:bordercolor=0x000000@1:` +
-        `x=(w-text_w)/2:y=h-${digitFromBottomPx}:shadowcolor=0x000000@0.45:shadowx=2:shadowy=2[lmPlateTxt]`,
-      `[v1][lmPlateTxt]overlay=x=${plateOx}:y=${plateOy}:format=auto[lm2]`,
+      ...(hasTemplateInput
+        ? [
+            `[${Math.round(Number(labMeter.template_input_idx))}:v]format=rgba,scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp[tmpl0]`,
+            `[v1][tmpl0]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT0]`,
+            `[lmT0]drawtext=text='${numText}'${fontPart}:fontsize=${digitFontPx}:` +
+              `fontcolor=${accentHex}@1:borderw=3:bordercolor=0x000000@1:` +
+              `x=${cx}-text_w/2:y=${tmplOy + tmplH - digitFromBottomPx}[lm2]`
+          ]
+        : [
+            `color=c=black@0.0:s=${outW}x${outH}:d=99999,format=rgba[noop0]`,
+            `[v1][noop0]overlay=x=0:y=0:format=auto[lmT0]`,
+            `[lmT0]drawbox=x=${tmplOx}:y=${tmplOy}:w=${tmplW}:h=${tmplH}:color=0x0C0E12@1:t=fill,` +
+              `drawtext=text='${numText}'${fontPart}:fontsize=${digitFontPx}:` +
+              `fontcolor=${accentHex}@1:borderw=3:bordercolor=0x000000@1:` +
+              `x=${cx}-text_w/2:y=${tmplOy + tmplH - digitFromBottomPx}[lm2]`
+          ]),
       `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
         `drawbox=x=${Math.round(needleSize / 2 - needleW / 2)}:y=${Math.round(needleSize / 2 - needleLen)}:w=${needleW}:h=${needleLen}:color=${accentHex}@1:t=fill,` +
         `drawbox=x=${Math.round(needleSize / 2 - hubR)}:y=${Math.round(needleSize / 2 - hubR)}:w=${hubR * 2}:h=${hubR * 2}:color=black@1:t=fill,` +
@@ -611,9 +624,12 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
       target_value: T,
       brandNorm,
       pos_720: posUse,
-      plateHex,
-      plateWxH: `${plateW}x${plateH}`,
-      plate_xy_out: `${plateOx}x${plateOy}`
+      template: hasTemplateInput ? 'lab_meter_score_template.png' : null,
+      tmplW,
+      tmplH,
+      anchorX,
+      anchorY,
+      tmpl_xy_out: `${tmplOx}x${tmplOy}`
     }
   };
 }
@@ -840,7 +856,9 @@ async function buildCrushRenderPlan(o) {
     : null;
   const frameExists = !!(framePng && fs.existsSync(framePng));
 
-  // Lab meter no longer depends on an external template PNG.
+  // Lab meter uses a single score template PNG (green background removed).
+  const meterTemplatePng = path.join(__dirname, 'public', 'lab_meter_score_template.png');
+  const meterTemplateExists = fs.existsSync(meterTemplatePng);
 
   // Watermark boyutu yarıya indir
   const wmSize = outW >= 1080 ? 55 : 48;
@@ -1038,9 +1056,11 @@ async function buildCrushRenderPlan(o) {
   const ubRects = scaleManualBlurRectsToOutputPx(rawManual, o.manualBlurRefW, o.manualBlurRefH, outW, outH);
   const ubChain = buildManualBlurDelogoChain('v0base', ubRects, outW, outH, 'v0postblur');
 
-  // Input index planning (0=inFile, 1=frame?, then wm, then music)
+  // Input index planning (0=inFile, 1=frame?, 2=meter template?, then wm, then music)
   let nextInputIdx = 1;
   if (frameExists) nextInputIdx += 1;
+  const useLabMeterTemplate = useLabFrame && (labMeterOpt ? labMeterOpt.enabled !== false : true) && meterTemplateExists;
+  const meterTemplateInputIdx = useLabMeterTemplate ? nextInputIdx++ : null;
   const wmInputIdxPlanned = nextInputIdx++;
   const musicInputIdxPlanned = nextInputIdx; // only valid if music input exists
 
@@ -1163,7 +1183,9 @@ async function buildCrushRenderPlan(o) {
 
   let labMeterExtra = { filters: [], debug: null };
   if (useLabFrame) {
-    const labMeterForBuild = { ...(labMeterOpt || {}) };
+    const labMeterForBuild = useLabMeterTemplate
+      ? { ...(labMeterOpt || {}), template_input_idx: meterTemplateInputIdx }
+      : { ...(labMeterOpt || {}) };
     labMeterExtra = buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter: labMeterForBuild, outW, outH });
   }
   const preWmLabel = labMeterExtra.filters.length ? 'v1meter' : 'v1';
@@ -1290,6 +1312,7 @@ async function buildCrushRenderPlan(o) {
 
   const inputs = ['-y', '-i', inFile];
   if (frameExists) inputs.push('-loop', '1', '-i', framePng);
+  if (useLabMeterTemplate) inputs.push('-loop', '1', '-i', meterTemplatePng);
   inputs.push('-loop', '1', '-i', wmFile);
   if (musicFile && fs.existsSync(musicFile)) {
     inputs.push('-stream_loop', '-1', '-i', musicFile);
