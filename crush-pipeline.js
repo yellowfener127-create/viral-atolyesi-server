@@ -900,7 +900,10 @@ async function buildCrushRenderPlan(o) {
   const wmYExpr = `${wmMargin}+(H-h-2*${wmMargin})*(${pYSafeExpr})`;
   const speedRamp = pickSpeedRampFactor();
   const effectiveSpeed = BASE_EDIT_SPEED * speedRamp;
-  const inDur = clampDur(sourceDurSec, 1, 60);
+  const inDur0 = clampDur(sourceDurSec, 1, 60);
+  const manualStartSecRaw = Number(o.manual_start_sec ?? o.manualStartSec ?? 0);
+  const startSec = Number.isFinite(manualStartSecRaw) ? Math.max(0, Math.min(inDur0 - 0.10, manualStartSecRaw)) : 0;
+  const inDur = Math.max(0.10, inDur0 - startSec);
   const outDur = Math.min(60, Math.max(1, inDur / effectiveSpeed));
 
   const origFps = (await probeOriginalFpsInt(ffmpegPath, ffprobePath, inFile)) || 30;
@@ -1042,14 +1045,16 @@ async function buildCrushRenderPlan(o) {
     const raw = o.lab_meter ?? o.labMeter ?? null;
     if (!raw || typeof raw !== 'object') return null;
     const enabled = raw.enabled == null ? true : !!raw.enabled;
+    const tv = Number(raw.target_value);
     const tp = Number(raw.target_percent);
+    const target_value = Number.isFinite(tv) ? Math.max(0, Math.min(1000, Math.round(tv))) : null;
     const target_percent = Number.isFinite(tp) ? Math.max(0, Math.min(100, Math.round(tp))) : null;
     const p = raw.pos_720;
     const pos_720 =
       p && typeof p === 'object' && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y))
         ? { x: Math.round(Number(p.x)), y: Math.round(Number(p.y)) }
         : null;
-    return { enabled, target_percent, pos_720 };
+    return { enabled, target_value, target_percent, pos_720 };
   })();
   const ubRects = scaleManualBlurRectsToOutputPx(rawManual, o.manualBlurRefW, o.manualBlurRefH, outW, outH);
   const ubChain = buildManualBlurDelogoChain('v0base', ubRects, outW, outH, 'v0postblur');
@@ -1062,7 +1067,7 @@ async function buildCrushRenderPlan(o) {
   const wmInputIdxPlanned = nextInputIdx++;
   const musicInputIdxPlanned = nextInputIdx; // only valid if music input exists
 
-  let vChain = `[0:v]setpts=PTS-STARTPTS,fps=${targetFps}`;
+  let vChain = `[0:v]trim=start=${startSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${targetFps}`;
   vChain += `,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}[v0base0]`;
   // Manual crop rect: crop in outW×outH space, then scale back to outW×outH (fill).
   const cropRectOut = (() => {
@@ -1249,7 +1254,7 @@ async function buildCrushRenderPlan(o) {
       const musicInputIdx = musicInputIdxPlanned;
       if (useRubberband) {
         audioFilter =
-          `[0:a]asetpts=PTS-STARTPTS,` +
+          `[0:a]atrim=start=${startSec.toFixed(3)},asetpts=PTS-STARTPTS,` +
           `rubberband=tempo=${effectiveSpeed.toFixed(6)}:pitch=${pitchFactor.toFixed(8)},` +
           `volume='${volExpr}',` +
           `aformat=sample_fmts=fltp:channel_layouts=stereo,` +
@@ -1261,7 +1266,7 @@ async function buildCrushRenderPlan(o) {
           `[a0][bg]amix=inputs=2:duration=first:normalize=0[a]`;
       } else {
         audioFilter =
-          `[0:a]asetpts=PTS-STARTPTS,` +
+          `[0:a]atrim=start=${startSec.toFixed(3)},asetpts=PTS-STARTPTS,` +
           `atempo=${effectiveSpeed.toFixed(6)},` +
           `volume='${volExpr}',` +
           `aformat=sample_fmts=fltp:channel_layouts=stereo,` +
@@ -1276,7 +1281,7 @@ async function buildCrushRenderPlan(o) {
     } else {
       if (useRubberband) {
         parts.push(
-          `[0:a]asetpts=PTS-STARTPTS,` +
+          `[0:a]atrim=start=${startSec.toFixed(3)},asetpts=PTS-STARTPTS,` +
             `rubberband=tempo=${effectiveSpeed.toFixed(6)}:pitch=${pitchFactor.toFixed(8)},` +
             `volume='${volExpr}',` +
             `apad=pad_dur=${(outDur + 0.5).toFixed(3)},` +
@@ -1284,7 +1289,7 @@ async function buildCrushRenderPlan(o) {
         );
       } else {
         parts.push(
-          `[0:a]asetpts=PTS-STARTPTS,` +
+          `[0:a]atrim=start=${startSec.toFixed(3)},asetpts=PTS-STARTPTS,` +
             `atempo=${effectiveSpeed.toFixed(6)},` +
             `volume='${volExpr}',` +
             `apad=pad_dur=${(outDur + 0.5).toFixed(3)},` +

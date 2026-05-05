@@ -205,6 +205,13 @@
   .soon-card{opacity:0.5}
   .soon-card .tool-btn{cursor:not-allowed;background:var(--surface);color:var(--muted);border:1px solid var(--border)}
 
+  /* İnce uzun seek çizgisi (eski gibi) */
+  #crushPreviewSeek{width:280px;height:14px;appearance:none;-webkit-appearance:none;background:transparent}
+  #crushPreviewSeek::-webkit-slider-runnable-track{height:4px;background:#2a2a2a;border-radius:999px}
+  #crushPreviewSeek::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);margin-top:-5px;border:2px solid #000}
+  #crushPreviewSeek::-moz-range-track{height:4px;background:#2a2a2a;border-radius:999px}
+  #crushPreviewSeek::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--accent);border:2px solid #000}
+
   /* --- Lab Meter Gauge (UI preview) --- */
   .lab-gauge-wrap{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;margin-top:10px}
   .lab-gauge-card{background:#0b0b12;border:1px solid #24243a;border-radius:12px;padding:12px}
@@ -760,6 +767,7 @@ var __crushManual = {
   labMeterEnabled: true,
   labMeterTargetValue: 586,
   labMeterPos: { x: 360, y: 988 }, // 720×1280: liste altı orta — design_refs/lab_meter_terapi_list_overlay_ref.png
+  previewStartSec: 0,
   frameImg: null
 };
 
@@ -1721,9 +1729,11 @@ function wireCrushManualBlurUi() {
     seek.max = String(dur);
     seek.value = String(Math.min(0.25, dur * 0.1));
     seek.disabled = false;
+    __crushManual.previewStartSec = Number(seek.value) || 0;
     v.currentTime = Number(seek.value);
   });
   seek.addEventListener("input", () => {
+    __crushManual.previewStartSec = Number(seek.value) || 0;
     v.currentTime = Number(seek.value) || 0;
   });
   v.addEventListener("seeked", () => { crushRedrawAllPreviews(); });
@@ -1818,6 +1828,7 @@ async function crushVideo() {
   const manual_reels_hook_y_offset_px = Number(__crushManual.hookYOffsetPx) || 0;
   const lab_meter_enabled = !!(__crushManual.labMeterEnabled);
   const lab_meter_target_value = Math.max(0, Math.min(1000, Math.round(Number(__crushManual.labMeterTargetValue) || 0)));
+  const manual_start_sec = Math.max(0, Number(__crushManual.previewStartSec) || 0);
   try { crushEnsureLabMeterDefaults(); } catch (e0) {}
   const lab_meter_pos = __crushManual.labMeterPos || crushDefaultLabMeterPos();
   const lab_meter_pos_x_px = Math.round(Number(lab_meter_pos.x) || 360);
@@ -1852,7 +1863,8 @@ async function crushVideo() {
         lab_meter_enabled,
         lab_meter_target_value,
         lab_meter_pos_x_px,
-        lab_meter_pos_y_px
+        lab_meter_pos_y_px,
+        manual_start_sec
       })
     });
     const localData = await localRes.json().catch(() => ({}));
