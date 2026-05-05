@@ -557,8 +557,8 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   const a0 = -2.45; // rad (left)
   const a1 = 2.45;  // rad (right)
   const pExpr = `min(t/${pdLit}\\,1)`;
-  const ease = `(${pExpr})*(${pExpr})*(3-2*(${pExpr}))`;
-  const scoreExpr = `min(${T}\\,${T}*(${ease}))`;
+  // Linear progress: reach target at (outDur-5s).
+  const scoreExpr = `min(${T}\\,${T}*(${pExpr}))`;
   const angleExpr = `(${a0})+(${a1 - a0})*(${scoreExpr}/100)`;
 
   const pulseTerms = [];
@@ -597,8 +597,19 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
     filters: [
       ...(hasTemplateInput
         ? [
-            `[${Math.round(Number(labMeter.template_input_idx))}:v]format=rgba,scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp[tmpl0]`,
-            `[v1][tmpl0]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT0]`,
+            // Split template into static + progress, then reveal progress by angle threshold.
+            `[${Math.round(Number(labMeter.template_input_idx))}:v]format=rgba,scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp,split=2[tmplS0][tmplP0]`,
+            // Static: remove colored arc pixels (keep labels/ticks/remaining dark arc).
+            `[tmplS0]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(gt(max(r(X,Y)\\,max(g(X,Y)\\,b(X,Y)))-min(r(X,Y)\\,min(g(X,Y)\\,b(X,Y)))\\,26)*gt(b(X,Y)\\,70)*lt(g(X,Y)\\,210)*gt(r(X,Y)+g(X,Y)+b(X,Y)\\,120)\\,0\\,a(X,Y))'[tmplStatic]`,
+            // Progress: keep only colored arc pixels AND angle <= threshold.
+            `[tmplP0]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(` +
+              `gt(max(r(X,Y)\\,max(g(X,Y)\\,b(X,Y)))-min(r(X,Y)\\,min(g(X,Y)\\,b(X,Y)))\\,26)*gt(b(X,Y)\\,70)*lt(g(X,Y)\\,210)*gt(r(X,Y)+g(X,Y)+b(X,Y)\\,120)` +
+              `*between(atan2(Y-${anchorY}\\,X-${anchorX})\\,-PI\\,0)` +
+              `*lte(atan2(Y-${anchorY}\\,X-${anchorX})\\,(-PI+PI*(${scoreExpr}/100)))` +
+              `\\,a(X,Y)\\,0)'[tmplProg]`,
+            `[v1][tmplStatic]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT1]`,
+            `[lmT1][tmplProg]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT0]`,
+            // Single dynamic number (template center is cleared).
             `[lmT0]drawtext=text='${numText}'${fontPart}:fontsize=${digitFontPx}:` +
               `fontcolor=${accentHex}@1:borderw=3:bordercolor=0x000000@1:` +
               `x=${cx}-text_w/2:y=${tmplOy + tmplH - digitFromBottomPx}[lm2]`
