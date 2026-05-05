@@ -605,14 +605,16 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
             `[${Math.round(Number(labMeter.template_input_idx))}:v]scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp,format=rgba,split=2[tmplRgbaA][tmplRgbaB]`,
             // Original alpha (from template PNG)
             `[tmplRgbaA]alphaextract,format=gray[tmplA]`,
+            // Split RGB branch: one for plane analysis, one for final rgb24
+            `[tmplRgbaB]split=2[tmplRgbaPlanes][tmplRgbaRgb]`,
             // RGB path for color tests / recomposition
-            `[tmplRgbaB]format=rgb24,split=3[tmplR0][tmplG0][tmplB0]`,
+            `[tmplRgbaPlanes]format=rgb24,split=3[tmplR0][tmplG0][tmplB0]`,
             // Split RGB into planes so we can build masks without geq r()/g()/b().
             `[tmplR0]extractplanes=r[pr]`,
             `[tmplG0]extractplanes=g[pg]`,
             `[tmplB0]extractplanes=b[pb]`,
             // Keep one rgb24 copy for final alphamerge
-            `[tmplRgbaB]format=rgb24[tmplRgb]`,
+            `[tmplRgbaRgb]format=rgb24[tmplRgb]`,
             // max(r,g,b) and min(r,g,b)
             `[pr][pg]blend=all_expr='max(A,B)'[pmaxrg];[pmaxrg][pb]blend=all_expr='max(A,B)'[pmax]`,
             `[pr][pg]blend=all_expr='min(A,B)'[pminrg];[pminrg][pb]blend=all_expr='min(A,B)'[pmin]`,
