@@ -521,7 +521,10 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   const enabled = labMeter && typeof labMeter.enabled === 'boolean' ? labMeter.enabled : true;
   if (!enabled) return { filters: [], debug: { enabled: false } };
 
-  let T = (labMeter && Number.isFinite(Number(labMeter.target_percent))) ? Math.round(Number(labMeter.target_percent)) : randInt(85, 100);
+  // SCORE mode (0–100): prefer target_value, fall back to target_percent.
+  let T = (labMeter && Number.isFinite(Number(labMeter.target_value)))
+    ? Math.round(Number(labMeter.target_value))
+    : ((labMeter && Number.isFinite(Number(labMeter.target_percent))) ? Math.round(Number(labMeter.target_percent)) : randInt(70, 95));
   T = Math.max(0, Math.min(100, T));
   let S = 0;
 
@@ -558,12 +561,6 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   const scoreExpr = `min(${T}\\,${T}*(${ease}))`;
   const angleExpr = `(${a0})+(${a1 - a0})*(${scoreExpr}/100)`;
 
-  // Template overlay input index MUST be provided by caller.
-  const tmplIdx = labMeter && Number.isFinite(Number(labMeter.template_input_idx)) ? Math.round(Number(labMeter.template_input_idx)) : null;
-  if (tmplIdx == null) {
-    return { filters: [], debug: { enabled: true, error: 'missing_template_input_idx', target_percent: T } };
-  }
-
   const pulseTerms = [];
   for (let v = 10; v <= 100; v += 10) {
     if (v > T) break;
@@ -577,43 +574,30 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
 
   const numText = `%{eif\\:${scoreExpr}\\:d}`;
 
-  // Template küçük PNG (~233×238). Yerleşim SS: public/design_refs/lab_meter_terapi_list_overlay_ref.png
-  const tmplW = Math.max(336, Math.round(wOut * 0.48));
-  const tmplH = Math.max(2, Math.round(tmplW * (238 / 233)));
-  const tmplSuperW = Math.min(2000, Math.max(tmplW + 2, Math.round(tmplW * 2)));
+  // Render without any external PNG template: draw an opaque panel + value + needle.
+  // (User asked to delete the half-circle template PNG; meter must still appear in final video.)
   const plateHex = '0x0C0E12';
-  const padSide = Math.max(8, Math.round(tmplW * 0.10));
-  const padTop = Math.max(8, Math.round(tmplW * 0.07));
-  const padBottom = Math.max(16, Math.round(tmplW * 0.22));
-  const plateW = tmplW + 2 * padSide;
-  const plateH = tmplH + padTop + padBottom;
-  const arcCyPx = Math.round(tmplH * 0.46);
-  const plateOx = Math.round(cx - padSide - tmplW / 2);
-  const plateOy = Math.round(cy - padTop - arcCyPx);
-  const digitFromBottomPx = Math.max(24, Math.round(tmplW * 0.12));
-  const digitFontPx = Math.max(56, Math.round(tmplW * 0.22));
+  const plateW = Math.max(420, Math.round(wOut * 0.56));
+  const plateH = Math.max(520, Math.round(plateW * 1.08));
+  const plateOx = Math.round(cx - plateW / 2);
+  const plateOy = Math.round(cy - Math.round(plateH * 0.54));
+  const digitFromBottomPx = Math.max(30, Math.round(plateW * 0.12));
+  const digitFontPx = Math.max(64, Math.round(plateW * 0.22));
 
-  const needleSize = Math.max(380, Math.round(tmplW * 1.06));
+  const needleSize = Math.max(380, Math.round(plateW * 0.90));
   const nx0 = Math.round(cx - needleSize / 2);
   const ny0 = Math.round(cy - needleSize / 2);
-  const needleLen = Math.max(120, Math.round(tmplW * 0.44));
-  const needleW = Math.max(6, Math.round(tmplW * 0.018));
-  const hubR = Math.max(10, Math.round(tmplW * 0.030));
+  const needleLen = Math.max(120, Math.round(needleSize * 0.42));
+  const needleW = Math.max(6, Math.round(needleSize * 0.018));
+  const hubR = Math.max(10, Math.round(needleSize * 0.030));
 
   return {
     filters: [
-      `[${tmplIdx}:v]format=rgba,` +
-        `scale=${tmplSuperW}:-1:flags=lanczos+accurate_rnd+full_chroma_inp,` +
-        `scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp[tmplG];` +
-        `color=c=${plateHex}:s=${tmplW}x${tmplH}:d=99999,format=rgba[lmFg];` +
-        `[lmFg][tmplG]overlay=0:0:format=auto[tmplFill];` +
-        `color=c=${plateHex}:s=${plateW}x${plateH}:d=99999,format=rgba[lmPlt];` +
-        `[lmPlt][tmplFill]overlay=x=${padSide}:y=${padTop}:format=auto[tmplA];` +
-        `[tmplA]drawtext=text='${numText}'${fontPart}:fontsize=${digitFontPx}:` +
+      `color=c=${plateHex}:s=${plateW}x${plateH}:d=99999,format=rgba[lmPlt];` +
+        `[lmPlt]drawtext=text='${numText}'${fontPart}:fontsize=${digitFontPx}:` +
         `fontcolor=${accentHex}@1:borderw=3:bordercolor=0x000000@1:` +
-        `x=(w-text_w)/2:y=h-${digitFromBottomPx}:shadowcolor=0x000000@0.45:shadowx=2:shadowy=2[tmplB];` +
-        `[tmplB]format=rgb24[tmpl0]`,
-      `[v1][tmpl0]overlay=x=${plateOx}:y=${plateOy}:format=auto[lm2]`,
+        `x=(w-text_w)/2:y=h-${digitFromBottomPx}:shadowcolor=0x000000@0.45:shadowx=2:shadowy=2[lmPlateTxt]`,
+      `[v1][lmPlateTxt]overlay=x=${plateOx}:y=${plateOy}:format=auto[lm2]`,
       `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
         `drawbox=x=${Math.round(needleSize / 2 - needleW / 2)}:y=${Math.round(needleSize / 2 - needleLen)}:w=${needleW}:h=${needleLen}:color=${accentHex}@1:t=fill,` +
         `drawbox=x=${Math.round(needleSize / 2 - hubR)}:y=${Math.round(needleSize / 2 - hubR)}:w=${hubR * 2}:h=${hubR * 2}:color=black@1:t=fill,` +
@@ -624,13 +608,9 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
     debug: {
       enabled: true,
       random_start_percent: S,
-      target_percent: T,
+      target_value: T,
       brandNorm,
       pos_720: posUse,
-      template: 'lab_meter_speedtest_template.png',
-      tmplW,
-      tmplH,
-      tmplSuperW,
       plateHex,
       plateWxH: `${plateW}x${plateH}`,
       plate_xy_out: `${plateOx}x${plateOy}`
