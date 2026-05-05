@@ -1359,6 +1359,22 @@ async function buildCrushRenderPlan(o) {
 
   const filterComplex = parts.join(';');
 
+  // Windows CreateProcess has a strict command-line length limit.
+  // Our animated lab meter can generate a very long filtergraph, so write it to a script file
+  // and use -filter_complex_script to avoid spawn ENAMETOOLONG.
+  let filterComplexScriptPath = null;
+  try {
+    const tmpDir =
+      (o && typeof o.tmpDir === 'string' && o.tmpDir)
+        ? o.tmpDir
+        : (inFile ? path.dirname(inFile) : os.tmpdir());
+    filterComplexScriptPath = path.join(tmpDir, `va_filter_complex_${Date.now()}_${Math.random().toString(16).slice(2)}.txt`);
+    fs.writeFileSync(filterComplexScriptPath, filterComplex, { encoding: 'utf8' });
+  } catch (e) {
+    // If we fail to write the script, we'll fall back to inline -filter_complex.
+    filterComplexScriptPath = null;
+  }
+
   const inputs = ['-y', '-i', inFile];
   if (frameExists) inputs.push('-loop', '1', '-i', framePng);
   if (useLabMeterTemplate) inputs.push('-loop', '1', '-i', meterTemplatePng);
@@ -1369,8 +1385,9 @@ async function buildCrushRenderPlan(o) {
 
   const ffArgs = [
     ...inputs,
-    '-filter_complex',
-    filterComplex,
+    ...(filterComplexScriptPath
+      ? ['-filter_complex_script', filterComplexScriptPath]
+      : ['-filter_complex', filterComplex]),
     '-map',
     '[v]',
     ...(mapAudioOut ? ['-map', '[a]'] : []),
@@ -1406,6 +1423,7 @@ async function buildCrushRenderPlan(o) {
   return {
     ffmpegArgsTail: ffArgs,
     debug: {
+      filterComplexScript: filterComplexScriptPath ? path.basename(filterComplexScriptPath) : null,
       speedRamp,
       effectiveSpeed: Number(effectiveSpeed.toFixed(6)),
       horizontalFlip: false,
