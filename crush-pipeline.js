@@ -645,12 +645,13 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
           const segRot = `lmSegR${i}`;
           const next = `lmBar${i}`;
           const enableExpr = `gte(${scoreExpr}\\,${thr})`;
-          // small pulse alpha boost around milestone ticks
-          const pulseAlpha = `if(${targetEnable}+${pulseEnable}\\,1\\,0)`;
+          // Glow pulses around milestones/target using enable (alpha can't be an expression in drawbox color).
+          const glowEnable = `${pulseEnable}+${targetEnable}`;
           out.push(
             `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
               `drawbox=x=${segX}:y=${segY}:w=${segW}:h=${segLen}:color=${barHex}@1:t=fill,` +
-              `drawbox=x=${segX}:y=${Math.round(segY + segLen - Math.round(segThick * 0.25))}:w=${segW}:h=${Math.round(segThick * 0.25)}:color=${glowHex}@${pulseAlpha}:t=fill[${segLabel}]`
+              `drawbox=x=${segX}:y=${Math.round(segY + segLen - Math.round(segThick * 0.25))}:w=${segW}:h=${Math.round(segThick * 0.25)}:` +
+                `color=${glowHex}@1:t=fill:enable='${glowEnable}'[${segLabel}]`
           );
           out.push(`[${segLabel}]rotate=angle='${ang}':c=none:ow=iw:oh=ih[${segRot}]`);
           out.push(`[${cur}][${segRot}]overlay=x=${nx0}:y=${ny0}:format=auto:enable='${enableExpr}'[${next}]`);
@@ -1386,7 +1387,7 @@ async function buildCrushRenderPlan(o) {
   const ffArgs = [
     ...inputs,
     ...(filterComplexScriptPath
-      ? ['-filter_complex_script', filterComplexScriptPath]
+      ? ['-/filter_complex', filterComplexScriptPath]
       : ['-filter_complex', filterComplex]),
     '-map',
     '[v]',
