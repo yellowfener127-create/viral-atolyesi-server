@@ -557,6 +557,9 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   const a0 = -2.45; // rad (left)
   const a1 = 2.45;  // rad (right)
   const pExpr = `min(t/${pdLit}\\,1)`;
+  // Some FFmpeg builds are picky about commas inside geq expressions; use an extra-escaped variant.
+  // This must reach ffmpeg as `min(t/..\,1)` (comma escaped), otherwise the expression parser breaks.
+  const pExprAng = `min(t/${pdLit}\\\\,1)`;
   // Linear progress: reach target at (outDur-5s).
   const scoreExpr = `min(${T}\\,${T}*(${pExpr}))`;
   const angleExpr = `(${a0})+(${a1 - a0})*(${scoreExpr}/100)`;
@@ -621,7 +624,7 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
             // Note: FFmpeg expr commas must be escaped with '\,' even inside quotes.
             `[arcMask]geq=lum='if(` +
               `between(atan2(Y-${anchorY}\\,X-${anchorX})\\,-PI\\,0)` +
-              `*lte(atan2(Y-${anchorY}\\,X-${anchorX})\\,(-PI+PI*((${pExpr})*${T}/100)))` +
+              `*lte(atan2(Y-${anchorY}\\,X-${anchorX})\\,(-PI+PI*((${pExprAng})*${T}/100)))` +
               `\\,255\\,0)'[angMask]`,
             // Static alpha: original alpha minus arcMask (removes colored arc from template).
             `[tmplA][arcMask]blend=all_mode=subtract:all_opacity=1,format=gray[staticA]`,
