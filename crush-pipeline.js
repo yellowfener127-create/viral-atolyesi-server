@@ -872,16 +872,36 @@ function buildManualBlurDelogoChain(inputLabel, rects, outW, outH, finalLabel) {
   const parts = [];
   let cur = inputLabel;
   list.forEach((r, i) => {
-    // delogo is strict about the box being fully inside frame.
-    // Use a conservative clamp so x+w and y+h never touch the right/bottom edge.
-    // (Some Windows builds error out when x+w == in_w or y+h == in_h.)
-    const x = Math.max(0, Math.min(outW - 9, Math.round(r.x)));
-    const y = Math.max(0, Math.min(outH - 9, Math.round(r.y)));
-    let w = Math.min((outW - x - 1), Math.max(8, Math.round(r.w)));
-    let h = Math.min((outH - y - 1), Math.max(8, Math.round(r.h)));
+    const W = Math.max(1, Math.round(Number(outW) || 1080));
+    const H = Math.max(1, Math.round(Number(outH) || 1920));
+
+    let x = Math.round(r.x);
+    let y = Math.round(r.y);
+    let w = Math.round(r.w);
+    let h = Math.round(r.h);
+
+    // delogo is strict: rectangle must be fully inside the frame.
+    // Keep a 1px inset from right/bottom borders (some FFmpeg builds are picky about edge touches).
+    x = Math.max(0, Math.min(Math.max(0, W - 9), x));
+    y = Math.max(0, Math.min(Math.max(0, H - 9), y));
+
+    let wClamp = Math.max(8, Math.min(Math.max(0, W - x - 1), w));
+    let hClamp = Math.max(8, Math.min(Math.max(0, H - y - 1), h));
+    w = wClamp;
+    h = hClamp;
+
+    // If sizing still overflows (stale rects / rounding), shrink position inward.
+    if (x + w >= W || y + h >= H) {
+      x = Math.max(0, Math.min(Math.max(0, W - w - 1), x));
+      y = Math.max(0, Math.min(Math.max(0, H - h - 1), y));
+    }
+
     w -= w % 2;
     h -= h % 2;
     if (w < 8 || h < 8) return;
+    if (x < 0 || y < 0) return;
+    if (x + w >= W || y + h >= H) return;
+
     const nextLab = i === list.length - 1 ? finalLabel : `dlb${i}`;
     // Bazı Windows FFmpeg derlemelerinde delogo "band" seçeneği yok — sadece x,y,w,h (+ show).
     parts.push(`[${cur}]delogo=x=${x}:y=${y}:w=${w}:h=${h}:show=0[${nextLab}]`);
