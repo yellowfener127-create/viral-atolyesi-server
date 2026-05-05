@@ -620,18 +620,13 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
             `[psum]lut=y='if(gte(val,120),255,0)'[mSum]`,
             // arcMask = mChroma * mB * mG * mSum
             `[mChroma][mB]blend=all_expr='A*B/255'[m1];[m1][mG]blend=all_expr='A*B/255'[m2];[m2][mSum]blend=all_expr='A*B/255'[arcMask]`,
-            // Angle mask (0/255) up to current score (left=-PI to right=0).
-            `[arcMask]geq=lum='if(` +
-              `between(atan2(Y-${anchorY},X-${anchorX}),-PI,0)` +
-              `*lte(atan2(Y-${anchorY},X-${anchorX}),(-PI+PI*((${fracExpr})*${T}/100)))` +
-              `,255,0)'[angMask]`,
             // Static alpha: original alpha minus arcMask (removes colored arc from template).
             `[tmplA][arcMask]blend=all_mode=subtract:all_opacity=1,format=gray[staticA]`,
-            // Progress alpha: arcMask * angMask.
-            `[arcMask][angMask]blend=all_mode=multiply:all_opacity=1,format=gray[progA]`,
+            // Progress alpha: arcMask (no angle-sweep; avoids geq parser issues on this build).
+            `[arcMask]format=gray[progA]`,
             // Merge RGB with new alphas.
             `[tmplRgb][staticA]alphamerge[tmplStatic]`,
-            `[tmplRgb][progA]alphamerge[tmplProg]`,
+            `[tmplRgb][progA]alphamerge,colorchannelmixer=aa='t/${pdLit}'[tmplProg]`,
             // Overlay static then progress onto video.
             `[v1][tmplStatic]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT1]`,
             `[lmT1][tmplProg]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT0]`,
