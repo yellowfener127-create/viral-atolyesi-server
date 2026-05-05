@@ -600,12 +600,19 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
     filters: [
       ...(hasTemplateInput
         ? [
-            // Split template into RGB + original alpha, then build masks without using a(X,Y).
-            `[${Math.round(Number(labMeter.template_input_idx))}:v]format=rgba,scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp,split=2[tmpl0][tmpl1]`,
-            `[tmpl0]format=rgb24[tmplRgb]`,
-            `[tmpl1]alphaextract,format=gray[tmplA]`,
-            // Split RGB into planes so we can build masks without r()/g()/b() functions.
-            `[tmplRgb]extractplanes=r[pr];[tmplRgb]extractplanes=g[pg];[tmplRgb]extractplanes=b[pb]`,
+            // IMPORTANT: alphaextract must only run on an RGBA stream (never on main yuv420p video).
+            // Force RGBA here, then split into (alpha source) + (RGB source).
+            `[${Math.round(Number(labMeter.template_input_idx))}:v]scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp,format=rgba,split=2[tmplRgbaA][tmplRgbaB]`,
+            // Original alpha (from template PNG)
+            `[tmplRgbaA]alphaextract,format=gray[tmplA]`,
+            // RGB path for color tests / recomposition
+            `[tmplRgbaB]format=rgb24,split=3[tmplR0][tmplG0][tmplB0]`,
+            // Split RGB into planes so we can build masks without geq r()/g()/b().
+            `[tmplR0]extractplanes=r[pr]`,
+            `[tmplG0]extractplanes=g[pg]`,
+            `[tmplB0]extractplanes=b[pb]`,
+            // Keep one rgb24 copy for final alphamerge
+            `[tmplRgbaB]format=rgb24[tmplRgb]`,
             // max(r,g,b) and min(r,g,b)
             `[pr][pg]blend=all_expr='max(A,B)'[pmaxrg];[pmaxrg][pb]blend=all_expr='max(A,B)'[pmax]`,
             `[pr][pg]blend=all_expr='min(A,B)'[pminrg];[pminrg][pb]blend=all_expr='min(A,B)'[pmin]`,
