@@ -597,16 +597,30 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
     filters: [
       ...(hasTemplateInput
         ? [
-            // Split template into static + progress, then reveal progress by angle threshold.
-            `[${Math.round(Number(labMeter.template_input_idx))}:v]format=rgba,scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp,split=2[tmplS0][tmplP0]`,
-            // Static: remove colored arc pixels (keep labels/ticks/remaining dark arc).
-            `[tmplS0]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(gt(max(r(X,Y)\\,max(g(X,Y)\\,b(X,Y)))-min(r(X,Y)\\,min(g(X,Y)\\,b(X,Y)))\\,26)*gt(b(X,Y)\\,70)*lt(g(X,Y)\\,210)*gt(r(X,Y)+g(X,Y)+b(X,Y)\\,120)\\,0\\,a(X,Y))'[tmplStatic]`,
-            // Progress: keep only colored arc pixels AND angle <= threshold.
-            `[tmplP0]geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(` +
-              `gt(max(r(X,Y)\\,max(g(X,Y)\\,b(X,Y)))-min(r(X,Y)\\,min(g(X,Y)\\,b(X,Y)))\\,26)*gt(b(X,Y)\\,70)*lt(g(X,Y)\\,210)*gt(r(X,Y)+g(X,Y)+b(X,Y)\\,120)` +
-              `*between(atan2(Y-${anchorY}\\,X-${anchorX})\\,-PI\\,0)` +
+            // Split template into RGB + original alpha, then build masks without using a(X,Y).
+            `[${Math.round(Number(labMeter.template_input_idx))}:v]format=rgba,scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp,split=2[tmpl0][tmpl1]`,
+            `[tmpl0]format=rgb24[tmplRgb]`,
+            `[tmpl1]alphaextract,format=gray[tmplA]`,
+            // Color-arc mask (0/255) derived from RGB (high chroma + blue/purple range-ish).
+            `[tmplRgb]format=rgb24,geq=lum='if(` +
+              `gt(max(r(X,Y)\\,max(g(X,Y)\\,b(X,Y)))-min(r(X,Y)\\,min(g(X,Y)\\,b(X,Y)))\\,26)` +
+              `*gt(b(X,Y)\\,70)` +
+              `*lt(g(X,Y)\\,210)` +
+              `*gt(r(X,Y)+g(X,Y)+b(X,Y)\\,120)` +
+              `\\,255\\,0)'[arcMask]`,
+            // Angle mask (0/255) up to current score (left=-PI to right=0).
+            `[arcMask]geq=lum='if(` +
+              `between(atan2(Y-${anchorY}\\,X-${anchorX})\\,-PI\\,0)` +
               `*lte(atan2(Y-${anchorY}\\,X-${anchorX})\\,(-PI+PI*(${scoreExpr}/100)))` +
-              `\\,a(X,Y)\\,0)'[tmplProg]`,
+              `\\,255\\,0)'[angMask]`,
+            // Static alpha: original alpha minus arcMask (removes colored arc from template).
+            `[tmplA][arcMask]blend=all_mode=subtract:all_opacity=1,format=gray[staticA]`,
+            // Progress alpha: arcMask * angMask.
+            `[arcMask][angMask]blend=all_mode=multiply:all_opacity=1,format=gray[progA]`,
+            // Merge RGB with new alphas.
+            `[tmplRgb][staticA]alphamerge[tmplStatic]`,
+            `[tmplRgb][progA]alphamerge[tmplProg]`,
+            // Overlay static then progress onto video.
             `[v1][tmplStatic]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT1]`,
             `[lmT1][tmplProg]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT0]`,
             // Single dynamic number (template center is cleared).
