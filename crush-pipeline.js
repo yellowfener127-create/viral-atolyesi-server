@@ -618,9 +618,10 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
             // arcMask = mChroma * mB * mG * mSum
             `[mChroma][mB]blend=all_expr='A*B/255'[m1];[m1][mG]blend=all_expr='A*B/255'[m2];[m2][mSum]blend=all_expr='A*B/255'[arcMask]`,
             // Angle mask (0/255) up to current score (left=-PI to right=0).
+            // Note: FFmpeg expr commas must be escaped with '\,' even inside quotes.
             `[arcMask]geq=lum='if(` +
               `between(atan2(Y-${anchorY}\\,X-${anchorX})\\,-PI\\,0)` +
-              `*lte(atan2(Y-${anchorY}\\,X-${anchorX})\\,(-PI+PI*(${scoreExpr}/100)))` +
+              `*lte(atan2(Y-${anchorY}\\,X-${anchorX})\\,(-PI+PI*((${pExpr})*${T}/100)))` +
               `\\,255\\,0)'[angMask]`,
             // Static alpha: original alpha minus arcMask (removes colored arc from template).
             `[tmplA][arcMask]blend=all_mode=subtract:all_opacity=1,format=gray[staticA]`,
