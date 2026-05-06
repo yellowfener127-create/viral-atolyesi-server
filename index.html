@@ -215,8 +215,7 @@
   /* Cache-safe: forcibly hide any old big gauge preview blocks */
   #labGaugeWrap,.lab-gauge-wrap,.lab-gauge-card,.gauge-container,.gauge-bg,.gauge-progress{display:none !important}
 
-  /* Single preview mode: hide extra stacked canvases */
-  #crushNudgeCanvas,#crushCropCanvas,#crushHookCanvas{display:none !important}
+  /* (Single preview mode reverted) */
 
   /* (Transcript yıldızı kaldırıldı) */
 
@@ -1245,7 +1244,13 @@ function crushDrawRectsOverlay(cv) {
 
 function crushRedrawAllPreviews() {
   const blurCv = document.getElementById("crushBlurCanvas");
+  const nudgeCv = document.getElementById("crushNudgeCanvas");
+  const hookCv = document.getElementById("crushHookCanvas");
+  const cropCv = document.getElementById("crushCropCanvas");
   if (blurCv) crushDrawRectsOverlay(blurCv);
+  if (nudgeCv) crushDrawRectsOverlay(nudgeCv);
+  if (hookCv) crushDrawRectsOverlay(hookCv);
+  if (cropCv) crushDrawRectsOverlay(cropCv);
 }
 
 function crushUpdateRectList() {
@@ -1727,6 +1732,9 @@ function wireCrushManualBlurUi() {
     });
   }
   cv.addEventListener("mousedown", onCrushCanvasMouseDown);
+  if (nudgeCv) nudgeCv.addEventListener("mousedown", onCrushCanvasMouseDown);
+  if (cropCv) cropCv.addEventListener("mousedown", onCrushCanvasMouseDown);
+  if (hookCv) hookCv.addEventListener("mousedown", onCrushCanvasMouseDown);
   window.addEventListener("mousemove", onCrushCanvasMouseMove);
   window.addEventListener("mouseup", onCrushCanvasMouseUp);
   cv.addEventListener("keydown", (e) => {

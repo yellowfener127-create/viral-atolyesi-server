@@ -215,8 +215,7 @@
   /* Cache-safe: forcibly hide any old big gauge preview blocks */
   #labGaugeWrap,.lab-gauge-wrap,.lab-gauge-card,.gauge-container,.gauge-bg,.gauge-progress{display:none !important}
 
-  /* Single preview mode: hide extra stacked canvases */
-  #crushNudgeCanvas,#crushCropCanvas,#crushHookCanvas{display:none !important}
+  /* (Single preview mode reverted) */
 
   /* (Transcript yıldızı kaldırıldı) */
 
@@ -1029,13 +1028,28 @@ function crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H, canvasEl) {
 
 /** Manuel blur için: sadece tam 9:16 (v0base) önizlemesi. */
 function crushDrawBlurBaseOnly(cv) {
+  const v = document.getElementById("crushPreviewVideo");
   if (!cv) return;
   const ctx = cv.getContext("2d");
   const W = cv.width;
   const H = cv.height;
-  // Single-preview UX: render the same composite preview here (video + frame + hook),
-  // then apply the same crop preview logic below.
-  crushDrawVideoFrameOntoCanvas(cv);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+  if (!v || !v.videoWidth) {
+    ctx.fillStyle = "#b8c5d6";
+    ctx.font = '14px "Segoe UI",sans-serif';
+    ctx.fillText("Blur için video seçin (Dosya Seç)…", 20, 48);
+    return;
+  }
+  // v0base = outW×outH: scale=increase + center crop
+  const vw = v.videoWidth;
+  const vh = v.videoHeight;
+  const s1 = Math.max(W / vw, H / vh);
+  const sw1 = vw * s1;
+  const sh1 = vh * s1;
+  const ox1 = (W - sw1) / 2;
+  const oy1 = (H - sh1) / 2;
+  ctx.drawImage(v, ox1, oy1, sw1, sh1);
 
   // Apply manual crop preview (cropRect then scale back to full canvas)
   const cr = crushClampCropRect(__crushManual.cropRect || { x: 0, y: 0, w: W, h: H });
@@ -1230,7 +1244,13 @@ function crushDrawRectsOverlay(cv) {
 
 function crushRedrawAllPreviews() {
   const blurCv = document.getElementById("crushBlurCanvas");
+  const nudgeCv = document.getElementById("crushNudgeCanvas");
+  const hookCv = document.getElementById("crushHookCanvas");
+  const cropCv = document.getElementById("crushCropCanvas");
   if (blurCv) crushDrawRectsOverlay(blurCv);
+  if (nudgeCv) crushDrawRectsOverlay(nudgeCv);
+  if (hookCv) crushDrawRectsOverlay(hookCv);
+  if (cropCv) crushDrawRectsOverlay(cropCv);
 }
 
 function crushUpdateRectList() {
@@ -1711,6 +1731,9 @@ function wireCrushManualBlurUi() {
     });
   }
   cv.addEventListener("mousedown", onCrushCanvasMouseDown);
+  if (nudgeCv) nudgeCv.addEventListener("mousedown", onCrushCanvasMouseDown);
+  if (cropCv) cropCv.addEventListener("mousedown", onCrushCanvasMouseDown);
+  if (hookCv) hookCv.addEventListener("mousedown", onCrushCanvasMouseDown);
   window.addEventListener("mousemove", onCrushCanvasMouseMove);
   window.addEventListener("mouseup", onCrushCanvasMouseUp);
   cv.addEventListener("keydown", (e) => {
