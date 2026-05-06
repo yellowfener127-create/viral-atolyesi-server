@@ -480,12 +480,9 @@ function buildReelsInstagramCanvasFilters({
   const parts = frameFileExists ? [
     // Use brand-tinted background instead of a forced white base.
     `color=c=${bgHex}:s=${outW}x${outH}:d=99999[base]`,
-    // Remove the baked "white window" by punching a hole in the frame's alpha channel.
-    // Color keying is unreliable here because the window isn't pure white across the PNG.
-    `[1:v]scale=${outW}:${outH},format=rgba,setsar=1,split=2[fr0][fr1]`,
-    `[fr0]alphaextract,format=gray,drawbox=x=${wx}:y=${wy}:w=${ww}:h=${wh}:color=black@1:t=fill[frA]`,
-    `[fr1]format=rgb24[frRgb]`,
-    `[frRgb][frA]alphamerge[frame]`,
+    // Zırh PNG opak: önce arka plan üstüne tam çerçeve; video pencereye üstte bindirilir (UI önizlemesiyle uyumlu).
+    `[1:v]scale=${outW}:${outH},format=rgba,setsar=1[frame]`,
+    `[base][frame]overlay=x=0:y=0:format=auto[frmBase]`,
     // Kaynaktaki üst hook/bantı gizlemek için crop'ı biraz aşağıdan al (üstten kırp).
     // FFmpeg filtergraph: max(0\,expr) içindeki virgül kaçırılmalı, yoksa yeni filtre sanır.
     // Manuel nudge (720×1280 px referansı): ih*(nudge/1280) ifadesi ölçeklenmiş kare üzerinde kaydırır.
@@ -499,10 +496,9 @@ function buildReelsInstagramCanvasFilters({
       const vy = Math.round(wy + (wh - vwh) / 2) + winShiftPx;
       return [
         `[v0]scale=${vww}:${vwh}:force_original_aspect_ratio=increase,crop=${vww}:${vwh}:(iw-ow)/2:${cropYExpr},setsar=1[vid]`,
-        `[base][vid]overlay=x=${vx}:y=${vy}:shortest=1[vb]`
+        `[frmBase][vid]overlay=x=${vx}:y=${vy}:shortest=1[vt0]`
       ];
-    })(),
-    `[vb][frame]overlay=x=0:y=0:format=auto[vt0]`
+    })()
   ] : [
     `color=c=${bgHex}:s=${outW}x${outH}:d=99999[bg]`,
     `[v0]scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},setsar=1[vid]`,

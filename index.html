@@ -1158,9 +1158,15 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   const sctx = tmpSc.getContext("2d");
   sctx.drawImage(tmpV0, 0, 0, PREVIEW_W, PREVIEW_H, 0, 0, iw2, ih2);
 
+  // Zırh PNG tam opak kalsın; video pencerenin üstüne çizilir.
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
-  ctx.drawImage(tmpV0, 0, 0);
+  const frm = __crushManual.frameImg;
+  if (frm && frm.complete && frm.naturalWidth) {
+    ctx.drawImage(frm, 0, 0, PREVIEW_W, PREVIEW_H);
+  } else {
+    ctx.drawImage(tmpV0, 0, 0);
+  }
   // Chaos/Hope: video pencere içinde biraz daha küçük görünsün (%5–%6)
   const br = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
   const shrink = (br === "kaos" || br === "umut") ? 0.94 : 1.0;
@@ -1173,10 +1179,6 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   const manualShiftPx = Math.round((Number(__crushManual.previewWindowShiftYPx) || 0) * (PREVIEW_H / 1280));
   const vy = Math.round(wy + (wh - vwh) / 2) + previewDown + manualShiftPx;
   ctx.drawImage(tmpSc, cropX, cropY, vww, vwh, vx, vy, vww, vwh);
-  const frm = __crushManual.frameImg;
-  if (frm && frm.complete && frm.naturalWidth) {
-    ctx.drawImage(frm, 0, 0, PREVIEW_W, PREVIEW_H);
-  }
   crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H);
   crushDrawMeterPreview(ctx, PREVIEW_W, PREVIEW_H, cv);
 }
