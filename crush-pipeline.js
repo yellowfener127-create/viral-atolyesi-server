@@ -468,9 +468,14 @@ function buildReelsInstagramCanvasFilters({
   const cropYExpr =
     `max(0\\,min(ih-oh\\,max(0\\,(ih-oh)*0.42)+ih*${nudgeRatio.toFixed(8)}))`;
 
+  const hookColor = brandNorm === 'kaos' ? 'white@1.000' : '0x1a1a1a';
+
   const parts = frameFileExists ? [
-    `color=c=white:s=${outW}x${outH}:d=99999[base]`,
-    `[1:v]scale=${outW}:${outH},format=rgba,setsar=1[frame]`,
+    // Use brand-tinted background instead of a forced white base.
+    `color=c=${bgHex}:s=${outW}x${outH}:d=99999[base]`,
+    // Remove the baked white video frame by keying near-white to transparent.
+    // Keeps the rest of the decorative frame PNG.
+    `[1:v]scale=${outW}:${outH},format=rgba,colorkey=0xFFFFFF:0.06:0.00,setsar=1[frame]`,
     // Kaynaktaki üst hook/bantı gizlemek için crop'ı biraz aşağıdan al (üstten kırp).
     // FFmpeg filtergraph: max(0\,expr) içindeki virgül kaçırılmalı, yoksa yeni filtre sanır.
     // Manuel nudge (720×1280 px referansı): ih*(nudge/1280) ifadesi ölçeklenmiş kare üzerinde kaydırır.
@@ -503,7 +508,7 @@ function buildReelsInstagramCanvasFilters({
     const next = last ? 'v1b' : `vth${i}`;
     const y = hookYTop + i * lineStep;
     parts.push(
-      `[${cur}]drawtext=text='${line}'${fontPart}:fontsize=${fontSize}:fontcolor=0x1a1a1a:` +
+      `[${cur}]drawtext=text='${line}'${fontPart}:fontsize=${fontSize}:fontcolor=${hookColor}:` +
         `fix_bounds=1:text_shaping=1:` +
         `x='max(${padX}\\,min((w-text_w)/2+${hxOff}\\,w-text_w-${padX}))':y=${y}:enable='${hookEnable}'[${next}]`
     );
