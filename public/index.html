@@ -832,13 +832,14 @@ function crushComputeLabWindowPx(outW, outH) {
   const sy = outH / 1920;
   const brandEl = document.getElementById("crushBrand");
   const b = brandEl ? String(brandEl.value || "terapi").toLowerCase() : "terapi";
-  // Therapy: eski pencereyi koru. Chaos/Hope: beyaz pencere bbox.
+  // Kaos ile Terapi aynı video penceresi (terapi ile hizalı; ekstra iç boşluk/beyaz bant oluşmasın).
+  const winTerapi = { x: 113, y: 412, w: 853, h: 1229 };
   const win =
     b === "kaos"
-      ? { x: 94, y: 353, w: 890, h: 1366 }
+      ? winTerapi
       : b === "umut"
         ? { x: 60, y: 390, w: 959, h: 1331 }
-        : { x: 113, y: 412, w: 853, h: 1229 };
+        : winTerapi;
   return {
     wx: Math.round(win.x * sx),
     wy: Math.round(win.y * sy),
@@ -982,7 +983,9 @@ function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
   hookYTop += hyOff;
   ctx.save();
   ctx.font = "600 " + fontSize + 'px "Segoe UI","Segoe UI Emoji","Segoe UI Historic",sans-serif';
-  ctx.fillStyle = "#1a1a1a";
+  const bn = document.getElementById("crushBrand");
+  const bk = bn ? String(bn.value || "terapi").toLowerCase() : "terapi";
+  ctx.fillStyle = bk === "kaos" ? "#A9A9A9" : (bk === "umut" ? "#8CA9B7" : "#6B8EA2");
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   lines.forEach(function (ln, i) {
@@ -1169,7 +1172,7 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   }
   // Chaos/Hope: video pencere içinde biraz daha küçük görünsün (%5–%6)
   const br = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
-  const shrink = (br === "kaos" || br === "umut") ? 0.94 : 1.0;
+  const shrink = br === "umut" ? 0.94 : 1.0;
   const vww = Math.max(2, Math.round(ww * shrink));
   const vwh = Math.max(2, Math.round(wh * shrink));
   const vx = Math.round(wx + (ww - vww) / 2);

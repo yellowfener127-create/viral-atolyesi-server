@@ -426,12 +426,14 @@ function buildReelsInstagramCanvasFilters({
   // Frame window geometry (1080×1920 referans).
   // Therapy (terapi): mevcut “düzgün” yerleşimi bozma — eski sabit pencere.
   // Chaos/Hope: video tam beyaz pencerenin içine otursun (taşma yok) — gerçek pencere bbox.
+  // Kaos/Terapi aynı video penceresi (beyaz boşluk / farklı bbox kaynaklı çerçeve farkını kapatır).
+  const winTerapi = { x: 113, y: 412, w: 853, h: 1229 };
   const win =
     brandNorm === 'kaos'
-      ? { x: 94, y: 353, w: 890, h: 1366 }
+      ? winTerapi
       : brandNorm === 'umut'
         ? { x: 60, y: 390, w: 959, h: 1331 }
-        : { x: 113, y: 412, w: 853, h: 1229 };
+        : winTerapi;
   const wx = Math.round(win.x * sx);
   const wy = Math.round(win.y * sy);
   const ww = Math.round(win.w * sx);
@@ -469,12 +471,12 @@ function buildReelsInstagramCanvasFilters({
     `max(0\\,min(ih-oh\\,max(0\\,(ih-oh)*0.42)+ih*${nudgeRatio.toFixed(8)}))`;
 
   // Brand-specific hook colors (user-provided exact palette)
-  // kaos  : #33413E (51,65,62)
+  // kaos  : #A9A9A9 (koyu gümüş)
   // umut  : #8CA9B7 (140,169,183)
   // terapi: #6B8EA2 (107,142,162) a.k.a. Steel/Dusty Blue
   const hookColor =
     brandNorm === 'kaos'
-      ? '0x33413E'
+      ? '0xA9A9A9'
       : (brandNorm === 'umut' ? '0x8CA9B7' : '0x6B8EA2');
 
   const parts = frameFileExists ? [
@@ -486,9 +488,9 @@ function buildReelsInstagramCanvasFilters({
     // Kaynaktaki üst hook/bantı gizlemek için crop'ı biraz aşağıdan al (üstten kırp).
     // FFmpeg filtergraph: max(0\,expr) içindeki virgül kaçırılmalı, yoksa yeni filtre sanır.
     // Manuel nudge (720×1280 px referansı): ih*(nudge/1280) ifadesi ölçeklenmiş kare üzerinde kaydırır.
-    // Chaos/Hope: videoyu pencere içinde %5–%6 küçült (kenar payı kalsın)
+    // Hope: videoyu pencere içinde biraz küçült (kenar payı). Kaos/Terapi %100 pencere dolu.
     ...(() => {
-      const shrinkBrand = (brandNorm === 'kaos' || brandNorm === 'umut') ? 0.94 : 1.0;
+      const shrinkBrand = brandNorm === 'umut' ? 0.94 : 1.0;
       const shrink = shrinkBrand;
       const vww = Math.max(2, Math.round(ww * shrink));
       const vwh = Math.max(2, Math.round(wh * shrink));
