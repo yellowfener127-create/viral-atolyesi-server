@@ -215,6 +215,9 @@
   /* Cache-safe: forcibly hide any old big gauge preview blocks */
   #labGaugeWrap,.lab-gauge-wrap,.lab-gauge-card,.gauge-container,.gauge-bg,.gauge-progress{display:none !important}
 
+  /* Single preview mode: hide extra stacked canvases */
+  #crushNudgeCanvas,#crushCropCanvas,#crushHookCanvas{display:none !important}
+
   /* (Transcript yıldızı kaldırıldı) */
 
 </style>
@@ -1242,13 +1245,7 @@ function crushDrawRectsOverlay(cv) {
 
 function crushRedrawAllPreviews() {
   const blurCv = document.getElementById("crushBlurCanvas");
-  const nudgeCv = document.getElementById("crushNudgeCanvas");
-  const hookCv = document.getElementById("crushHookCanvas");
-  const cropCv = document.getElementById("crushCropCanvas");
   if (blurCv) crushDrawRectsOverlay(blurCv);
-  if (nudgeCv) crushDrawRectsOverlay(nudgeCv);
-  if (hookCv) crushDrawRectsOverlay(hookCv);
-  if (cropCv) crushDrawRectsOverlay(cropCv);
 }
 
 function crushUpdateRectList() {
@@ -1632,8 +1629,9 @@ function wireCrushManualBlurUi() {
       crushRedrawAllPreviews();
       return;
     }
+    try { v.load(); } catch (eL) {}
     crushLoadZirhFramePng();
-    crushRedrawAllPreviews();
+    try { requestAnimationFrame(() => crushRedrawAllPreviews()); } catch {}
   });
   const brandSel = document.getElementById("crushBrand");
   if (brandSel) {
@@ -1662,13 +1660,21 @@ function wireCrushManualBlurUi() {
     if (mTv) mTv.textContent = String(__crushManual.labMeterTargetValue);
   }
   v.addEventListener("loadeddata", () => {
-    const dur = Math.max(0.05, v.duration || 0.1);
-    seek.max = String(dur);
-    seek.value = String(Math.min(0.25, dur * 0.1));
-    seek.disabled = false;
-    __crushManual.previewStartSec = Number(seek.value) || 0;
-    v.currentTime = Number(seek.value);
+    // kept for backward compatibility; replaced by initSeekFromVideo below
   });
+  function initSeekFromVideo() {
+    const dur = Math.max(0.05, Number(v.duration) || 0.1);
+    seek.max = String(dur);
+    const t0 = Math.max(0.01, Math.min(dur - 0.01, Number(__crushManual.previewStartSec) || Math.min(0.25, dur * 0.08)));
+    seek.value = String(t0);
+    seek.disabled = false;
+    __crushManual.previewStartSec = t0;
+    try { v.currentTime = t0; } catch {}
+    try { requestAnimationFrame(() => crushRedrawAllPreviews()); } catch {}
+  }
+  v.addEventListener("loadedmetadata", initSeekFromVideo);
+  v.addEventListener("loadeddata", initSeekFromVideo);
+  v.addEventListener("canplay", () => { try { requestAnimationFrame(() => crushRedrawAllPreviews()); } catch {} });
   seek.addEventListener("input", () => {
     __crushManual.previewStartSec = Number(seek.value) || 0;
     v.currentTime = Number(seek.value) || 0;
@@ -1721,9 +1727,6 @@ function wireCrushManualBlurUi() {
     });
   }
   cv.addEventListener("mousedown", onCrushCanvasMouseDown);
-  if (nudgeCv) nudgeCv.addEventListener("mousedown", onCrushCanvasMouseDown);
-  if (cropCv) cropCv.addEventListener("mousedown", onCrushCanvasMouseDown);
-  if (hookCv) hookCv.addEventListener("mousedown", onCrushCanvasMouseDown);
   window.addEventListener("mousemove", onCrushCanvasMouseMove);
   window.addEventListener("mouseup", onCrushCanvasMouseUp);
   cv.addEventListener("keydown", (e) => {

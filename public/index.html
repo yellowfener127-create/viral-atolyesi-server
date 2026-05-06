@@ -1614,8 +1614,10 @@ function wireCrushManualBlurUi() {
       crushRedrawAllPreviews();
       return;
     }
+    try { v.load(); } catch (eL) {}
     crushLoadZirhFramePng();
-    crushRedrawAllPreviews();
+    // Wait for metadata/data so canvas drawImage can actually show a frame.
+    try { requestAnimationFrame(() => crushRedrawAllPreviews()); } catch {}
   });
   const brandSel = document.getElementById("crushBrand");
   if (brandSel) {
@@ -1643,14 +1645,20 @@ function wireCrushManualBlurUi() {
     __crushManual.labMeterTargetValue = Number.isFinite(n0) ? Math.max(0, Math.min(100, Math.round(n0))) : 85;
     if (mTv) mTv.textContent = String(__crushManual.labMeterTargetValue);
   }
-  v.addEventListener("loadeddata", () => {
-    const dur = Math.max(0.05, v.duration || 0.1);
+  function initSeekFromVideo() {
+    const dur = Math.max(0.05, Number(v.duration) || 0.1);
     seek.max = String(dur);
-    seek.value = String(Math.min(0.25, dur * 0.1));
+    // Default to a tiny offset so we always have a decodable frame.
+    const t0 = Math.max(0.01, Math.min(dur - 0.01, Number(__crushManual.previewStartSec) || Math.min(0.25, dur * 0.08)));
+    seek.value = String(t0);
     seek.disabled = false;
-    __crushManual.previewStartSec = Number(seek.value) || 0;
-    v.currentTime = Number(seek.value);
-  });
+    __crushManual.previewStartSec = t0;
+    try { v.currentTime = t0; } catch {}
+    try { requestAnimationFrame(() => crushRedrawAllPreviews()); } catch {}
+  }
+  v.addEventListener("loadedmetadata", initSeekFromVideo);
+  v.addEventListener("loadeddata", initSeekFromVideo);
+  v.addEventListener("canplay", () => { try { requestAnimationFrame(() => crushRedrawAllPreviews()); } catch {} });
   seek.addEventListener("input", () => {
     __crushManual.previewStartSec = Number(seek.value) || 0;
     v.currentTime = Number(seek.value) || 0;
