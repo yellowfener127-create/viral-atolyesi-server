@@ -2437,11 +2437,13 @@ function buildCard(v, i) {
   const tagClass = cat === "animal" ? "tag-animal" : (cat === "hope" ? "tag-hope" : "tag-comedy");
   const tagText = cat === "animal" ? "🐾 Hayvan & Bebek" : (cat === "hope" ? "🕊️ Hope Lab" : "😂 Komedi");
   const rankClass = i === 0 ? "top" : "";
+  // Only show "ranked" badge for the first 10 cards (user request).
+  const rankHtml = i < 10 ? `<div class="rank ${rankClass}">#${i+1}</div>` : "";
 
   return `<div class="vcard">
     <div class="thumb">
       <img src="${escHtml(v.thumb)}" alt="" loading="lazy"/>
-      <div class="rank ${rankClass}">#${i+1}</div>
+      ${rankHtml}
       <div class="dur-ov">⏱ ${formatDuration(v.duration)}</div>
       <div class="views-ov">👁 ${fmtViews(v.views)}</div>
     </div>
