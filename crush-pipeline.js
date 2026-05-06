@@ -468,7 +468,14 @@ function buildReelsInstagramCanvasFilters({
   const cropYExpr =
     `max(0\\,min(ih-oh\\,max(0\\,(ih-oh)*0.42)+ih*${nudgeRatio.toFixed(8)}))`;
 
-  const hookColor = brandNorm === 'kaos' ? 'white@1.000' : '0x1a1a1a';
+  // Brand-specific hook colors (user-provided exact palette)
+  // kaos  : #33413E (51,65,62)
+  // umut  : #8CA9B7 (140,169,183)
+  // terapi: #6B8EA2 (107,142,162) a.k.a. Steel/Dusty Blue
+  const hookColor =
+    brandNorm === 'kaos'
+      ? '0x33413E'
+      : (brandNorm === 'umut' ? '0x8CA9B7' : '0x6B8EA2');
 
   const parts = frameFileExists ? [
     // Use brand-tinted background instead of a forced white base.
