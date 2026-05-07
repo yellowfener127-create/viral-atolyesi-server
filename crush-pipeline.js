@@ -432,7 +432,7 @@ function buildReelsInstagramCanvasFilters({
     brandNorm === 'kaos'
       ? winTerapi
       : brandNorm === 'umut'
-        ? { x: 60, y: 390, w: 959, h: 1331 }
+        ? winTerapi
         : winTerapi;
   const wx = Math.round(win.x * sx);
   const wy = Math.round(win.y * sy);
@@ -490,7 +490,7 @@ function buildReelsInstagramCanvasFilters({
     // Manuel nudge (720×1280 px referansı): ih*(nudge/1280) ifadesi ölçeklenmiş kare üzerinde kaydırır.
     // Hope: videoyu pencere içinde biraz küçült (kenar payı). Kaos/Terapi %100 pencere dolu.
     ...(() => {
-      const shrinkBrand = brandNorm === 'umut' ? 0.94 : 1.0;
+      const shrinkBrand = 1.0;
       const shrink = shrinkBrand;
       const vww = Math.max(2, Math.round(ww * shrink));
       const vwh = Math.max(2, Math.round(wh * shrink));

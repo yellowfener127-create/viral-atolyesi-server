@@ -838,7 +838,7 @@ function crushComputeLabWindowPx(outW, outH) {
     b === "kaos"
       ? winTerapi
       : b === "umut"
-        ? { x: 60, y: 390, w: 959, h: 1331 }
+        ? winTerapi
         : winTerapi;
   return {
     wx: Math.round(win.x * sx),
@@ -1172,7 +1172,7 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   }
   // Chaos/Hope: video pencere içinde biraz daha küçük görünsün (%5–%6)
   const br = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
-  const shrink = br === "umut" ? 0.94 : 1.0;
+  const shrink = 1.0;
   const vww = Math.max(2, Math.round(ww * shrink));
   const vwh = Math.max(2, Math.round(wh * shrink));
   const vx = Math.round(wx + (ww - vww) / 2);
