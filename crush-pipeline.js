@@ -569,13 +569,11 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   // Needle motion range (semi-circle)
   const a0 = -2.45; // rad (left)
   const a1 = 2.45;  // rad (right)
-  // Progress fraction in [0..1] without using min(t/x,1) (some builds mis-parse commas/escapes).
-  // IMPORTANT: for this Windows FFmpeg build, escaping commas inside geq expressions breaks parsing.
-  // Use normal commas in the expression itself.
-  const fracExpr = `if(lt(t,${pdLit}),t/${pdLit},1)`;
-  // Linear progress: reach target at (outDur-5s).
-  const scoreExpr = `if(lt(t,${pdLit}),(${T})*t/${pdLit},${T})`;
-  const angleExpr = `(${a0})+(${a1 - a0})*(${scoreExpr}/100)`;
+  // Linear 0..T then hold T from (outDur-5s) to end — WITHOUT `if(a,b,c)` (commas inside drawtext
+  // `%{eif:...}` break on some Windows FFmpeg builds and the counter stays stuck at 0).
+  const scoreContinuous = `lt(t,${pdLit})*(${T})*t/${pdLit}+gte(t,${pdLit})*${T}`;
+  const scoreCount = `floor(${scoreContinuous})`;
+  const angleExpr = `(${a0})+(${a1 - a0})*((${scoreContinuous})/100)`;
 
   const pulseTerms = [];
   for (let v = 10; v <= 100; v += 10) {
@@ -591,10 +589,11 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
   // FFmpeg filtergraphs use commas as separators between filters, so commas inside expressions must be escaped
   // when they appear inside any option value (enable=..., rotate angle=..., drawtext text=...).
   const escapeExprCommas = (s) => String(s || '').replace(/,/g, '\\,');
-  const scoreExprEsc = escapeExprCommas(scoreExpr);
+  const scoreContinuousEsc = escapeExprCommas(scoreContinuous);
+  const scoreCountEsc = escapeExprCommas(scoreCount);
   const angleExprEsc = escapeExprCommas(angleExpr);
 
-  const numText = `%{eif\\:${scoreExprEsc}\\:d}`;
+  const numText = `%{eif\\:${scoreCountEsc}\\:d}`;
 
   // New single template: `public/lab_meter_score_template.png` (green background removed).
   // If template input is missing, fall back to a solid panel so meter still renders.
@@ -662,7 +661,7 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
               `x=${cx}-text_w/2:y=${tmplOy + tmplH - digitFromBottomPx}[lm2]`
           ]),
       // Build the cumulative progress bar as many small segments, enabled as the score increases.
-      // Each segment becomes visible once scoreExpr reaches its threshold.
+      // Each segment becomes visible once continuous score reaches its threshold.
       ...(() => {
         const out = [];
         // First, pass through the current frame as the working label.
@@ -675,7 +674,7 @@ function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW
           const segLabel = `lmSeg${i}`;
           const segRot = `lmSegR${i}`;
           const next = `lmBar${i}`;
-          const enableExpr = `gte(${scoreExprEsc}\\,${thr})`;
+          const enableExpr = `gte(${scoreContinuousEsc}\\,${thr})`;
           // Glow pulses around milestones/target using enable (alpha can't be an expression in drawbox color).
           const glowEnable = `${pulseEnable}+${targetEnable}`;
           out.push(
