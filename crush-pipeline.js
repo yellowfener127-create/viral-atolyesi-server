@@ -206,12 +206,13 @@ async function probeOriginalFpsInt(ffmpegPath, ffprobePath, filePath) {
   });
 }
 
+/** Hedef FPS: orijinalden 1 düşük; asla 60 ve üzeri değil (ör. 60 → 59, 30 → 29). */
 function computeTargetFpsInt(orig) {
-  const o = Number(orig);
-  if (!Number.isFinite(o) || o <= 0) return 31;
-  if (o <= 30) return Math.min(62, Math.round(o) + 1);
-  if (o >= 55) return o <= 60 ? 61 : 62;
-  return Math.min(62, Math.round(o) + 1);
+  const MAX_OUTPUT_FPS = 59;
+  const o = Math.round(Number(orig));
+  if (!Number.isFinite(o) || o <= 0) return 29;
+  const decreased = o - 1;
+  return Math.max(1, Math.min(decreased, MAX_OUTPUT_FPS));
 }
 
 function probeHasAudioStream(ffmpegPath, filePath) {
