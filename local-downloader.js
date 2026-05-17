@@ -275,70 +275,171 @@ function hookSeedFromCaption(caption) {
   return out.length > 6 ? out : s.slice(0, 60).trim();
 }
 
-function buildHookFromCaption(caption) {
-  // Build a headline-like hook by lightly rewriting the caption.
-  // Important: do NOT inject unrelated topics/phrases. Only use caption text.
-  let s = String(caption || '');
-  // strip hashtags + normalize
-  s = stripHashtagsFromText(s);
+/** Caption'dan konu çıkar (ranked/CTA/hashtag temiz). */
+function extractCaptionTopic(caption) {
+  let s = stripHashtagsFromText(String(caption || ''));
   s = stripBannedCaptionPhrases(s);
   s = toSingleSentenceCaption(s);
   s = s.replace(/[“”"']/g, '').replace(/\s+/g, ' ').trim();
   if (!s) return '';
-
-  // Remove common CTA tails
   s = s
     .replace(/,\s*follow\s+for\s+more\b.*$/i, '')
     .replace(/\bfollow\s+for\s+more\b.*$/i, '')
-    .replace(/\bfor\s+more\b.*$/i, '')
     .trim();
+  s = (s.split(/[.;!?]/)[0] || s).trim();
+  s = s
+    .replace(/^this\s+ranked\s+/i, '')
+    .replace(/^ranked\s+/i, '')
+    .replace(/\s+ranked\s+clips?\b.*$/i, '')
+    .replace(/\s+moment(s)?\b.*$/i, '')
+    .replace(/\s+clips?\b.*$/i, '')
+    .trim();
+  return s || 'this moment';
+}
 
-  // Prefer the first clause (headline-like)
-  s = s.split(/[.;!?]/)[0] || s;
-  s = s.split(/\s-\s/)[0] || s;
-  s = s.split(/\s\|\s/)[0] || s;
-  s = s.trim();
+/** Tekrarlayan "Watch this ranked …" kalıpları. */
+function isRepetitiveTemplateHook(s) {
+  const t = normTextKey(stripEmoji(String(s || '')));
+  if (!t) return true;
+  if (/^watch\s+(how\s+)?(this\s+)?ranked\b/.test(t)) return true;
+  if (/^watch\s+this\b/.test(t) && /\branked\b/.test(t)) return true;
+  if (/^this\s+ranked\b/.test(t) && t.split(/\s+/).length <= 8) return true;
+  if (/\branked\s+video\b/.test(t)) return true;
+  if (/^watch\s+/.test(t) && /\bmoment\b/.test(t) && /\branked\b/.test(t)) return true;
+  return false;
+}
 
-  // Light rewrite to not be identical to caption
-  // 1) "This ..." -> "Watch how ..." / "When ..."
-  if (/^this\b/i.test(s)) {
-    if (/\bwhen\b/i.test(s)) {
-      // This X when Y -> When Y, X
-      const m = s.match(/^this\s+(.+?)\s+when\s+(.+)$/i);
-      if (m) s = `When ${m[2].trim()}, ${m[1].trim()}`;
-    } else if (/\bfalls\s+apart\b/i.test(s) || /\bescalates\b/i.test(s) || /\bgoes\s+wrong\b/i.test(s)) {
-      s = s.replace(/^this\s+/i, 'Watch how ');
-    } else {
-      s = s.replace(/^this\s+/i, 'Watch ');
-    }
+/** Caption + konuya göre farklı cümle kalıpları (Gemini yoksa veya şablon hook gelirse). */
+function buildVariedHookFromCaption(caption, cache) {
+  const topic = extractCaptionTopic(caption);
+  const words = topic.split(/\s+/).filter(Boolean);
+  const topicShort = words.slice(0, 4).join(' ') || 'this';
+  const cap = String(caption || '').toLowerCase();
+  const isRanked = /\branked|ranking|top\s*\d|#\s*1\b/.test(cap);
+  const isCatch = /\bcatch|catching|reflex|grab|save|hands?\b/.test(topic);
+  const isBaby = /\bbab(y|ies)|kid|toddler|child\b/.test(topic);
+  const isFail = /\bfail|wrong|chaos|crash|slip|fall\b/.test(topic);
+  const nPick = () => pickOne(['2', '3', '4', '5']);
+  const adj = () => pickOne(['reflex', 'instinct', 'chaos', 'gold', 'wild', 'clean']);
+
+  const patterns = [];
+  if (isRanked) {
+    patterns.push(
+      'Number 1 is pure ' + adj() + '…',
+      "The cleanest " + topicShort + " you'll see today.",
+      'Can your reflexes beat number ' + nPick() + '?',
+      'They really said: "Not on my watch!"',
+      '#1 had zero fear.',
+      'This list starts calm… then it does not.',
+      'Who wins spot number 1?',
+      "Don't blink at number " + nPick() + '.',
+      'Start at 5, stay for #1.',
+      'You will not believe #1.'
+    );
   }
-  // 2) ranked/ranking phrasing: make it more title-like
-  s = s.replace(/\bthis\s+ranked\b/i, 'Ranked');
-  s = s.replace(/\branked\s+funniest\b/i, 'Funniest ranked');
-
-  // 2.5) Fix awkward "Watch how ranked ..." patterns
-  // If it contains ranked + falls apart/escalates, prefer "This ranked ..." (more IG-native)
-  if (/\branked\b/i.test(s) && (/\bfalls\s+apart\b/i.test(s) || /\bescalates\b/i.test(s) || /\bgoes\s+wrong\b/i.test(s))) {
-    s = s.replace(/^watch how\s+/i, 'This ');
-    s = s.replace(/^watch\s+/i, 'This ');
+  if (isCatch) {
+    patterns.push(
+      'Those hands moved before the brain did.',
+      'Number 1 is pure reflex…',
+      "The cleanest catches you'll see today.",
+      'Not on my watch — literally.',
+      'Can your reflexes beat number ' + nPick() + '?'
+    );
   }
-  // If still "Watch how ranked ..." add "this"
-  s = s.replace(/^watch how\s+ranked\b/i, 'Watch how this ranked');
-  s = s.replace(/^watch\s+ranked\b/i, 'Watch this ranked');
+  if (isBaby) {
+    patterns.push(
+      'Number 1 is pure reflex…',
+      'Tiny hands, impossible timing.',
+      'The cutest save you will see today.',
+      'Who taught them that reflex?'
+    );
+  }
+  if (isFail) {
+    patterns.push(
+      'It gets worse with every number.',
+      'Number 1 is instant regret.',
+      'This ranking escalates fast.',
+      'Wait until you see #1.'
+    );
+  }
+  patterns.push(
+    topicShort.charAt(0).toUpperCase() + topicShort.slice(1) + ' — ranked and ruthless.',
+    'Which one is your winner?',
+    'The gap between #5 and #1 is insane.',
+    'This countdown hits different.'
+  );
 
-  // 2.6) Micro language polish: perfectly cut -> perfectly-cut
-  s = s.replace(/\bperfectly\s+cut\b/gi, 'perfectly-cut');
+  const uniq = [...new Set(patterns.filter(Boolean))];
+  for (let i = 0; i < uniq.length + 8; i++) {
+    const c = pickOne(uniq);
+    if (!isRepetitiveTemplateHook(c) && !isRecentlyUsed(cache && cache.hooks, c)) return c;
+  }
+  return pickOne(uniq);
+}
 
-  // 3) Trim filler words a bit
-  s = s.replace(/\breally\b|\bliterally\b|\bjust\b|\bperfect\b/gi, '').replace(/\s+/g, ' ').trim();
-  s = stripBannedCaptionPhrases(s);
+function buildHookFromCaption(caption, cache) {
+  return buildVariedHookFromCaption(caption, cache);
+}
 
-  // Ensure punctuation
-  if (!/[.!?…]$/.test(s)) s = s + '.';
+const GEMINI_HOOK_STYLE_HINTS = [
+  'Number spotlight: hype up #1 with a vivid claim (e.g. "Number 1 is pure reflex…")',
+  'Superlative: "The cleanest X you\'ll see today" — specific to the video topic',
+  'Quoted reaction: They really said: "…" — punchy, in-character',
+  'Challenge: ask if the viewer can beat number 2/3/4',
+  'Contrast: calm setup then twist ("starts wholesome… then doesn\'t")',
+  'Question hook: short curiosity without saying "watch this ranked"'
+];
 
-  // Keep short headline size
-  if (s.length > 80) s = s.slice(0, 78).trim() + '…';
-  return s;
+function buildGeminiHookPrompt({ title, caption, brand, emojiPool, recentHooks }) {
+  const n = normBrand(brand);
+  const tone =
+    n === 'umut'
+      ? 'hopeful, emotional, inspiring, sincere (no graphic injury topics)'
+      : n === 'kaos'
+        ? 'playful chaos energy, surprising, punchy (family-friendly)'
+        : 'wholesome, gentle, uplifting, family-friendly';
+  const styleHint = pickOne(GEMINI_HOOK_STYLE_HINTS);
+  const pool = Array.isArray(emojiPool) ? emojiPool.filter(Boolean) : [];
+  const emojiRules =
+    pool.length > 0
+      ? `\nAdd exactly ONE emoji at the very end (single space before it). ` +
+        `Choose ONLY from: ${pool.slice(0, 100).join(' ')}\n` +
+        `No other emoji mid-sentence.`
+      : '';
+  const avoidList = (recentHooks || []).slice(-10).filter(Boolean);
+  const avoidBlock = avoidList.length
+    ? `\nDo NOT repeat or closely paraphrase these recent hooks:\n- ${avoidList.join('\n- ')}\n`
+    : '';
+  const cap = String(caption || '').slice(0, 280);
+  const tit = String(title || '').slice(0, 220);
+  return (
+    `Write ONE English on-screen hook for a vertical Shorts/Reels/TikTok ranked/list video.\n` +
+    `PRIMARY context — video caption (what the clip is about):\n${cap}\n` +
+    (tit ? `Secondary — platform title: ${tit}\n` : '') +
+    `\nStyle direction for THIS hook: ${styleHint}.\n` +
+    `Tone: ${tone}.\n` +
+    `Rules:\n` +
+    `- Max 55 characters including spaces and the final emoji.\n` +
+    `- English only. No hashtags. No quotation marks around the whole line.\n` +
+    `- Do NOT start with "POV:" or use the word "POV".\n` +
+    `- Do NOT use the word "ignore".\n` +
+    `- MUST be a different sentence structure each time — vary openings (Number 1…, The cleanest…, Can you…, They said…, etc.).\n` +
+    `\nBANNED templates (never use these patterns):\n` +
+    `- "Watch this ranked …"\n` +
+    `- "Watch how this ranked …"\n` +
+    `- Copying the caption with only "Watch" swapped in\n` +
+    `- "… ranked video" as the main phrase\n` +
+    `- Generic filler: "wait for it", "watch till the end", "viral moment"\n` +
+    `\nGood style examples (do NOT copy verbatim — invent new lines for THIS video):\n` +
+    `- Number 1 is pure reflex…\n` +
+    `- The cleanest catches you'll see today.\n` +
+    `- They really said: Not on my watch!\n` +
+    `- Can your reflexes beat number 3?\n` +
+    avoidBlock +
+    `Use the screenshot + audio preview to match what is actually on screen.\n` +
+    emojiRules +
+    `\nReturn only the hook line, nothing else.`
+  );
 }
 
 function isDanglingHookFragment(hook) {
@@ -933,37 +1034,15 @@ function normBrand(brand) {
  * Gemini (Google AI Studio key): tek satır İngilizce hook. Başarısız olursa reject.
  * Ortam: GEMINI_API_KEY ve isteğe bağlı GEMINI_MODEL (örn. gemini-2.0-flash).
  */
-function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media, modelOverride) {
-  const n = normBrand(brand);
-  const tone =
-    n === 'umut'
-      ? 'hopeful, emotional, inspiring, sincere (no graphic injury topics)'
-      : 'wholesome, gentle, uplifting, family-friendly';
-  const style = pickOne([
-    'first-person vibe (perspective shift) WITHOUT literally saying "POV"',
-    'a specific, story-like hook that hints what will happen (no generic templates)',
-    'a subtle perspective twist (what you notice changes the whole moment)'
-  ]);
-  const pool = Array.isArray(emojiPool) ? emojiPool.filter(Boolean) : [];
-  const emojiRules =
-    pool.length > 0
-      ? `\nAdd exactly ONE emoji at the very end of the sentence (single space before it). ` +
-        `Choose that emoji ONLY from this pool: ${pool.slice(0, 100).join(' ')}\n` +
-        `No other emoji, and no emoji in the middle of the sentence.`
-      : '';
-  const prompt =
-    `Write a video-specific English hook for a vertical Shorts/Reels/TikTok video.\n` +
-    `It must feel like it matches THIS video (avoid generic templates like "watch till the end").\n` +
-    `Style: ${style}.\n` +
-    `Important: Do NOT start with "POV:" and do NOT use the word "POV" unless it is truly necessary.\n` +
-    `Banned words: do NOT use the word "ignore" in any form.\n` +
-    `Rules: max 55 characters total (including spaces + the final emoji). ` +
-    `No quotation marks. No hashtags. English only.\n` +
-    `Tone: ${tone}.\n` +
-    `Video title (may be vague): ${String(title || '').slice(0, 220)}\n` +
-    `Use the provided screenshot(s) + audio preview to make it specific.\n` +
-    emojiRules +
-    `\nReturn only the hook sentence, nothing else.`;
+function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media, modelOverride, hookCtx) {
+  const ctx = hookCtx && typeof hookCtx === 'object' ? hookCtx : {};
+  const prompt = buildGeminiHookPrompt({
+    title,
+    caption: ctx.caption || title,
+    brand,
+    emojiPool,
+    recentHooks: ctx.recentHooks
+  });
   // Note: Some older model aliases (e.g. gemini-1.5-flash) may no longer be available on v1beta generateContent.
   const model = String(modelOverride || process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
   const parts = [{ text: prompt }];
@@ -982,7 +1061,7 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media, modelOve
 
   const body = JSON.stringify({
     contents: [{ parts }],
-    generationConfig: { temperature: 0.85, maxOutputTokens: 96 }
+    generationConfig: { temperature: 0.92, maxOutputTokens: 96 }
   });
   return new Promise((resolve, reject) => {
     const req = https.request(
@@ -1267,7 +1346,7 @@ async function listVertexPublisherModels({ saPath, location, pageSize = 100 }) {
   return out;
 }
 
-async function fetchVertexHookEnglish({ saPath, location, model, title, brand, emojiPool, media }) {
+async function fetchVertexHookEnglish({ saPath, location, model, title, brand, emojiPool, media, caption, recentHooks }) {
   const sa = readServiceAccountJson(saPath);
   if (!sa || !sa.project_id) {
     const e = new Error('Vertex SA JSON içinde project_id bulunamadı.');
@@ -1280,37 +1359,13 @@ async function fetchVertexHookEnglish({ saPath, location, model, title, brand, e
   const loc = String(location || 'us-central1').trim() || 'us-central1';
   const mdl = normalizeGeminiModelName(model || 'gemini-2.0-flash') || 'gemini-2.0-flash';
 
-  // Reuse the same prompt style as AI Studio flow.
-  const n = normBrand(brand);
-  const tone =
-    n === 'umut'
-      ? 'hopeful, emotional, inspiring, sincere (no graphic injury topics)'
-      : 'wholesome, gentle, uplifting, family-friendly';
-  const style = pickOne([
-    'first-person vibe (perspective shift) WITHOUT literally saying "POV"',
-    'a specific, story-like hook that hints what will happen (no generic templates)',
-    'a subtle perspective twist (what you notice changes the whole moment)'
-  ]);
-  const pool = Array.isArray(emojiPool) ? emojiPool.filter(Boolean) : [];
-  const emojiRules =
-    pool.length > 0
-      ? `\nAdd exactly ONE emoji at the very end of the sentence (single space before it). ` +
-        `Choose that emoji ONLY from this pool: ${pool.slice(0, 100).join(' ')}\n` +
-        `No other emoji, and no emoji in the middle of the sentence.`
-      : '';
-  const prompt =
-    `Write a video-specific English hook for a vertical Shorts/Reels/TikTok video.\n` +
-    `It must feel like it matches THIS video (avoid generic templates like "watch till the end").\n` +
-    `Style: ${style}.\n` +
-    `Important: Do NOT start with "POV:" and do NOT use the word "POV" unless it is truly necessary.\n` +
-    `Banned words: do NOT use the word "ignore" in any form.\n` +
-    `Rules: max 55 characters total (including spaces + the final emoji). ` +
-    `No quotation marks. No hashtags. English only.\n` +
-    `Tone: ${tone}.\n` +
-    `Video title (may be vague): ${String(title || '').slice(0, 220)}\n` +
-    `Use the provided screenshot(s) + audio preview to make it specific.\n` +
-    emojiRules +
-    `\nReturn only the hook sentence, nothing else.`;
+  const prompt = buildGeminiHookPrompt({
+    title,
+    caption: caption || title,
+    brand,
+    emojiPool,
+    recentHooks
+  });
 
   const parts = [{ text: prompt }];
   try {
@@ -1326,7 +1381,7 @@ async function fetchVertexHookEnglish({ saPath, location, model, title, brand, e
 
   const bodyObj = {
     contents: [{ role: 'user', parts }],
-    generationConfig: { temperature: 0.85, maxOutputTokens: 96 }
+    generationConfig: { temperature: 0.92, maxOutputTokens: 96 }
   };
   const body = JSON.stringify(bodyObj);
 
@@ -1993,6 +2048,14 @@ app.post('/crush', async (req, res) => {
     const musicFile = crush.pickRandomMusicFile(PUBLIC_DIR, brand);
     const cache = loadDirectorCache();
     const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: titleIsListicle });
+    const fallbackCaptionBits = splitCaptionPayload(
+      buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand), titleIsListicle)
+    );
+    const finalCaption = stripBannedCaptionPhrases(
+      toSingleSentenceCaption(fallbackCaptionBits.caption || fallbackCaptionForBrand(brand))
+    );
+    const recentHooksForGemini = (cache.hooks || []).slice(-12);
+    const hookGemCtx = { caption: finalCaption, recentHooks: recentHooksForGemini };
     const emojiPool = loadCrushEmojiPool();
     const reelsEmojiBrand = normBrand(brand) === 'terapi' || normBrand(brand) === 'umut';
     const isLabBrand = normBrand(brand) === 'terapi' || normBrand(brand) === 'umut' || normBrand(brand) === 'kaos';
@@ -2106,12 +2169,14 @@ app.post('/crush', async (req, res) => {
                   title: metaTitle,
                   brand,
                   emojiPool,
-                  media
+                  media,
+                  caption: finalCaption,
+                  recentHooks: recentHooksForGemini
                 });
-                gemHook = vr.hook;
+                gemHook = isRepetitiveTemplateHook(vr.hook) ? '' : vr.hook;
                 gemModel = vr.model || cand;
                 lastErr = null;
-                break outer;
+                if (gemHook) break outer;
               } catch (ex) {
                 lastErr = ex;
                 if (!isVertexModelNotFound(ex)) break;
@@ -2143,12 +2208,14 @@ app.post('/crush', async (req, res) => {
                   title: metaTitle,
                   brand,
                   emojiPool,
-                  media
+                  media,
+                  caption: finalCaption,
+                  recentHooks: recentHooksForGemini
                 });
-                gemHook = vr.hook;
+                gemHook = isRepetitiveTemplateHook(vr.hook) ? '' : vr.hook;
                 gemModel = vr.model || cand;
                 lastErr = null;
-                break outer;
+                if (gemHook) break outer;
               } catch (ex2) {
                 lastErr = ex2;
                 if (!isVertexModelNotFound(ex2)) break;
@@ -2179,7 +2246,8 @@ app.post('/crush', async (req, res) => {
           }
         } else {
           if (!gemKey) throw Object.assign(new Error('Gemini API key yok (GEMINI_API_KEY).'), { statusCode: 401, model: gemModel });
-          gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, media, gemModel);
+          gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, media, gemModel, hookGemCtx);
+          if (isRepetitiveTemplateHook(gemHook)) gemHook = '';
         }
       } catch (e) {
         // If the requested model is not available for v1beta generateContent, retry once with a known-good model.
@@ -2189,7 +2257,8 @@ app.post('/crush', async (req, res) => {
             gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, {
               framePng: path.join(tmpDir, 'gem_frame.png'),
               audioWav: path.join(tmpDir, 'gem_audio.wav')
-            }, gemModel);
+            }, gemModel, hookGemCtx);
+            if (isRepetitiveTemplateHook(gemHook)) gemHook = '';
             e = null;
           } catch (e2) {
             e = e2;
@@ -2217,7 +2286,11 @@ app.post('/crush', async (req, res) => {
         }
       }
     }
-    // If Gemini is required but didn't produce a hook, fail fast (do not render video).
+    // Gemini zorunlu ama boş/şablon hook geldiyse caption tabanlı çeşitli kalıba düş.
+    if (mustUseGeminiHook && (!gemHook || gemHook.length < 6)) {
+      const varied = buildVariedHookFromCaption(finalCaption, cache);
+      if (varied && varied.length >= 6) gemHook = varied;
+    }
     if (mustUseGeminiHook && (!metaTitle || !gemHook || gemHook.length < 6)) {
       return res.status(502).json({
         ok: false,
@@ -2235,19 +2308,15 @@ app.post('/crush', async (req, res) => {
         }
       });
     }
-    // Caption first: hook should align with the caption text
-    const fallbackCaptionBits = splitCaptionPayload(buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand), titleIsListicle));
-    const finalCaption = stripBannedCaptionPhrases(
-      toSingleSentenceCaption(fallbackCaptionBits.caption || fallbackCaptionForBrand(brand))
-    );
-
-    const captionHookSeed = buildHookFromCaption(finalCaption);
+    // Caption-first hook: Gemini + varied local patterns (never "Watch this ranked …")
+    const captionHookSeed = buildVariedHookFromCaption(finalCaption, cache);
+    if (gemHook && isRepetitiveTemplateHook(gemHook)) gemHook = '';
     const seed =
       manualHookTextRaw
         ? manualHookTextRaw
         : gemHook && gemHook.length > 8
           ? gemHook
-          : (captionHookSeed || hookSeedFromCaption(finalCaption) || titleHook || fallbackHookTextForBrand(brand));
+          : (captionHookSeed || buildVariedHookFromCaption(finalCaption, cache) || titleHook || fallbackHookTextForBrand(brand));
     // Hook için listicle/ranked sinyalini tamamen yok say (Best one is #1 vb. istemiyoruz)
     const hookCore = manualHookTextRaw
       ? manualHookTextRaw.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)
@@ -2263,8 +2332,8 @@ app.post('/crush', async (req, res) => {
           : hookCore;
     hookText = stripBannedHookWords(hookText);
     // Avoid half-sentences like "Dad tries to"
-    if (!manualHookTextRaw && isDanglingHookFragment(hookText)) {
-      const better = buildHookFromCaption(finalCaption) || fallbackHookTextForBrand(brand);
+    if (!manualHookTextRaw && (isDanglingHookFragment(hookText) || isRepetitiveTemplateHook(hookText))) {
+      const better = buildVariedHookFromCaption(finalCaption, cache) || fallbackHookTextForBrand(brand);
       hookText = reelsEmojiBrand ? ensureHookUsesPoolEmoji(better, emojiPool) : better;
       hookText = stripBannedHookWords(hookText) || better;
     }
