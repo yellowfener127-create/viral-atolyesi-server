@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const crush = require('./crush-pipeline');
+const memeInjector = require('./meme-injector');
 
 const app = express();
 app.use(cors());
@@ -1850,6 +1851,61 @@ async function runYtDlpToResponse(res, url) {
 }
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+app.get('/meme-snippets', (req, res) => {
+  const dir = memeInjector.resolveChaosSnippetsDir(__dirname);
+  const files = memeInjector.listSnippetFiles(dir);
+  return res.json({
+    ok: true,
+    dir,
+    count: files.length,
+    files: files.map((p) => path.basename(p))
+  });
+});
+
+app.post(
+  '/meme-inject',
+  express.raw({ type: () => true, limit: '400mb' }),
+  async (req, res) => {
+    const buf = req.body;
+    if (!Buffer.isBuffer(buf) || buf.length < 1000) {
+      return res.status(400).json({ error: 'Video dosyası gerekli (binary body).' });
+    }
+    const ranges = memeInjector.parseMemeRanges(
+      req.headers['x-meme-ranges'] || req.query.ranges || '[]'
+    );
+    const origName = decodeURIComponent(String(req.headers['x-original-name'] || 'video.mp4'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-meme-in-'));
+    const inFile = path.join(tmpDir, 'in' + (path.extname(origName) || '.mp4'));
+    const outDir = path.join(DOWNLOAD_DIR, 'Chaos Lab');
+    fs.mkdirSync(outDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const outFile = path.join(outDir, `meme_inject_${stamp}.mp4`);
+    try {
+      fs.writeFileSync(inFile, buf);
+      const info = await memeInjector.injectMemes({
+        ffmpegPath: 'ffmpeg',
+        ffprobePath: 'ffprobe',
+        inFile,
+        outFile,
+        ranges,
+        projectRoot: __dirname
+      });
+      return res.json({
+        ok: true,
+        savedTo: outDir,
+        file: path.basename(outFile),
+        absPath: outFile,
+        ...info
+      });
+    } catch (e) {
+      const code = e && e.statusCode ? e.statusCode : 500;
+      return res.status(code).json({ error: (e && e.message) ? e.message : String(e) });
+    } finally {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    }
+  }
+);
 
 app.get('/download', async (req, res) => {
   const url = req.query.url;

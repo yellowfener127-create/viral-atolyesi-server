@@ -182,8 +182,30 @@
   .reset-btn{margin-top:14px;padding:9px 20px;background:var(--accent);color:white;border:none;border-radius:9px;font-family:'Outfit',sans-serif;font-size:13px;font-weight:700;cursor:pointer}
 
   /* TOOLS PAGE */
-  .tools-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+  .tools-grid{display:block;max-width:920px}
   .tool-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;position:relative;overflow:hidden}
+  .master-card{padding:0}
+  .master-card-head{padding:20px 22px 12px}
+  .mcc-tabs{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px;border-bottom:1px solid var(--border)}
+  .mcc-tab{
+    padding:7px 12px;border-radius:999px;border:1px solid var(--border);
+    background:var(--card);color:var(--muted);cursor:pointer;font-family:'Outfit',sans-serif;
+    font-size:11px;font-weight:600;letter-spacing:.02em
+  }
+  .mcc-tab:hover{color:var(--text);border-color:#444}
+  .mcc-tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .mcc-panel{display:none;padding:18px 22px 22px}
+  .mcc-panel.active{display:block}
+  .mcc-panel .tool-btn{width:auto;padding:8px 12px;font-size:12px}
+  .mcc-primary{width:100% !important;padding:12px !important;font-size:14px !important;margin-top:8px}
+  .mcc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+  .meme-player{width:100%;max-height:42vh;background:#0a0a0a;border:1px solid var(--border);border-radius:10px;display:block}
+  .meme-range-row{display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;align-items:end;margin-bottom:8px}
+  .meme-range-row label{font-size:11px;color:var(--muted);display:block}
+  .meme-range-row input{width:100%;margin-bottom:0}
+  @media (max-width:640px){
+    .meme-range-row{grid-template-columns:1fr 1fr}
+  }
   .tool-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),transparent)}
   .tool-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;margin-bottom:6px}
   .tool-desc{font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.5}
@@ -289,38 +311,39 @@
 
   <div class="tools-grid">
 
-    <!-- Gemini API Key (Local Director) -->
-    <div class="tool-card">
-      <div class="tool-title">🧠 Gemini API Key (isteğe bağlı / eski)</div>
-      <div class="tool-desc">Telif Ezici artık Vertex kullanmıyor; manuel blur + başlık tabanlı caption çalışır. Bu alan başka araçlar için saklanabilir.</div>
+    <div class="tool-card master-card" id="masterControlCard">
+      <div class="master-card-head">
+        <div class="tool-title">🎛️ Master Control — Telif Ezici</div>
+        <div class="tool-desc" style="margin-bottom:0">Tüm araçlar tek panelde. Sekmeler arasında geç; ayarlar aynı render’a gider.</div>
+      </div>
+      <div class="mcc-tabs" role="tablist">
+        <button type="button" class="mcc-tab active" data-mcc="render" onclick="showMccTab('render')">Render</button>
+        <button type="button" class="mcc-tab" data-mcc="gemini" onclick="showMccTab('gemini')">Gemini</button>
+        <button type="button" class="mcc-tab" data-mcc="blur" onclick="showMccTab('blur')">Önizleme &amp; Blur</button>
+        <button type="button" class="mcc-tab" data-mcc="nudge" onclick="showMccTab('nudge')">Kaydırma</button>
+        <button type="button" class="mcc-tab" data-mcc="hook" onclick="showMccTab('hook')">Hook</button>
+        <button type="button" class="mcc-tab" data-mcc="meme" onclick="showMccTab('meme')">Meme Enjektörü</button>
+      </div>
+
+    <div class="mcc-panel" id="mcc-gemini">
+      <div class="tool-title" style="font-size:16px">🧠 Gemini API Key</div>
+      <div class="tool-desc">İsteğe bağlı. Hook üretimi Vertex veya bu anahtarı kullanır.</div>
       <input class="tool-input" type="password" id="geminiInput" placeholder="AIzaSy... Gemini API key"/>
       <button class="tool-btn" type="button" id="geminiSaveBtn" onclick="saveGeminiKey()">Kaydet</button>
       <div class="tool-result" id="geminiStatus" style="display:block;margin-top:10px;font-size:12px;color:var(--muted)"></div>
     </div>
 
-    <!-- Telif Ezici (9:16 + watermark) -->
-    <div class="tool-card">
-      <div class="tool-title">🧨 Telif Ezici (9:16)</div>
+    <div class="mcc-panel active" id="mcc-render">
+      <div class="tool-title" style="font-size:16px">🧨 Telif Ezici (9:16)</div>
       <div class="tool-desc">
-        <strong>Telif Ezici</strong> tek bir ffmpeg render’ında şunları yapar (orijinal/transformative kurgu + gizlilik odaklı):
-        <ul class="tool-features">
-          <li>9:16 kare, hafif zoom/renk, ~1.1× temel hız + küçük rastgele hız varyasyonu (±%2–%4)</li>
-          <li>Kenarlardan 4–6 px mikro kırpma + merkez sabitleme</li>
-          <li>Hook bandı + edit-style font + başlık yerleşimi (başlık tabanlı kanca; AI koordinat yok)</li>
-          <li><strong>Manuel blur:</strong> 720×1280 px referansında canvas üzerinde dikdörtgen çizip gönderirsin; sunucu FFmpeg <code>delogo</code> zinciri uygular</li>
-        </ul>
+        <strong>Telif Ezici</strong> tek bir ffmpeg render’ında 9:16 + zoom/renk + watermark + caption üretir.
+        Blur, kaydırma, hook ve meme ayarları diğer sekmelerdedir; hepsi aynı işleme gider.
         <ul class="tool-features more" id="crushFeaturesMore">
-          <li>Tek cümle İngilizce caption + otomatik 5 hashtag paketi</li>
-          <li>Yatay çevirme yok (videoya yakılmış yazılar akış olarak görünmez; flip güvenli değil)</li>
-          <li>Çok hafif grain + mevcut “gizli” noise katmanı (piksel düzeyinde hafif varyasyon)</li>
-          <li>Kaos / Terapi / Umut watermark: dairesel, seken, köşelerden random başlayan hareket</li>
-          <li>Arka plan müziği: <code>public/audio/crush/&lt;konsept&gt;/</code> içinden rastgele parça; orijinal sesin altında %7–%10; rastgele başlangıç offset</li>
-          <li>Dinamik FPS tespiti + hedef FPS ayarı + senkron ses/video render</li>
-          <li>CRF 18, slower preset, unsharp, yuv420p ve sosyal medya uyumlu bitrate sınırları</li>
-          <li>Çıkışta metadata/chapter temizliği; yeni <code>creation_time</code> ve mobil cihaz etiketi (kaynak cihaz sızmaz)</li>
+          <li>Kenarlardan 4–6 px mikro kırpma + ~1.1× hız (±%2–%4)</li>
+          <li>Manuel blur: 720×1280 referansta delogo</li>
+          <li>Lisanslı BGM, grain, metadata temizliği, CRF 18</li>
         </ul>
         <button type="button" class="tool-expand-btn" id="crushExpandBtn" onclick="toggleCrushFeatures()">+ daha fazlası</button>
-        <span style="font-size:11px;color:var(--muted)">PC’de <code>localhost:8787/crush</code> (Local Downloader); sunucuda <code>POST /tools/crush</code> aynı <code>manual_blur_rects</code> + pipeline.</span>
       </div>
       <input class="tool-input" type="url" id="crushUrl" placeholder="YouTube / TikTok / Instagram linki"/>
       <select class="platform-select" id="crushBrand">
@@ -328,17 +351,30 @@
         <option value="kaos">KAOS ATÖLYESİ</option>
         <option value="umut">UMUT ATÖLYESİ</option>
       </select>
-      <div style="font-size:12px;color:var(--muted);margin:10px 0 6px">
-        <strong>Manuel blur (720×1280 px):</strong> Aynı videonun yerel kopyasını yükleyin; canvas 9:16 merkez kırpımına yakın önizleme gösterir. Koordinatlar px cinsinden 720×1280 çıktı uzayına map edilir.
+      <div class="mcc-row" style="margin-top:10px">
+        <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="crushLabMeterEnabled" checked />
+          Lab Meter (Speedometer)
+        </label>
+        <label style="font-size:11px;color:var(--muted)">Target (Score)
+          <input type="range" id="crushLabMeterTarget" min="0" max="100" step="1" value="85" style="width:220px;vertical-align:middle;margin-left:6px" />
+          <span id="crushLabMeterTargetVal" style="font-variant-numeric:tabular-nums">85</span>
+        </label>
       </div>
-      <div style="font-size:12px;color:var(--muted);margin:6px 0 4px">
-        <strong>Önizleme:</strong> seçtiğin markanın Lab zırh PNG’si (Kaos/Chaos için <code>kaos_zrh_arka_plan.png</code>) tuvalin arkasına konur; video yokken de çerçeve + hook ile konum ayarlanır. Dikey video kaydırma için −500…+500 px (720×1280 referans).
-      </div>
+      <button class="tool-btn mcc-primary" type="button" id="crushBtn" onclick="crushVideo()">⚡ İndir + Telif Ez (9:16)</button>
+      <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
+      <div class="tool-result" id="crushCaptionBox" style="display:none;margin-top:10px"></div>
+      <button class="tool-copy-btn" id="crushCaptionCopy" style="display:none" onclick="copyToolText('crushCaptionBox','crushCaptionCopy')">📋 Caption'ı Kopyala</button>
+    </div>
+
+    <div class="mcc-panel" id="mcc-blur">
+      <div class="tool-title" style="font-size:16px">🖼 Önizleme &amp; Blur</div>
+      <div class="tool-desc">Yerel kopyayı yükle; 720×1280 referansta blur kutusu çiz. Meter’ı sürükleyebilirsin.</div>
       <input class="tool-input" type="file" id="crushPreviewFile" accept="video/*" />
       <div id="crushBlurPreviewWrap" style="margin-top:10px;">
         <video id="crushPreviewVideo" muted playsinline preload="metadata" style="display:none;width:0;height:0;position:absolute;visibility:hidden"></video>
         <canvas id="crushBlurCanvas" width="720" height="1280" tabindex="0" style="max-width:100%;max-height:52vh;width:auto;height:auto;border:1px solid #333;border-radius:6px;background:#0a0a0a;display:block;touch-action:none"></canvas>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center">
+        <div class="mcc-row">
           <button type="button" class="tool-btn" id="crushBlurModeBtn" onclick="toggleCrushBlurDrawMode()">Blur Ekle</button>
           <button type="button" class="tool-btn" id="crushMeterDragBtn" onclick="toggleCrushMeterDragMode()">Meter sürükle: KAPALI</button>
           <label style="font-size:11px;color:var(--muted)">Zoom
@@ -353,29 +389,11 @@
         </div>
         <div id="crushBlurRectList" style="font-size:11px;color:var(--muted);margin-top:6px;max-height:100px;overflow:auto"></div>
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px">
-        <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
-          <input type="checkbox" id="crushLabMeterEnabled" checked />
-          Lab Meter (Speedometer)
-        </label>
-        <label style="font-size:11px;color:var(--muted)">Target (Score)
-          <input type="range" id="crushLabMeterTarget" min="0" max="100" step="1" value="85" style="width:220px;vertical-align:middle;margin-left:6px" />
-          <span id="crushLabMeterTargetVal" style="font-variant-numeric:tabular-nums">85</span>
-        </label>
-        <span style="font-size:11px;color:var(--muted)">“Meter sürükle” açıkken önizlemede göstergenin merkezini tutup taşı.</span>
-      </div>
-      <button class="tool-btn" type="button" id="crushBtn" onclick="crushVideo()">⚡ İndir + Telif Ez (9:16)</button>
-      <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
-      <div class="tool-result" id="crushCaptionBox" style="display:none;margin-top:10px"></div>
-      <button class="tool-copy-btn" id="crushCaptionCopy" style="display:none" onclick="copyToolText('crushCaptionBox','crushCaptionCopy')">📋 Caption'ı Kopyala</button>
     </div>
 
-    <!-- Telif Ezici — Manuel Video Kaydırma -->
-    <div class="tool-card">
-      <div class="tool-title">⬍ Telif Ezici — Video Kaydırma (Manuel)</div>
-      <div class="tool-desc" style="font-size:12px;color:var(--muted)">
-        Aynı <strong>Telif Ezici</strong> isteğine bağlıdır. Bu önizleme, çerçeve penceresindeki üst kırpımı (old hook gizleme) + nudge’ı gösterir.
-      </div>
+    <div class="mcc-panel" id="mcc-nudge">
+      <div class="tool-title" style="font-size:16px">⬍ Video Kaydırma (Manuel)</div>
+      <div class="tool-desc">Çerçeve penceresindeki üst kırpım + dikey kaydırma. Aynı Telif Ezici isteğine gider.</div>
       <canvas id="crushNudgeCanvas" width="720" height="1280" tabindex="0" style="max-width:100%;max-height:42vh;width:auto;height:auto;border:1px solid #333;border-radius:6px;background:#0a0a0a;display:block;touch-action:none"></canvas>
       <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Video dikey kaydır
         <input type="range" id="crushVideoNudgeY" min="-500" max="500" step="1" value="0" style="width:min(100%,320px);vertical-align:middle;margin-left:6px" />
@@ -386,26 +404,23 @@
         <span id="crushPreviewWindowShiftYVal" style="font-variant-numeric:tabular-nums">0</span> px
       </label>
       <div style="font-size:12px;color:var(--muted);margin-top:10px">
-        <strong>Manuel kırpma:</strong> Aşağıdaki tuvalde kutunun kenarlarından tutup küçült. İndirilen videoya da aynı kırpma uygulanır.
+        <strong>Manuel kırpma:</strong> Tuvalde kutunun kenarlarından tutup küçült.
       </div>
       <canvas id="crushCropCanvas" width="720" height="1280" tabindex="0" style="max-width:100%;max-height:42vh;width:auto;height:auto;border:1px solid #333;border-radius:6px;background:#0a0a0a;display:block;touch-action:none;margin-top:8px"></canvas>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center">
+      <div class="mcc-row">
         <button type="button" class="tool-btn" id="crushCropModeBtn" onclick="toggleCrushCropMode()">Kırpma: KAPALI</button>
         <button type="button" class="tool-btn" onclick="resetCrushCrop()">Kırpma sıfırla</button>
       </div>
     </div>
 
-    <!-- Telif Ezici — Manuel Hook & Caption -->
-    <div class="tool-card">
-      <div class="tool-title">✍️ Telif Ezici — Hook & Caption (Manuel)</div>
-      <div class="tool-desc" style="font-size:12px;color:var(--muted)">
-        Aynı <strong>Telif Ezici</strong> isteğine bağlıdır. Burada hook/caption metnini elle yazıp emoji ekleyebilir, konumunu ayarlayabilirsin.
-      </div>
+    <div class="mcc-panel" id="mcc-hook">
+      <div class="tool-title" style="font-size:16px">✍️ Hook &amp; Caption (Manuel)</div>
+      <div class="tool-desc">Hook metnini yaz; konumu sürükle. Boş bırakırsan otomatik / Gemini üretir.</div>
       <canvas id="crushHookCanvas" width="720" height="1280" tabindex="0" style="max-width:100%;max-height:42vh;width:auto;height:auto;border:1px solid #333;border-radius:6px;background:#0a0a0a;display:block;touch-action:none"></canvas>
       <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Hook/CAPTION (boş = otomatik/Gemini)
         <textarea id="crushHookManual" rows="2" class="tool-input" style="margin-top:4px;resize:vertical;min-height:44px;font-size:12px" placeholder="İngilizce kanca + emoji…"></textarea>
       </label>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;align-items:center;font-size:11px;color:var(--muted)">
+      <div class="mcc-row" style="font-size:11px;color:var(--muted)">
         <button type="button" class="tool-btn" id="crushHookDragBtn" onclick="toggleCrushHookDragMode()">Hook sürükle: KAPALI</button>
         <label>Hook X
           <input type="range" id="crushHookOffX" min="-400" max="400" step="1" value="0" style="width:140px;vertical-align:middle" />
@@ -418,7 +433,29 @@
       </div>
     </div>
 
-    <!-- (Video URL → MP4 indir kaldırıldı) -->
+    <div class="mcc-panel" id="mcc-meme">
+      <div class="tool-title" style="font-size:16px">⚡ Manuel Kesit &amp; Meme Enjektörü</div>
+      <div class="tool-desc">
+        Ana videoyu oynat, meme basılacak saniye aralıklarını ekle.
+        Klipler <code>chaos_snippets</code> klasöründen rastgele seçilir; belirtilen aralık 9:16 CRF 18 çıktıya gömülür.
+      </div>
+      <input class="tool-input" type="file" id="memeSourceFile" accept="video/*" />
+      <video id="memePlayer" class="meme-player" controls playsinline></video>
+      <div class="mcc-row" style="font-size:12px;color:var(--muted)">
+        <span id="memeTimeLabel">Süre: — · Şu an: 0.00s</span>
+        <span id="memeSnippetStatus">Klip havuzu: …</span>
+      </div>
+      <div id="memeRangeList" style="margin-top:12px"></div>
+      <div class="mcc-row">
+        <button type="button" class="tool-btn" onclick="addMemeRange()">+ Aralık ekle</button>
+        <button type="button" class="tool-btn" onclick="memeMarkStart()">Şu an → başlangıç</button>
+        <button type="button" class="tool-btn" onclick="memeMarkEnd()">Şu an → bitiş</button>
+      </div>
+      <button class="tool-btn mcc-primary" type="button" id="memeInjectBtn" onclick="runMemeInject()">Enjekte et &amp; kaydet (9:16)</button>
+      <div class="tool-result" id="memeMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
+    </div>
 
   </div>
 </div>
@@ -1928,7 +1965,236 @@ window.onload = function() {
     }
   } catch(e) {}
   try { wireCrushManualBlurUi(); } catch (e4) {}
+  try { initMemeInjectorUi(); } catch (e5) {}
 };
+
+function showMccTab(id) {
+  const key = String(id || "render");
+  document.querySelectorAll(".mcc-tab").forEach((b) => {
+    b.classList.toggle("active", b.getAttribute("data-mcc") === key);
+  });
+  document.querySelectorAll(".mcc-panel").forEach((p) => {
+    p.classList.toggle("active", p.id === "mcc-" + key);
+  });
+}
+
+let __memeRanges = [{ start: "", end: "" }];
+let __memeObjectUrl = null;
+let __memeLastIdx = 0;
+
+function memeNowSec() {
+  const v = document.getElementById("memePlayer");
+  return v && Number.isFinite(v.currentTime) ? Number(v.currentTime) : 0;
+}
+
+function collectMemeRangesFromDom() {
+  const rows = document.querySelectorAll("#memeRangeList .meme-range-row");
+  const out = [];
+  rows.forEach((row) => {
+    const a = Number(row.querySelector(".meme-start") && row.querySelector(".meme-start").value);
+    const b = Number(row.querySelector(".meme-end") && row.querySelector(".meme-end").value);
+    out.push({
+      start: Number.isFinite(a) ? a : "",
+      end: Number.isFinite(b) ? b : ""
+    });
+  });
+  if (out.length) __memeRanges = out;
+  return __memeRanges;
+}
+
+function renderMemeRanges() {
+  const host = document.getElementById("memeRangeList");
+  if (!host) return;
+  if (!__memeRanges.length) __memeRanges = [{ start: "", end: "" }];
+  host.innerHTML = __memeRanges.map((r, i) => {
+    const s = r.start === "" || r.start == null ? "" : String(r.start);
+    const e = r.end === "" || r.end == null ? "" : String(r.end);
+    return (
+      '<div class="meme-range-row" data-idx="' + i + '">' +
+        '<label>Başlangıç (s)<input class="tool-input meme-start" type="number" min="0" step="0.1" value="' + s + '" /></label>' +
+        '<label>Bitiş (s)<input class="tool-input meme-end" type="number" min="0" step="0.1" value="' + e + '" /></label>' +
+        '<button type="button" class="tool-btn" onclick="removeMemeRange(' + i + ')">Sil</button>' +
+        '<button type="button" class="tool-btn" onclick="seekMemeRange(' + i + ')">Git</button>' +
+      '</div>'
+    );
+  }).join("");
+}
+
+function addMemeRange() {
+  collectMemeRangesFromDom();
+  __memeRanges.push({ start: "", end: "" });
+  __memeLastIdx = __memeRanges.length - 1;
+  renderMemeRanges();
+}
+
+function removeMemeRange(i) {
+  collectMemeRangesFromDom();
+  __memeRanges.splice(i, 1);
+  if (!__memeRanges.length) __memeRanges.push({ start: "", end: "" });
+  renderMemeRanges();
+}
+
+function seekMemeRange(i) {
+  collectMemeRangesFromDom();
+  const v = document.getElementById("memePlayer");
+  const r = __memeRanges[i];
+  if (!v || !r) return;
+  const t = Number(r.start);
+  if (Number.isFinite(t)) v.currentTime = Math.max(0, t);
+}
+
+function memeMarkStart() {
+  collectMemeRangesFromDom();
+  if (!__memeRanges.length) __memeRanges.push({ start: "", end: "" });
+  const i = Math.min(__memeLastIdx, __memeRanges.length - 1);
+  __memeRanges[i].start = Number(memeNowSec().toFixed(2));
+  renderMemeRanges();
+}
+
+function memeMarkEnd() {
+  collectMemeRangesFromDom();
+  if (!__memeRanges.length) __memeRanges.push({ start: "", end: "" });
+  const i = Math.min(__memeLastIdx, __memeRanges.length - 1);
+  __memeRanges[i].end = Number(memeNowSec().toFixed(2));
+  renderMemeRanges();
+}
+
+function updateMemeTimeLabel() {
+  const v = document.getElementById("memePlayer");
+  const lab = document.getElementById("memeTimeLabel");
+  if (!lab || !v) return;
+  const d = Number.isFinite(v.duration) ? v.duration.toFixed(2) : "—";
+  lab.textContent = "Süre: " + d + "s · Şu an: " + Number(v.currentTime || 0).toFixed(2) + "s";
+}
+
+async function refreshMemeSnippetStatus() {
+  const el = document.getElementById("memeSnippetStatus");
+  if (!el) return;
+  const apply = (j) => {
+    const n = j && Number.isFinite(j.count) ? j.count : 0;
+    const dir = j && j.dir ? j.dir : "chaos_snippets";
+    el.textContent = n
+      ? ("Klip havuzu: " + n + " dosya · " + dir)
+      : ("Klip havuzu boş · MP4 koy: " + dir);
+  };
+  try {
+    const local = await fetch("http://127.0.0.1:8787/meme-snippets");
+    if (local.ok) { apply(await local.json()); return; }
+  } catch (e0) {}
+  try {
+    const remote = await fetch(backendUrl("/tools/meme-snippets"));
+    if (remote.ok) { apply(await remote.json()); return; }
+  } catch (e1) {}
+  el.textContent = "Klip havuzu: yerel sunucuya bağlanılamadı (chaos_snippets)";
+}
+
+function initMemeInjectorUi() {
+  renderMemeRanges();
+  const fileInp = document.getElementById("memeSourceFile");
+  const player = document.getElementById("memePlayer");
+  if (fileInp && player) {
+    fileInp.addEventListener("change", () => {
+      const f = fileInp.files && fileInp.files[0];
+      if (__memeObjectUrl) {
+        try { URL.revokeObjectURL(__memeObjectUrl); } catch (eRev) {}
+        __memeObjectUrl = null;
+      }
+      if (!f) return;
+      __memeObjectUrl = URL.createObjectURL(f);
+      player.src = __memeObjectUrl;
+      player.load();
+    });
+    player.addEventListener("timeupdate", updateMemeTimeLabel);
+    player.addEventListener("loadedmetadata", updateMemeTimeLabel);
+  }
+  refreshMemeSnippetStatus();
+}
+
+async function runMemeInject() {
+  const inp = document.getElementById("memeSourceFile");
+  const btn = document.getElementById("memeInjectBtn");
+  const msg = document.getElementById("memeMsg");
+  const file = inp && inp.files && inp.files[0];
+  collectMemeRangesFromDom();
+  const ranges = (__memeRanges || [])
+    .map((r) => ({ start: Number(r.start), end: Number(r.end) }))
+    .filter((r) => Number.isFinite(r.start) && Number.isFinite(r.end) && r.end > r.start);
+  if (!file) { alert("Önce ana videoyu yükle."); return; }
+  if (!ranges.length) { alert("En az bir geçerli başlangıç–bitiş aralığı gir."); return; }
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Enjekte ediliyor…"; }
+  if (msg) { msg.style.display = "block"; msg.textContent = "İşleniyor (9:16, CRF 18)…"; }
+  const headers = {
+    "Content-Type": file.type || "application/octet-stream",
+    "x-meme-ranges": JSON.stringify(ranges),
+    "x-original-name": encodeURIComponent(file.name || "video.mp4"),
+    "x-meme-json": "1",
+    "Accept": "application/json"
+  };
+  const buf = await file.arrayBuffer();
+  const showOk = (j, note) => {
+    const used = (j.snippetsUsed || []).map((s) => s.file + " @" + s.at + "s").join(", ");
+    msg.style.display = "block";
+    msg.textContent =
+      "✅ Tamam.\n" +
+      (note ? note + "\n" : "") +
+      "Klasör: " + (j.savedTo || "—") + "\n" +
+      "Dosya: " + (j.file || "—") + "\n" +
+      (j.absPath ? ("Yol: " + j.absPath + "\n") : "") +
+      "Boyut: " + (j.size || "1080x1920") + " · FPS: " + (j.fps || 30) + "\n" +
+      "Süre: " + (j.durationIn || "?") + "s → " + (j.durationOut || "?") + "s\n" +
+      (used ? ("Klipler: " + used) : "");
+  };
+  try {
+    let done = false;
+    try {
+      const localRes = await fetch("http://127.0.0.1:8787/meme-inject", {
+        method: "POST",
+        headers,
+        body: buf
+      });
+      const localText = await localRes.text();
+      if (localRes.ok) {
+        showOk(JSON.parse(localText), "Local Downloader kaydetti.");
+        done = true;
+      } else {
+        throw new Error(localText.slice(0, 400));
+      }
+    } catch (localErr) {
+      if (done) throw localErr;
+      if (msg) msg.textContent = "Yerel sunucu yok / hata. Uzak sunucu deneniyor…\n" + (localErr && localErr.message ? localErr.message : "");
+      const remoteRes = await fetch(backendUrl("/tools/meme-inject"), {
+        method: "POST",
+        headers,
+        body: buf
+      });
+      const ctype = String(remoteRes.headers.get("content-type") || "");
+      if (!remoteRes.ok) {
+        const t = await remoteRes.text();
+        throw new Error(t.slice(0, 800) || ("HTTP " + remoteRes.status));
+      }
+      if (ctype.includes("application/json")) {
+        showOk(await remoteRes.json(), "Sunucu çıktı klasörüne yazdı.");
+      } else {
+        const blob = await remoteRes.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "meme_inject_9x16.mp4";
+        a.click();
+        msg.style.display = "block";
+        msg.textContent = "✅ İndirme başladı (meme_inject_9x16.mp4). 1080×1920, CRF 18.";
+      }
+    }
+  } catch (e) {
+    if (msg) {
+      msg.style.display = "block";
+      msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
+    } else {
+      alert(e && e.message ? e.message : String(e));
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Enjekte et & kaydet (9:16)"; }
+  }
+}
 
 function saveGeminiKey() {
   const v = (document.getElementById("geminiInput").value || "").trim();
