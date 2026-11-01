@@ -998,11 +998,13 @@ async function buildCrushRenderPlan(o) {
   const wmYExpr = `${wmMargin}+(H-h-2*${wmMargin})*(${pYSafeExpr})`;
   const speedRamp = pickSpeedRampFactor();
   const effectiveSpeed = BASE_EDIT_SPEED * speedRamp;
-  const inDur0 = clampDur(sourceDurSec, 1, 60);
+  // Tek video varsayılanı 60 sn. Derleme yolu maxDurationSec ile uzatır.
+  const maxDurCap = Math.max(30, Math.min(240, Number(o.maxDurationSec) || 60));
+  const inDur0 = clampDur(sourceDurSec, 1, maxDurCap);
   const manualStartSecRaw = Number(o.manual_start_sec ?? o.manualStartSec ?? 0);
   const startSec = Number.isFinite(manualStartSecRaw) ? Math.max(0, Math.min(inDur0 - 0.10, manualStartSecRaw)) : 0;
   const inDur = Math.max(0.10, inDur0 - startSec);
-  const outDur = Math.min(60, Math.max(1, inDur / effectiveSpeed));
+  const outDur = Math.min(maxDurCap, Math.max(1, inDur / effectiveSpeed));
 
   const origFps = (await probeOriginalFpsInt(ffmpegPath, ffprobePath, inFile)) || 30;
   const targetFps = computeTargetFpsInt(origFps);

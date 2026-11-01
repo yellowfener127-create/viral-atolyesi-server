@@ -324,6 +324,7 @@
         <button type="button" class="mcc-tab" data-mcc="nudge" onclick="showMccTab('nudge')">Kaydırma</button>
         <button type="button" class="mcc-tab" data-mcc="hook" onclick="showMccTab('hook')">Hook</button>
         <button type="button" class="mcc-tab" data-mcc="meme" onclick="showMccTab('meme')">Meme Enjektörü</button>
+        <button type="button" class="mcc-tab" data-mcc="compilation" onclick="showMccTab('compilation')">Derleme &amp; Karma</button>
       </div>
 
     <div class="mcc-panel" id="mcc-gemini">
@@ -449,6 +450,26 @@
         <button type="button" class="tool-btn" onclick="memeMarkStart()">Şu an → başlangıç</button>
         <button type="button" class="tool-btn" onclick="memeMarkEnd()">Şu an → bitiş</button>
       </div>
+    </div>
+
+    <div class="mcc-panel" id="mcc-compilation">
+      <div class="tool-title" style="font-size:16px">Derleme &amp; Karma</div>
+      <div class="tool-desc">
+        En az iki YouTube linki. Her video için başlangıç–bitiş parçaları gir.
+        Parçalar sırayla birleşir. Her geçişin arasına <code>chaos_snippets</code> klibi kendi süresiyle girer.
+        Sonra mevcut Telif Ezici (9:16, hız, hook, sayaç, müzik, metadata) uygulanır.
+        Marka, blur, kaydırma ve hook diğer sekmelerden okunur.
+      </div>
+      <div id="compSourceList"></div>
+      <div class="mcc-row">
+        <button type="button" class="tool-btn" onclick="addCompSource()">+ Video ekle</button>
+        <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="compShuffle" />
+          Parça sırasını karıştır
+        </label>
+      </div>
+      <button class="tool-btn mcc-primary" type="button" id="compMixBtn" onclick="runCompilationMix()">🚀 Tüm Ayarları Birleştir &amp; Render Al (Compilation Mix)</button>
+      <div class="tool-result" id="compMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
     </div>
 
     <div class="mcc-renderbar">
@@ -1987,7 +2008,171 @@ window.onload = function() {
   } catch(e) {}
   try { wireCrushManualBlurUi(); } catch (e4) {}
   try { initMemeInjectorUi(); } catch (e5) {}
+  try { initCompilationMixerUi(); } catch (e6) {}
 };
+
+let __compSources = [
+  { url: "", parts: [{ start: 0, end: 10 }] },
+  { url: "", parts: [{ start: 0, end: 8 }] }
+];
+
+function escAttr(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+function collectCompFromDom() {
+  const blocks = document.querySelectorAll("#compSourceList .comp-source");
+  const out = [];
+  blocks.forEach((block) => {
+    const urlEl = block.querySelector(".comp-url");
+    const parts = [];
+    block.querySelectorAll(".comp-part").forEach((row) => {
+      const a = row.querySelector(".comp-start");
+      const b = row.querySelector(".comp-end");
+      parts.push({ start: a ? a.value : "", end: b ? b.value : "" });
+    });
+    out.push({ url: urlEl ? String(urlEl.value || "").trim() : "", parts });
+  });
+  if (out.length) __compSources = out;
+  return __compSources;
+}
+
+function renderCompSources() {
+  const host = document.getElementById("compSourceList");
+  if (!host) return;
+  if (__compSources.length < 2) {
+    while (__compSources.length < 2) __compSources.push({ url: "", parts: [{ start: 0, end: 8 }] });
+  }
+  host.innerHTML = __compSources.map((s, si) => {
+    const letter = String.fromCharCode(65 + si);
+    const parts = (s.parts && s.parts.length ? s.parts : [{ start: 0, end: 8 }]).map((p, pi) => (
+      '<div class="meme-range-row comp-part">' +
+        '<label>Başlangıç (s)<input class="tool-input comp-start" type="number" min="0" step="0.1" value="' + escAttr(p.start) + '" /></label>' +
+        '<label>Bitiş (s)<input class="tool-input comp-end" type="number" min="0" step="0.1" value="' + escAttr(p.end) + '" /></label>' +
+        '<button type="button" class="tool-btn" onclick="removeCompPart(' + si + ',' + pi + ')">Sil</button>' +
+        '<span></span>' +
+      '</div>'
+    )).join("");
+    const removeBtn = __compSources.length > 2
+      ? '<button type="button" class="tool-btn" onclick="removeCompSource(' + si + ')">Videoyu sil</button>'
+      : "";
+    return (
+      '<div class="comp-source" style="border:1px solid #333;border-radius:10px;padding:10px;margin-bottom:10px">' +
+        '<div style="font-size:12px;margin-bottom:6px">Video ' + letter + '</div>' +
+        '<input class="tool-input comp-url" type="url" placeholder="YouTube linki" value="' + escAttr(s.url) + '" />' +
+        parts +
+        '<div class="mcc-row">' +
+          '<button type="button" class="tool-btn" onclick="addCompPart(' + si + ')">+ Parça</button>' +
+          removeBtn +
+        '</div>' +
+      '</div>'
+    );
+  }).join("");
+}
+
+function initCompilationMixerUi() { renderCompSources(); }
+
+function addCompSource() {
+  collectCompFromDom();
+  if (__compSources.length >= 6) return;
+  __compSources.push({ url: "", parts: [{ start: 0, end: 8 }] });
+  renderCompSources();
+}
+
+function removeCompSource(i) {
+  collectCompFromDom();
+  if (__compSources.length <= 2) return;
+  __compSources.splice(i, 1);
+  renderCompSources();
+}
+
+function addCompPart(si) {
+  collectCompFromDom();
+  const s = __compSources[si];
+  if (!s) return;
+  if (!s.parts) s.parts = [];
+  if (s.parts.length >= 6) return;
+  const last = s.parts[s.parts.length - 1];
+  const start = last && Number.isFinite(Number(last.end)) ? Number(last.end) : 0;
+  s.parts.push({ start, end: start + 8 });
+  renderCompSources();
+}
+
+function removeCompPart(si, pi) {
+  collectCompFromDom();
+  const s = __compSources[si];
+  if (!s || !s.parts || s.parts.length <= 1) return;
+  s.parts.splice(pi, 1);
+  renderCompSources();
+}
+
+async function runCompilationMix() {
+  collectCompFromDom();
+  const btn = document.getElementById("compMixBtn");
+  const msg = document.getElementById("compMsg");
+  const sources = __compSources.map((s) => ({
+    url: String(s.url || "").trim(),
+    parts: (s.parts || []).map((p) => ({ start: Number(p.start), end: Number(p.end) }))
+      .filter((p) => Number.isFinite(p.start) && Number.isFinite(p.end) && p.end > p.start)
+  })).filter((s) => s.url && s.parts.length);
+  const urls = [...new Set(sources.map((s) => s.url))];
+  const partCount = sources.reduce((n, s) => n + s.parts.length, 0);
+  if (urls.length < 2 || partCount < 2) {
+    alert("En az 2 farklı link ve toplam 2 parça gerekli.");
+    return;
+  }
+  const manual_blur_rects = (window.__crushManual && __crushManual.rects || []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
+  const manual_crop_rect_720 = (typeof crushClampCropRect === "function")
+    ? crushClampCropRect((__crushManual && __crushManual.cropRect) || { x: 0, y: 0, w: 720, h: 1280 })
+    : null;
+  const hookEl = document.getElementById("crushHookManual");
+  const brandEl = document.getElementById("crushBrand");
+  const meterOn = document.getElementById("crushLabMeterEnabled");
+  const meterVal = document.getElementById("crushLabMeterTarget");
+  const pos = (window.__crushManual && __crushManual.labMeterPos) || { x: 360, y: 988 };
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Derleniyor…"; }
+  if (msg) { msg.style.display = "block"; msg.textContent = "Kaynaklar indiriliyor, parçalar birleşiyor, Telif Ezici uygulanıyor…"; }
+  try {
+    const res = await fetch("http://127.0.0.1:8787/crush-compilation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        brand: brandEl ? brandEl.value : "terapi",
+        sources,
+        shuffle: !!(document.getElementById("compShuffle") && document.getElementById("compShuffle").checked),
+        hook_text: hookEl ? String(hookEl.value || "").trim() : "",
+        manual_blur_rects,
+        manual_crop_rect_720,
+        manual_reels_crop_y_nudge_px: Number(__crushManual && __crushManual.videoCropYNudgePx) || 0,
+        manual_reels_window_shift_y_px: Number(__crushManual && __crushManual.previewWindowShiftYPx) || 0,
+        manual_reels_hook_x_offset_px: Number(__crushManual && __crushManual.hookXOffsetPx) || 0,
+        manual_reels_hook_y_offset_px: Number(__crushManual && __crushManual.hookYOffsetPx) || 0,
+        lab_meter_enabled: meterOn ? !!meterOn.checked : true,
+        lab_meter_target_value: meterVal ? Number(meterVal.value) : 85,
+        lab_meter_pos_x_px: Math.round(Number(pos.x) || 360),
+        lab_meter_pos_y_px: Math.round(Number(pos.y) || 988)
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
+    const memes = (data.mix && data.mix.memes) ? data.mix.memes.join(", ") : "";
+    if (msg) {
+      msg.style.display = "block";
+      msg.textContent =
+        "Kaydedildi: " + (data.savedTo || "") + "\\" + (data.file || "") +
+        "\nSüre: " + (data.mix && data.mix.durationOut != null ? data.mix.durationOut + "s" : "?") +
+        (memes ? ("\nGeçiş klipleri: " + memes) : "") +
+        (data.hookText ? ("\nHook: " + data.hookText) : "");
+    }
+  } catch (e) {
+    if (msg) { msg.style.display = "block"; msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e)); }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "🚀 Tüm Ayarları Birleştir & Render Al (Compilation Mix)";
+    }
+  }
+}
 
 function showMccTab(id) {
   const key = String(id || "render");

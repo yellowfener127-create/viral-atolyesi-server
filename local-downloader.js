@@ -8,6 +8,7 @@ const path = require('path');
 const crypto = require('crypto');
 const crush = require('./crush-pipeline');
 const memeInjector = require('./meme-injector');
+const compilationMixer = require('./compilation-mixer');
 
 const app = express();
 app.use(cors());
@@ -1915,6 +1916,185 @@ app.get('/download', async (req, res) => {
 
 // Telif Ezici (PC): indir -> 9:16 + zoom + renk + 1.10x + seken watermark
 const __crushInProgress = new Map(); // key: `${brand}::${url}` -> startedAt ms
+app.post('/crush-compilation', async (req, res) => {
+  const brand = normBrand(req.body?.brand || 'terapi');
+  const sources = compilationMixer.parseCompilationSources(req.body?.sources);
+  const urls = [...new Set(sources.map((s) => s.url))];
+  if (urls.length < 2) {
+    return res.status(400).json({ error: 'En az 2 farklı video linki ve her birinde geçerli bir parça gerekli.' });
+  }
+  const clipCount = sources.reduce((n, s) => n + s.parts.length, 0);
+  if (clipCount < 2) {
+    return res.status(400).json({ error: 'En az 2 parça gir (örnek 0–10 ve 0–8).' });
+  }
+  const shuffle = req.body?.shuffle === true || req.body?.shuffle === '1' || req.body?.shuffle === 'true';
+
+  const crushKey = `compilation::${brand}::${urls.join('|')}`;
+  const now = Date.now();
+  const prev = __crushInProgress.get(crushKey);
+  if (prev && (now - prev) < 15 * 60 * 1000) {
+    return res.status(409).json({ error: 'Bu derleme zaten işleniyor.' });
+  }
+  __crushInProgress.set(crushKey, now);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    try { __crushInProgress.delete(crushKey); } catch {}
+  };
+  res.on('close', release);
+  res.on('finish', release);
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-comp-'));
+  try {
+    const hasYtDlp = await existsOnPath('yt-dlp');
+    const hasFfmpeg = await existsOnPath('ffmpeg');
+    const hasFfprobe = await existsOnPath('ffprobe');
+    if (!hasYtDlp) return res.status(500).json({ error: 'yt-dlp bulunamadı.' });
+    if (!hasFfmpeg || !hasFfprobe) return res.status(500).json({ error: 'ffmpeg/ffprobe bulunamadı.' });
+    const wmFile = crushWatermarkPngPath(brand);
+    if (!fs.existsSync(wmFile)) return res.status(500).json({ error: 'Watermark dosyası yok.' });
+
+    const fileByUrl = new Map();
+    const titleByUrl = new Map();
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
+      const dur = await ytDlpGetDurationSec(url);
+      if (dur && dur > 180) {
+        return res.status(400).json({ error: `Kaynak çok uzun (${Math.round(dur)}s). Derleme için 3 dakikanın altını kullan.` });
+      }
+      const sub = path.join(tmpDir, `src_${i}`);
+      fs.mkdirSync(sub, { recursive: true });
+      const tpl = path.join(sub, 'in.%(ext)s');
+      const dlArgs = [
+        '--no-playlist', '--no-part', '--no-mtime',
+        ...YTDLP_NET_ARGS,
+        '--downloader', 'ffmpeg',
+        '--merge-output-format', 'mp4',
+        '-f', 'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best',
+        '-o', tpl,
+        ...ytdlpCookieCliArgs(),
+        url
+      ];
+      await run('yt-dlp', dlArgs, { timeoutMs: 4 * 60 * 1000 });
+      const file = pickNewestFile(sub);
+      if (!file) return res.status(500).json({ error: 'Bir kaynak indirilemedi.' });
+      fileByUrl.set(url, file);
+      titleByUrl.set(url, await ytDlpGetTitle(url).catch(() => ''));
+    }
+
+    const clips = [];
+    sources.forEach((s, si) => {
+      const file = fileByUrl.get(s.url);
+      s.parts.forEach((p) => {
+        clips.push({
+          file,
+          start: p.start,
+          end: p.end,
+          label: `V${si + 1} ${p.start}-${p.end}`
+        });
+      });
+    });
+
+    const mixed = path.join(tmpDir, 'mixed.mp4');
+    const mixInfo = await compilationMixer.mixCompilation({
+      ffmpegPath: 'ffmpeg',
+      ffprobePath: 'ffprobe',
+      clips,
+      shuffle,
+      outFile: mixed,
+      projectRoot: __dirname
+    });
+
+    const inDur = Number(mixInfo.durationOut) || (await probeVideoDurationSec(mixed)) || 20;
+    const maxDurationSec = Math.min(240, Math.max(60, Math.ceil(inDur + 2)));
+    const hasAudio = await probeHasAudio(mixed);
+    const musicFile = crush.pickRandomMusicFile(PUBLIC_DIR, brand);
+    const manualHook = String(req.body?.hook_text || '').trim();
+    const titles = urls.map((u) => titleByUrl.get(u)).filter(Boolean).join('. ');
+    const cache = loadDirectorCache();
+    let hookText = manualHook || buildVariedHookFromCaption(titles || 'ranked compilation', cache);
+    const emojiPool = loadCrushEmojiPool();
+    const reelsEmoji = normBrand(brand) === 'terapi' || normBrand(brand) === 'umut';
+    if (!manualHook && reelsEmoji) hookText = ensureHookUsesPoolEmoji(hookText, emojiPool);
+    hookText = stripBannedHookWords(hookText);
+    const hook = { text: hookText, bannerY: 0, y: 95, boxOpacity: 1, color: null };
+
+    const labMeterEnabledRaw = String(req.body?.lab_meter_enabled ?? '').trim().toLowerCase();
+    const labMeterEnabled = labMeterEnabledRaw === '' ? true : (labMeterEnabledRaw === '1' || labMeterEnabledRaw === 'true' || labMeterEnabledRaw === 'yes' || labMeterEnabledRaw === 'on');
+    const labMeterTargetValue = Math.max(0, Math.min(100, Math.round(Number(req.body?.lab_meter_target_value) || 85)));
+    const labMeterPos720 = {
+      x: Math.round(Number(req.body?.lab_meter_pos_x_px) || 360),
+      y: Math.round(Number(req.body?.lab_meter_pos_y_px) || 988)
+    };
+
+    const brandDir = getBrandDir(brand);
+    fs.mkdirSync(brandDir, { recursive: true });
+    const outFile = path.join(brandDir, `compilation_${Date.now()}.mp4`);
+
+    const planInput = {
+      inFile: mixed,
+      wmFile,
+      musicFile,
+      brand,
+      outW: 1080,
+      outH: 1920,
+      sourceDurSec: inDur,
+      maxDurationSec,
+      hook,
+      coverBox: null,
+      manual_blur_rects: crush.parseManualBlurRectsInput(req.body?.manual_blur_rects || []),
+      manual_crop_rect_720: crush.parseManualCropRectInput(req.body?.manual_crop_rect_720 || null),
+      manual_reels_crop_y_nudge_px: crush.parseManualReelsCropYNudgePx(req.body?.manual_reels_crop_y_nudge_px),
+      manual_reels_window_shift_y_px: crush.parseManualReelsWindowShiftYPx(req.body?.manual_reels_window_shift_y_px),
+      manual_reels_hook_x_offset_px: crush.parseManualReelsHookOffsetPx(req.body?.manual_reels_hook_x_offset_px),
+      manual_reels_hook_y_offset_px: crush.parseManualReelsHookOffsetPx(req.body?.manual_reels_hook_y_offset_px),
+      manual_start_sec: 0,
+      lab_meter: {
+        enabled: labMeterEnabled,
+        target_value: labMeterTargetValue,
+        pos_720: labMeterPos720
+      },
+      manualBlurRefW: crush.MANUAL_BLUR_REF_W,
+      manualBlurRefH: crush.MANUAL_BLUR_REF_H,
+      hasAudio,
+      ffmpegPath: 'ffmpeg',
+      ffprobePath: 'ffprobe',
+      useRubberband: true,
+      tmpDir
+    };
+
+    let plan;
+    try {
+      plan = await crush.buildCrushRenderPlan(planInput);
+      await run('ffmpeg', [...plan.ffmpegArgsTail, outFile], { timeoutMs: 12 * 60 * 1000 });
+    } catch (e1) {
+      const msg = String((e1 && e1.message) || e1);
+      if (!/rubberband|No such filter|not found/i.test(msg)) throw e1;
+      plan = await crush.buildCrushRenderPlan({ ...planInput, useRubberband: false });
+      await run('ffmpeg', [...plan.ffmpegArgsTail, outFile], { timeoutMs: 12 * 60 * 1000 });
+    }
+
+    const verify = await crush.selfCheckCrushOutput('ffmpeg', 'ffprobe', outFile);
+    return res.json({
+      ok: true,
+      savedTo: brandDir,
+      file: path.basename(outFile),
+      absPath: outFile,
+      mix: mixInfo,
+      hookText,
+      settings: plan.debug,
+      verify
+    });
+  } catch (e) {
+    const code = e && e.statusCode ? e.statusCode : 500;
+    return res.status(code).json({ error: (e && e.message) ? e.message : String(e) });
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    release();
+  }
+});
+
 app.post('/crush', async (req, res) => {
   const url = req.body?.url || req.query?.url;
   const brand = normBrand(req.body?.brand || req.query?.brand || 'terapi');
