@@ -17,6 +17,12 @@ app.use(express.json({ limit: '256kb' }));
 const PORT = process.env.LOCAL_DOWNLOADER_PORT || 8787;
 const DEFAULT_DIR = path.join(process.env.USERPROFILE || process.cwd(), 'Videos', 'Viral Atölyesi İndirilenler');
 const DOWNLOAD_DIR = process.env.VA_DOWNLOAD_DIR || DEFAULT_DIR;
+function getMixDir() {
+  const dir = process.env.VA_MIX_DIR
+    || path.join(process.env.USERPROFILE || process.cwd(), 'Viral Atölyesi', 'indirilenler', 'mix');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
 const PUBLIC_DIR = path.join(__dirname, 'public');
 /** Önizleme kare çıkarımı: sabit 1000×1000 letterbox (analiz / hizalama). */
 const GEMINI_ANALYSIS_PX = 1000;
@@ -1916,6 +1922,40 @@ app.get('/download', async (req, res) => {
 
 // Telif Ezici (PC): indir -> 9:16 + zoom + renk + 1.10x + seken watermark
 const __crushInProgress = new Map(); // key: `${brand}::${url}` -> startedAt ms
+app.get('/mix-files', (req, res) => {
+  const dir = getMixDir();
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { names = []; }
+  const files = names
+    .filter((n) => /\.(mp4|mov|webm|mkv|m4v)$/i.test(n))
+    .map((n) => {
+      const abs = path.join(dir, n);
+      let mtime = 0;
+      try { mtime = fs.statSync(abs).mtimeMs; } catch {}
+      return { file: n, absPath: abs, mtime };
+    })
+    .sort((a, b) => b.mtime - a.mtime);
+  return res.json({ ok: true, dir, files });
+});
+
+app.post(
+  '/mix-import',
+  express.raw({ type: () => true, limit: '800mb' }),
+  (req, res) => {
+    const buf = req.body;
+    if (!Buffer.isBuffer(buf) || buf.length < 1000) {
+      return res.status(400).json({ error: 'Video dosyası gerekli.' });
+    }
+    const dir = getMixDir();
+    const orig = decodeURIComponent(String(req.headers['x-original-name'] || 'video.mp4'));
+    const ext = (path.extname(orig) || '.mp4').toLowerCase();
+    const safeExt = ['.mp4', '.mov', '.webm', '.mkv', '.m4v'].includes(ext) ? ext : '.mp4';
+    const outFile = path.join(dir, `import_${Date.now()}${safeExt}`);
+    fs.writeFileSync(outFile, buf);
+    return res.json({ ok: true, savedTo: dir, file: path.basename(outFile), absPath: outFile });
+  }
+);
+
 app.post('/crush-compilation', async (req, res) => {
   const brand = normBrand(req.body?.brand || 'terapi');
   const sources = compilationMixer.parseCompilationSources(req.body?.sources);
@@ -1952,8 +1992,6 @@ app.post('/crush-compilation', async (req, res) => {
     const hasFfprobe = await existsOnPath('ffprobe');
     if (!hasYtDlp) return res.status(500).json({ error: 'yt-dlp bulunamadı.' });
     if (!hasFfmpeg || !hasFfprobe) return res.status(500).json({ error: 'ffmpeg/ffprobe bulunamadı.' });
-    const wmFile = crushWatermarkPngPath(brand);
-    if (!fs.existsSync(wmFile)) return res.status(500).json({ error: 'Watermark dosyası yok.' });
 
     const fileByUrl = new Map();
     const titleByUrl = new Map();
@@ -2006,85 +2044,15 @@ app.post('/crush-compilation', async (req, res) => {
       projectRoot: __dirname
     });
 
-    const inDur = Number(mixInfo.durationOut) || (await probeVideoDurationSec(mixed)) || 20;
-    const maxDurationSec = Math.min(240, Math.max(60, Math.ceil(inDur + 2)));
-    const hasAudio = await probeHasAudio(mixed);
-    const musicFile = crush.pickRandomMusicFile(PUBLIC_DIR, brand);
-    const manualHook = String(req.body?.hook_text || '').trim();
-    const titles = urls.map((u) => titleByUrl.get(u)).filter(Boolean).join('. ');
-    const cache = loadDirectorCache();
-    let hookText = manualHook || buildVariedHookFromCaption(titles || 'ranked compilation', cache);
-    const emojiPool = loadCrushEmojiPool();
-    const reelsEmoji = normBrand(brand) === 'terapi' || normBrand(brand) === 'umut';
-    if (!manualHook && reelsEmoji) hookText = ensureHookUsesPoolEmoji(hookText, emojiPool);
-    hookText = stripBannedHookWords(hookText);
-    const hook = { text: hookText, bannerY: 0, y: 95, boxOpacity: 1, color: null };
-
-    const labMeterEnabledRaw = String(req.body?.lab_meter_enabled ?? '').trim().toLowerCase();
-    const labMeterEnabled = labMeterEnabledRaw === '' ? true : (labMeterEnabledRaw === '1' || labMeterEnabledRaw === 'true' || labMeterEnabledRaw === 'yes' || labMeterEnabledRaw === 'on');
-    const labMeterTargetValue = Math.max(0, Math.min(100, Math.round(Number(req.body?.lab_meter_target_value) || 85)));
-    const labMeterPos720 = {
-      x: Math.round(Number(req.body?.lab_meter_pos_x_px) || 360),
-      y: Math.round(Number(req.body?.lab_meter_pos_y_px) || 988)
-    };
-
-    const brandDir = getBrandDir(brand);
-    fs.mkdirSync(brandDir, { recursive: true });
-    const outFile = path.join(brandDir, `compilation_${Date.now()}.mp4`);
-
-    const planInput = {
-      inFile: mixed,
-      wmFile,
-      musicFile,
-      brand,
-      outW: 1080,
-      outH: 1920,
-      sourceDurSec: inDur,
-      maxDurationSec,
-      hook,
-      coverBox: null,
-      manual_blur_rects: crush.parseManualBlurRectsInput(req.body?.manual_blur_rects || []),
-      manual_crop_rect_720: crush.parseManualCropRectInput(req.body?.manual_crop_rect_720 || null),
-      manual_reels_crop_y_nudge_px: crush.parseManualReelsCropYNudgePx(req.body?.manual_reels_crop_y_nudge_px),
-      manual_reels_window_shift_y_px: crush.parseManualReelsWindowShiftYPx(req.body?.manual_reels_window_shift_y_px),
-      manual_reels_hook_x_offset_px: crush.parseManualReelsHookOffsetPx(req.body?.manual_reels_hook_x_offset_px),
-      manual_reels_hook_y_offset_px: crush.parseManualReelsHookOffsetPx(req.body?.manual_reels_hook_y_offset_px),
-      manual_start_sec: 0,
-      lab_meter: {
-        enabled: labMeterEnabled,
-        target_value: labMeterTargetValue,
-        pos_720: labMeterPos720
-      },
-      manualBlurRefW: crush.MANUAL_BLUR_REF_W,
-      manualBlurRefH: crush.MANUAL_BLUR_REF_H,
-      hasAudio,
-      ffmpegPath: 'ffmpeg',
-      ffprobePath: 'ffprobe',
-      useRubberband: true,
-      tmpDir
-    };
-
-    let plan;
-    try {
-      plan = await crush.buildCrushRenderPlan(planInput);
-      await run('ffmpeg', [...plan.ffmpegArgsTail, outFile], { timeoutMs: 12 * 60 * 1000 });
-    } catch (e1) {
-      const msg = String((e1 && e1.message) || e1);
-      if (!/rubberband|No such filter|not found/i.test(msg)) throw e1;
-      plan = await crush.buildCrushRenderPlan({ ...planInput, useRubberband: false });
-      await run('ffmpeg', [...plan.ffmpegArgsTail, outFile], { timeoutMs: 12 * 60 * 1000 });
-    }
-
-    const verify = await crush.selfCheckCrushOutput('ffmpeg', 'ffprobe', outFile);
+    const mixDir = getMixDir();
+    const outFile = path.join(mixDir, `compilation_${Date.now()}.mp4`);
+    fs.copyFileSync(mixed, outFile);
     return res.json({
       ok: true,
-      savedTo: brandDir,
+      savedTo: mixDir,
       file: path.basename(outFile),
       absPath: outFile,
-      mix: mixInfo,
-      hookText,
-      settings: plan.debug,
-      verify
+      mix: mixInfo
     });
   } catch (e) {
     const code = e && e.statusCode ? e.statusCode : 500;
@@ -2138,11 +2106,24 @@ app.post('/crush', async (req, res) => {
     Number.isFinite(labMeterPosX) && Number.isFinite(labMeterPosY)
       ? { x: Math.round(labMeterPosX), y: Math.round(labMeterPosY) }
       : null;
-  if (!url) return res.status(400).json({ error: 'url gerekli' });
+  const localPathRaw = String(req.body?.local_path || req.body?.localPath || '').trim();
+  let localPath = '';
+  if (localPathRaw) {
+    const resolved = path.resolve(localPathRaw);
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+      return res.status(400).json({ error: 'Yerel video bulunamadı.' });
+    }
+    const ext = path.extname(resolved).toLowerCase();
+    if (!['.mp4', '.mov', '.webm', '.mkv', '.m4v'].includes(ext)) {
+      return res.status(400).json({ error: 'Video dosyası seç (.mp4, .mov, .webm, .mkv).' });
+    }
+    localPath = resolved;
+  }
+  if (!url && !localPath) return res.status(400).json({ error: 'Yerel video seç. Mix klasöründen bir dosya veya bilgisayarından bir video.' });
+  let crushDurCap = localPath ? 600 : 60;
 
   // Aynı video için paralel/çift tıklama koruması:
-  // Aynı url+brand için bir render akışı devam ederken ikinci istek gelirse hemen reddet.
-  const crushKey = `${brand}::${String(url).trim()}`;
+  const crushKey = `${brand}::${localPath || String(url).trim()}`;
   const now = Date.now();
   const prev = __crushInProgress.get(crushKey);
   if (prev && (now - prev) < 10 * 60 * 1000) {
@@ -2161,8 +2142,8 @@ app.post('/crush', async (req, res) => {
   const brandDir = getBrandDir(brand);
   fs.mkdirSync(brandDir, { recursive: true });
 
-  const hasYtDlp = await existsOnPath('yt-dlp');
-  if (!hasYtDlp) return res.status(500).json({ error: 'yt-dlp bulunamadı. Önce bilgisayara yt-dlp kur.' });
+  const hasYtDlp = localPath ? true : await existsOnPath('yt-dlp');
+  if (!localPath && !hasYtDlp) return res.status(500).json({ error: 'yt-dlp bulunamadı. Önce bilgisayara yt-dlp kur.' });
 
   const hasFfmpeg = await existsOnPath('ffmpeg');
   const hasFfprobe = await existsOnPath('ffprobe');
@@ -2177,9 +2158,18 @@ app.post('/crush', async (req, res) => {
   let outFile = path.join(brandDir, `crushed_${brand}_9x16_${Date.now()}.mp4`);
 
   try {
-    const metaDur = await ytDlpGetDurationSec(url);
-    const metaTitle = await ytDlpGetTitle(url).catch(() => '');
-    const titleIsListicle = guessListicleFromTitle(metaTitle);
+    let metaDur = null;
+    let metaTitle = '';
+    let titleIsListicle = false;
+    let inFile = '';
+    if (localPath) {
+      metaTitle = path.basename(localPath, path.extname(localPath));
+      titleIsListicle = guessListicleFromTitle(metaTitle);
+      inFile = localPath;
+    } else {
+    metaDur = await ytDlpGetDurationSec(url);
+    metaTitle = await ytDlpGetTitle(url).catch(() => '');
+    titleIsListicle = guessListicleFromTitle(metaTitle);
     if (metaDur && metaDur > 60) {
       return res.status(400).json({ error: `Bu araç sadece 60 saniye altı videolarda çalışır. Video süresi: ${Math.round(metaDur)}s` });
     }
@@ -2263,21 +2253,25 @@ app.post('/crush', async (req, res) => {
       }
     }
 
-    const inFile = pickNewestFile(tmpDir);
+    inFile = pickNewestFile(tmpDir);
     if (!inFile) return res.status(500).json({ error: 'İndirilen dosya bulunamadı' });
+    }
+
     const hasVideo = await probeHasVideo(inFile);
     if (!hasVideo) {
       return res.status(500).json({
-        error: 'İndirilen dosyada video akışı yok (sadece ses geldi). Bu videoda uygun mp4 A+V formatı bulunamadı.'
+        error: 'Seçilen dosyada video akışı yok.'
       });
     }
 
     const probedDur = await probeVideoDurationSec(inFile).catch(() => probeDurationSec(inFile).catch(() => null));
-    // Süreyi meta'dan almayı tercih et: bazı dosyalarda container timestamp'leri bozuk olup saatler gösterebiliyor.
-    const inDur = clamp(metaDur || probedDur || 20, 1, 60);
-    if (inDur > 60) {
-      return res.status(400).json({ error: `Bu araç sadece 60 saniye altı videolarda çalışır. Video süresi: ${Math.round(inDur)}s` });
+    const rawDur = Number(metaDur || probedDur || 0);
+    if (rawDur > crushDurCap) {
+      return res.status(400).json({
+        error: `Bu video ${crushDurCap} saniyeden uzun (${Math.round(rawDur)}s).`
+      });
     }
+    const inDur = clamp(rawDur || 20, 1, crushDurCap);
     const outW = 1080;
     const outH = 1920;
     const hasAudio = await probeHasAudio(inFile);
@@ -2618,6 +2612,7 @@ app.post('/crush', async (req, res) => {
             outW,
             outH,
             sourceDurSec: inDur,
+            maxDurationSec: crushDurCap,
             hook,
             coverBox,
             manual_blur_rects: manualBlurRectsBody,
@@ -2655,6 +2650,7 @@ app.post('/crush', async (req, res) => {
       outW,
       outH,
       sourceDurSec: inDur,
+      maxDurationSec: crushDurCap,
       hook,
       coverBox,
       manual_blur_rects: manualBlurRectsBody,

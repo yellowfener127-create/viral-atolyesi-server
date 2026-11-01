@@ -999,7 +999,10 @@ async function buildCrushRenderPlan(o) {
   const speedRamp = pickSpeedRampFactor();
   const effectiveSpeed = BASE_EDIT_SPEED * speedRamp;
   // Tek video varsayılanı 60 sn. Derleme yolu maxDurationSec ile uzatır.
-  const maxDurCap = Math.max(30, Math.min(240, Number(o.maxDurationSec) || 60));
+  const requestedCap = Number(o.maxDurationSec);
+  const maxDurCap = Number.isFinite(requestedCap) && requestedCap > 0
+    ? Math.max(30, Math.min(600, requestedCap))
+    : 60;
   const inDur0 = clampDur(sourceDurSec, 1, maxDurCap);
   const manualStartSecRaw = Number(o.manual_start_sec ?? o.manualStartSec ?? 0);
   const startSec = Number.isFinite(manualStartSecRaw) ? Math.max(0, Math.min(inDur0 - 0.10, manualStartSecRaw)) : 0;

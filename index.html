@@ -252,8 +252,9 @@
     <div class="logo">Viral <span>Atölyesi</span></div>
   </div>
   <div class="nav">
-    <button class="nav-btn active" onclick="showPage('main')">🏠 Ana Sayfa</button>
-    <button class="nav-btn" onclick="showPage('tools')">🛠️ Araçlar</button>
+    <button class="nav-btn active" data-page="main" onclick="showPage('main')">🏠 Ana Sayfa</button>
+    <button class="nav-btn" data-page="mix" onclick="showPage('mix')">🎬 Mix &amp; Derleme</button>
+    <button class="nav-btn" data-page="tools" onclick="showPage('tools')">🛠️ Araçlar</button>
   </div>
   <div class="day-badge" id="dayBadge">📅 <strong>—</strong></div>
 </div>
@@ -302,6 +303,32 @@
 </div>
 </div>
 
+<div class="page" id="page-mix">
+<div class="wrap">
+  <div style="margin-bottom:18px">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;margin-bottom:6px">Mix &amp; Derleme</div>
+    <div style="font-size:13px;color:var(--muted)">YouTube parçalarını birleştirir. Telif Ezici bu sayfada çalışmaz.</div>
+  </div>
+  <div class="tool-card" style="max-width:920px">
+    <div class="tool-desc">
+      En az iki YouTube linki. Her videodan istediğin saniye aralıklarını seç.
+      Parçalar bu sırayla birleşir. Her geçişin arasına <code>chaos_snippets</code> klibi kendi süresiyle girer. Son parçadan sonra meme yok.
+      Çıktı: <code>Viral Atölyesi/indirilenler/mix/compilation_….mp4</code>
+    </div>
+    <div id="compSourceList"></div>
+    <div class="mcc-row">
+      <button type="button" class="tool-btn" onclick="addCompSource()">+ Video ekle</button>
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="compShuffle" />
+        Parça sırasını karıştır
+      </label>
+    </div>
+    <button class="tool-btn" type="button" id="compMixBtn" onclick="runCompilationMix()" style="margin-top:10px">Derlemeyi kaydet</button>
+    <div class="tool-result" id="compMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
+  </div>
+</div>
+</div>
+
 <!-- ARAÇLAR SAYFASI -->
 <div class="page" id="page-tools">
 <div class="wrap">
@@ -324,7 +351,6 @@
         <button type="button" class="mcc-tab" data-mcc="nudge" onclick="showMccTab('nudge')">Kaydırma</button>
         <button type="button" class="mcc-tab" data-mcc="hook" onclick="showMccTab('hook')">Hook</button>
         <button type="button" class="mcc-tab" data-mcc="meme" onclick="showMccTab('meme')">Meme Enjektörü</button>
-        <button type="button" class="mcc-tab" data-mcc="compilation" onclick="showMccTab('compilation')">Derleme &amp; Karma</button>
       </div>
 
     <div class="mcc-panel" id="mcc-gemini">
@@ -347,7 +373,13 @@
         </ul>
         <button type="button" class="tool-expand-btn" id="crushExpandBtn" onclick="toggleCrushFeatures()">+ daha fazlası</button>
       </div>
-      <input class="tool-input" type="url" id="crushUrl" placeholder="YouTube / TikTok / Instagram linki"/>
+      <div class="tool-desc">Kaynak: <code>indirilenler/mix</code> klasöründeki derleme veya bilgisayarındaki başka bir video. YouTube linki istenmez.</div>
+      <select class="platform-select" id="crushLocalSelect"><option value="">Mix klasöründen seç…</option></select>
+      <div class="mcc-row">
+        <button type="button" class="tool-btn" onclick="refreshCrushLocalList()">Listeyi yenile</button>
+      </div>
+      <input class="tool-input" type="file" id="crushLocalFile" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.mkv,.m4v" />
+      <input class="tool-input" type="text" id="crushLocalPath" placeholder="Veya tam dosya yolu (C:\…\video.mp4)" />
       <select class="platform-select" id="crushBrand">
         <option value="terapi" selected>TERAPİ ATÖLYESİ</option>
         <option value="kaos">KAOS ATÖLYESİ</option>
@@ -452,29 +484,9 @@
       </div>
     </div>
 
-    <div class="mcc-panel" id="mcc-compilation">
-      <div class="tool-title" style="font-size:16px">Derleme &amp; Karma</div>
-      <div class="tool-desc">
-        En az iki YouTube linki. Her video için başlangıç–bitiş parçaları gir.
-        Parçalar sırayla birleşir. Her geçişin arasına <code>chaos_snippets</code> klibi kendi süresiyle girer.
-        Sonra mevcut Telif Ezici (9:16, hız, hook, sayaç, müzik, metadata) uygulanır.
-        Marka, blur, kaydırma ve hook diğer sekmelerden okunur.
-      </div>
-      <div id="compSourceList"></div>
-      <div class="mcc-row">
-        <button type="button" class="tool-btn" onclick="addCompSource()">+ Video ekle</button>
-        <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
-          <input type="checkbox" id="compShuffle" />
-          Parça sırasını karıştır
-        </label>
-      </div>
-      <button class="tool-btn mcc-primary" type="button" id="compMixBtn" onclick="runCompilationMix()">🚀 Tüm Ayarları Birleştir &amp; Render Al (Compilation Mix)</button>
-      <div class="tool-result" id="compMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
-    </div>
-
     <div class="mcc-renderbar">
       <div class="tool-desc" style="margin-bottom:8px">
-        Sekmeler yalnızca ayar toplar. Bu buton önce Telif Ezici’yi (9:16, zoom, blur, grain, hook, kaydırma, metadata), sonra meme kesitini uygular. 1080×1920, CRF 18.
+        Seçilen yerel dosyaya Telif Ezici uygulanır: 1080×1920, mikro kırpma, renk, grain, hız, metadata, hook, lab sayacı, blur ve kaydırma. YouTube indirmez.
       </div>
       <button class="tool-btn mcc-primary" type="button" id="crushBtn" onclick="crushVideo()">🚀 Tüm Ayarları Birleştir &amp; Render Al (9:16)</button>
       <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
@@ -1827,12 +1839,51 @@ function toggleCrushFeatures() {
   btn.textContent = isOpen ? "+ daha fazlası" : "- daha azı";
 }
 
+async function resolveCrushLocalPath() {
+  const fileInput = document.getElementById("crushLocalFile");
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  if (file) {
+    const up = await fetch("http://127.0.0.1:8787/mix-import", {
+      method: "POST",
+      headers: { "x-original-name": encodeURIComponent(file.name || "video.mp4") },
+      body: await file.arrayBuffer()
+    });
+    const data = await up.json().catch(() => ({}));
+    if (!up.ok || !data.absPath) throw new Error((data && data.error) ? data.error : "Dosya yüklenemedi");
+    return data.absPath;
+  }
+  const typed = document.getElementById("crushLocalPath");
+  const typedPath = typed ? String(typed.value || "").trim() : "";
+  if (typedPath) return typedPath;
+  const sel = document.getElementById("crushLocalSelect");
+  return sel ? String(sel.value || "").trim() : "";
+}
+
+async function refreshCrushLocalList() {
+  const sel = document.getElementById("crushLocalSelect");
+  if (!sel) return;
+  const prev = sel.value;
+  try {
+    const res = await fetch("http://127.0.0.1:8787/mix-files");
+    const data = await res.json().catch(() => ({}));
+    const files = (data && data.files) || [];
+    sel.innerHTML = '<option value="">Mix klasöründen seç…</option>' + files.map((f) =>
+      '<option value="' + String(f.absPath || "").replace(/"/g, "&quot;") + '">' + String(f.file || "") + "</option>"
+    ).join("");
+    if (prev) sel.value = prev;
+  } catch (e) {}
+}
+
 async function crushVideo() {
-  const url = document.getElementById("crushUrl").value.trim();
   const brand = document.getElementById("crushBrand").value;
   const btn = document.getElementById("crushBtn");
   const msg = document.getElementById("crushMsg");
-  if (!url) { alert("Link gir."); return; }
+  let local_path = "";
+  try { local_path = await resolveCrushLocalPath(); } catch (ePath) {
+    alert((ePath && ePath.message) ? ePath.message : "Dosya okunamadı");
+    return;
+  }
+  if (!local_path) { alert("Mix klasöründen bir video seç veya bilgisayarından bir dosya göster."); return; }
 
   const manual_blur_rects = (__crushManual.rects || []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
   const manual_crop_rect_720 = crushClampCropRect(__crushManual.cropRect || { x: 0, y: 0, w: 720, h: 1280 });
@@ -1873,7 +1924,7 @@ async function crushVideo() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        url,
+        local_path,
         brand,
         gemini_api_key,
         gemini_model,
@@ -1971,8 +2022,11 @@ const resultsState = {
 function showPage(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('page-' + page).classList.add('active');
-  document.querySelectorAll('.nav-btn')[page === 'main' ? 0 : 1].classList.add('active');
+  const pageEl = document.getElementById('page-' + page);
+  if (pageEl) pageEl.classList.add('active');
+  const btn = document.querySelector('.nav-btn[data-page="' + page + '"]');
+  if (btn) btn.classList.add('active');
+  if (page === 'tools') refreshCrushLocalList();
 }
 
 // TARİH
@@ -2121,36 +2175,15 @@ async function runCompilationMix() {
     alert("En az 2 farklı link ve toplam 2 parça gerekli.");
     return;
   }
-  const manual_blur_rects = (window.__crushManual && __crushManual.rects || []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h }));
-  const manual_crop_rect_720 = (typeof crushClampCropRect === "function")
-    ? crushClampCropRect((__crushManual && __crushManual.cropRect) || { x: 0, y: 0, w: 720, h: 1280 })
-    : null;
-  const hookEl = document.getElementById("crushHookManual");
-  const brandEl = document.getElementById("crushBrand");
-  const meterOn = document.getElementById("crushLabMeterEnabled");
-  const meterVal = document.getElementById("crushLabMeterTarget");
-  const pos = (window.__crushManual && __crushManual.labMeterPos) || { x: 360, y: 988 };
   if (btn) { btn.disabled = true; btn.textContent = "⏳ Derleniyor…"; }
-  if (msg) { msg.style.display = "block"; msg.textContent = "Kaynaklar indiriliyor, parçalar birleşiyor, Telif Ezici uygulanıyor…"; }
+  if (msg) { msg.style.display = "block"; msg.textContent = "Kaynaklar indiriliyor, parçalar birleşiyor, meme geçişleri ekleniyor…"; }
   try {
     const res = await fetch("http://127.0.0.1:8787/crush-compilation", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        brand: brandEl ? brandEl.value : "terapi",
         sources,
-        shuffle: !!(document.getElementById("compShuffle") && document.getElementById("compShuffle").checked),
-        hook_text: hookEl ? String(hookEl.value || "").trim() : "",
-        manual_blur_rects,
-        manual_crop_rect_720,
-        manual_reels_crop_y_nudge_px: Number(__crushManual && __crushManual.videoCropYNudgePx) || 0,
-        manual_reels_window_shift_y_px: Number(__crushManual && __crushManual.previewWindowShiftYPx) || 0,
-        manual_reels_hook_x_offset_px: Number(__crushManual && __crushManual.hookXOffsetPx) || 0,
-        manual_reels_hook_y_offset_px: Number(__crushManual && __crushManual.hookYOffsetPx) || 0,
-        lab_meter_enabled: meterOn ? !!meterOn.checked : true,
-        lab_meter_target_value: meterVal ? Number(meterVal.value) : 85,
-        lab_meter_pos_x_px: Math.round(Number(pos.x) || 360),
-        lab_meter_pos_y_px: Math.round(Number(pos.y) || 988)
+        shuffle: !!(document.getElementById("compShuffle") && document.getElementById("compShuffle").checked)
       })
     });
     const data = await res.json().catch(() => ({}));
@@ -2161,15 +2194,15 @@ async function runCompilationMix() {
       msg.textContent =
         "Kaydedildi: " + (data.savedTo || "") + "\\" + (data.file || "") +
         "\nSüre: " + (data.mix && data.mix.durationOut != null ? data.mix.durationOut + "s" : "?") +
-        (memes ? ("\nGeçiş klipleri: " + memes) : "") +
-        (data.hookText ? ("\nHook: " + data.hookText) : "");
+        (memes ? ("\nGeçiş klipleri: " + memes) : "");
     }
+    try { refreshCrushLocalList(); } catch (eList) {}
   } catch (e) {
     if (msg) { msg.style.display = "block"; msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e)); }
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = "🚀 Tüm Ayarları Birleştir & Render Al (Compilation Mix)";
+      btn.textContent = "Derlemeyi kaydet";
     }
   }
 }
