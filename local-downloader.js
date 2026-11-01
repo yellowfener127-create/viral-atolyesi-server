@@ -17,8 +17,7 @@ const PORT = process.env.LOCAL_DOWNLOADER_PORT || 8787;
 const DEFAULT_DIR = path.join(process.env.USERPROFILE || process.cwd(), 'Videos', 'Viral Atölyesi İndirilenler');
 const DOWNLOAD_DIR = process.env.VA_DOWNLOAD_DIR || DEFAULT_DIR;
 function getMixDir() {
-  const dir = process.env.VA_MIX_DIR
-    || path.join(process.env.USERPROFILE || process.cwd(), 'Viral Atölyesi', 'indirilenler', 'mix');
+  const dir = process.env.VA_MIX_DIR || path.join(DOWNLOAD_DIR, 'mix');
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
