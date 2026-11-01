@@ -2245,7 +2245,12 @@ app.post('/crush', async (req, res) => {
       });
     }
 
-    const probedDur = await probeVideoDurationSec(inFile).catch(() => probeDurationSec(inFile).catch(() => null));
+    const streamDur = await probeVideoDurationSec(inFile).catch(() => null);
+    const formatDur = await probeDurationSec(inFile).catch(() => null);
+    const sane = (n) => Number.isFinite(n) && n > 0.2 && n <= crushDurCap + 0.05;
+    const probedDur = (sane(streamDur) && sane(formatDur))
+      ? Math.max(streamDur, formatDur)
+      : (sane(formatDur) ? formatDur : (sane(streamDur) ? streamDur : null));
     const rawDur = Number(metaDur || probedDur || 0);
     if (rawDur > crushDurCap) {
       return res.status(400).json({

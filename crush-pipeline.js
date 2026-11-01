@@ -1170,7 +1170,10 @@ async function buildCrushRenderPlan(o) {
   const wmInputIdxPlanned = nextInputIdx++;
   const musicInputIdxPlanned = nextInputIdx; // only valid if music input exists
 
-  let vChain = `[0:v]trim=start=${startSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${targetFps}`;
+  // PTS-STARTPTS burada kullanılmaz: mix/concat dosyasında her parça sınırında
+  // STARTPTS sıfırlanır, süre 11 sn'ye düşer ve görüntü donar. fps gerçek PTS'i korur;
+  // hız sadece settb sonrası PTS/speed ile uygulanır.
+  let vChain = `[0:v]trim=start=${startSec.toFixed(3)}:duration=${inDur.toFixed(3)},fps=${targetFps}`;
   vChain += `,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}[v0base0]`;
   // Manual crop rect: crop in outW×outH space, then scale back to outW×outH (fill).
   const cropRectOut = (() => {
@@ -1217,7 +1220,7 @@ async function buildCrushRenderPlan(o) {
     `,eq=contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}:brightness=${brightness.toFixed(4)}` +
     // Zoom kaynaklı yumuşamayı hafif toparla (çok agresif değil)
     `,unsharp=5:5:0.70:3:3:0.35` +
-    `,setsar=1,setpts=PTS/${effectiveSpeed.toFixed(6)},trim=0:${outDur.toFixed(3)},setpts=PTS-STARTPTS[v0]`;
+    `,setsar=1,settb=AVTB,setpts=PTS/${effectiveSpeed.toFixed(6)},trim=duration=${outDur.toFixed(3)}[v0]`;
 
   let baseLabel = cover ? 'vcover' : 'v0u';
 
