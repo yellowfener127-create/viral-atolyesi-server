@@ -987,17 +987,31 @@ function crushZirhFileForBrand(brand) {
 function crushLoadZirhFramePng() {
   const brandEl = document.getElementById("crushBrand");
   const brand = brandEl ? brandEl.value : "terapi";
-  const url = backendUrl("/" + crushZirhFileForBrand(brand));
-  const img = new Image();
-  img.onload = function () {
-    __crushManual.frameImg = img;
-    try { crushRedrawAllPreviews(); } catch (e1) {}
-  };
-  img.onerror = function () {
-    __crushManual.frameImg = null;
-    try { crushRedrawAllPreviews(); } catch (e2) {}
-  };
-  img.src = url;
+  const file = crushZirhFileForBrand(brand);
+  const gen = (__crushManual._frameGen = (__crushManual._frameGen || 0) + 1);
+  const candidates = [];
+  try { candidates.push(new URL("public/" + file, window.location.href).href); } catch (e0) {}
+  try { candidates.push(new URL(file, window.location.href).href); } catch (e1) {}
+  candidates.push(backendUrl("/" + file));
+  const uniq = [];
+  candidates.forEach(function (u) { if (uniq.indexOf(u) < 0) uniq.push(u); });
+  function tryAt(i) {
+    if (gen !== __crushManual._frameGen) return;
+    if (i >= uniq.length) {
+      __crushManual.frameImg = null;
+      try { crushRedrawAllPreviews(); } catch (e2) {}
+      return;
+    }
+    const img = new Image();
+    img.onload = function () {
+      if (gen !== __crushManual._frameGen) return;
+      __crushManual.frameImg = img;
+      try { crushRedrawAllPreviews(); } catch (e3) {}
+    };
+    img.onerror = function () { tryAt(i + 1); };
+    img.src = uniq[i];
+  }
+  tryAt(0);
 }
 
 function crushSyncHookSlidersFromState() {
@@ -1290,17 +1304,14 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   const sctx = tmpSc.getContext("2d");
   sctx.drawImage(tmpV0, 0, 0, PREVIEW_W, PREVIEW_H, 0, 0, iw2, ih2);
 
-  // Zırh PNG tam opak kalsın; video pencerenin üstüne çizilir.
-  ctx.fillStyle = "#ffffff";
+  // Zırh deseni arkada kalır. Desen yokken videoyu arkaya basma; yoksa pencereyle üst üste biner.
+  const br = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
+  ctx.fillStyle = br === "umut" ? "#F5F5F5" : "#F0F8FF";
   ctx.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
   const frm = __crushManual.frameImg;
   if (frm && frm.complete && frm.naturalWidth) {
     ctx.drawImage(frm, 0, 0, PREVIEW_W, PREVIEW_H);
-  } else {
-    ctx.drawImage(tmpV0, 0, 0);
   }
-  // Chaos/Hope: video pencere içinde biraz daha küçük görünsün (%5–%6)
-  const br = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
   const shrink = 1.0;
   const vww = Math.max(2, Math.round(ww * shrink));
   const vwh = Math.max(2, Math.round(wh * shrink));
