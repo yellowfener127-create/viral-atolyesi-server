@@ -7,7 +7,6 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const crush = require('./crush-pipeline');
-const memeInjector = require('./meme-injector');
 const compilationMixer = require('./compilation-mixer');
 
 const app = express();
@@ -1859,61 +1858,6 @@ async function runYtDlpToResponse(res, url) {
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
-app.get('/meme-snippets', (req, res) => {
-  const dir = memeInjector.resolveChaosSnippetsDir(__dirname);
-  const files = memeInjector.listSnippetFiles(dir);
-  return res.json({
-    ok: true,
-    dir,
-    count: files.length,
-    files: files.map((p) => path.basename(p))
-  });
-});
-
-app.post(
-  '/meme-inject',
-  express.raw({ type: () => true, limit: '400mb' }),
-  async (req, res) => {
-    const buf = req.body;
-    if (!Buffer.isBuffer(buf) || buf.length < 1000) {
-      return res.status(400).json({ error: 'Video dosyası gerekli (binary body).' });
-    }
-    const ranges = memeInjector.parseMemeRanges(
-      req.headers['x-meme-ranges'] || req.query.ranges || '[]'
-    );
-    const origName = decodeURIComponent(String(req.headers['x-original-name'] || 'video.mp4'));
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-meme-in-'));
-    const inFile = path.join(tmpDir, 'in' + (path.extname(origName) || '.mp4'));
-    const outDir = path.join(DOWNLOAD_DIR, 'Chaos Lab');
-    fs.mkdirSync(outDir, { recursive: true });
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const outFile = path.join(outDir, `meme_inject_${stamp}.mp4`);
-    try {
-      fs.writeFileSync(inFile, buf);
-      const info = await memeInjector.injectMemes({
-        ffmpegPath: 'ffmpeg',
-        ffprobePath: 'ffprobe',
-        inFile,
-        outFile,
-        ranges,
-        projectRoot: __dirname
-      });
-      return res.json({
-        ok: true,
-        savedTo: outDir,
-        file: path.basename(outFile),
-        absPath: outFile,
-        ...info
-      });
-    } catch (e) {
-      const code = e && e.statusCode ? e.statusCode : 500;
-      return res.status(code).json({ error: (e && e.message) ? e.message : String(e) });
-    } finally {
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-    }
-  }
-);
-
 app.get('/download', async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: 'url gerekli' });
@@ -1956,20 +1900,42 @@ app.post(
   }
 );
 
+app.post(
+  '/mix-source',
+  express.raw({ type: () => true, limit: '800mb' }),
+  (req, res) => {
+    const buf = req.body;
+    if (!Buffer.isBuffer(buf) || buf.length < 1000) {
+      return res.status(400).json({ error: 'Video dosyası gerekli.' });
+    }
+    const dir = path.join(path.dirname(getMixDir()), 'kaynak');
+    fs.mkdirSync(dir, { recursive: true });
+    const orig = decodeURIComponent(String(req.headers['x-original-name'] || 'video.mp4'));
+    const ext = (path.extname(orig) || '.mp4').toLowerCase();
+    const safeExt = ['.mp4', '.mov', '.webm', '.mkv', '.m4v'].includes(ext) ? ext : '.mp4';
+    const outFile = path.join(dir, `src_${Date.now()}${safeExt}`);
+    fs.writeFileSync(outFile, buf);
+    return res.json({ ok: true, savedTo: dir, file: path.basename(outFile), absPath: outFile });
+  }
+);
+
 app.post('/crush-compilation', async (req, res) => {
-  const brand = normBrand(req.body?.brand || 'terapi');
   const sources = compilationMixer.parseCompilationSources(req.body?.sources);
-  const urls = [...new Set(sources.map((s) => s.url))];
-  if (urls.length < 2) {
-    return res.status(400).json({ error: 'En az 2 farklı video linki ve her birinde geçerli bir parça gerekli.' });
+  const sourceKeyOf = (s) => s.localPath
+    ? ('file:' + path.resolve(s.localPath).toLowerCase())
+    : ('url:' + String(s.url || '').toLowerCase());
+  const distinct = [...new Set(sources.map(sourceKeyOf))];
+  if (distinct.length < 2) {
+    return res.status(400).json({ error: 'Video A ve Video B ayrı kaynak olmalı. Her birinden en az bir parça seç.' });
   }
   const clipCount = sources.reduce((n, s) => n + s.parts.length, 0);
   if (clipCount < 2) {
-    return res.status(400).json({ error: 'En az 2 parça gir (örnek 0–10 ve 0–8).' });
+    return res.status(400).json({ error: 'En az 2 parça seç.' });
   }
   const shuffle = req.body?.shuffle === true || req.body?.shuffle === '1' || req.body?.shuffle === 'true';
+  const needsDownload = sources.some((s) => s.url && !s.localPath);
 
-  const crushKey = `compilation::${brand}::${urls.join('|')}`;
+  const crushKey = `compilation::${distinct.join('|')}`;
   const now = Date.now();
   const prev = __crushInProgress.get(crushKey);
   if (prev && (now - prev) < 15 * 60 * 1000) {
@@ -1987,17 +1953,33 @@ app.post('/crush-compilation', async (req, res) => {
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-comp-'));
   try {
-    const hasYtDlp = await existsOnPath('yt-dlp');
+    const hasYtDlp = needsDownload ? await existsOnPath('yt-dlp') : true;
     const hasFfmpeg = await existsOnPath('ffmpeg');
     const hasFfprobe = await existsOnPath('ffprobe');
-    if (!hasYtDlp) return res.status(500).json({ error: 'yt-dlp bulunamadı.' });
+    if (needsDownload && !hasYtDlp) return res.status(500).json({ error: 'yt-dlp bulunamadı.' });
     if (!hasFfmpeg || !hasFfprobe) return res.status(500).json({ error: 'ffmpeg/ffprobe bulunamadı.' });
 
     const fileByUrl = new Map();
-    const titleByUrl = new Map();
-    for (let i = 0; i < urls.length; i++) {
-      const url = urls[i];
-      const dur = await ytDlpGetDurationSec(url);
+    const fileForSource = [];
+    const videoExts = new Set(['.mp4', '.mov', '.webm', '.mkv', '.m4v']);
+    for (let i = 0; i < sources.length; i++) {
+      const src = sources[i];
+      if (src.localPath) {
+        const abs = path.resolve(src.localPath);
+        if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+          return res.status(400).json({ error: 'Yerel video bulunamadı.' });
+        }
+        if (!videoExts.has(path.extname(abs).toLowerCase())) {
+          return res.status(400).json({ error: 'Video dosyası seç (.mp4, .mov, .webm, .mkv).' });
+        }
+        fileForSource[i] = abs;
+        continue;
+      }
+      if (fileByUrl.has(src.url)) {
+        fileForSource[i] = fileByUrl.get(src.url);
+        continue;
+      }
+      const dur = await ytDlpGetDurationSec(src.url);
       if (dur && dur > 180) {
         return res.status(400).json({ error: `Kaynak çok uzun (${Math.round(dur)}s). Derleme için 3 dakikanın altını kullan.` });
       }
@@ -2012,24 +1994,24 @@ app.post('/crush-compilation', async (req, res) => {
         '-f', 'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best',
         '-o', tpl,
         ...ytdlpCookieCliArgs(),
-        url
+        src.url
       ];
       await run('yt-dlp', dlArgs, { timeoutMs: 4 * 60 * 1000 });
       const file = pickNewestFile(sub);
       if (!file) return res.status(500).json({ error: 'Bir kaynak indirilemedi.' });
-      fileByUrl.set(url, file);
-      titleByUrl.set(url, await ytDlpGetTitle(url).catch(() => ''));
+      fileByUrl.set(src.url, file);
+      fileForSource[i] = file;
     }
 
     const clips = [];
     sources.forEach((s, si) => {
-      const file = fileByUrl.get(s.url);
+      const file = fileForSource[si];
       s.parts.forEach((p) => {
         clips.push({
           file,
           start: p.start,
           end: p.end,
-          label: `V${si + 1} ${p.start}-${p.end}`
+          label: `${s.localPath ? 'Dosya' : 'Link'} ${si + 1} ${p.start}-${p.end}`
         });
       });
     });
@@ -2674,37 +2656,6 @@ app.post('/crush', async (req, res) => {
     });
     plan = await renderPlanWithFallback(plan);
 
-    let memeInfo = null;
-    const memeRangesRaw = memeInjector.parseMemeRanges(
-      req.body?.meme_ranges ?? req.body?.memeRanges ?? []
-    );
-    if (memeRangesRaw.length) {
-      const speed = Number(plan.debug && plan.debug.effectiveSpeed) || 1.1;
-      const startSec = Number(plan.debug && plan.debug.startSec) || 0;
-      const crushedDur = Number(plan.debug && plan.debug.outDurSec) || 60;
-      const mapped = memeInjector.mapSourceRangesToCrushed(memeRangesRaw, {
-        startSec,
-        speed,
-        outDur: crushedDur
-      });
-      const memeTmp = outFile.replace(/\.mp4$/i, '') + '.__meme.mp4';
-      memeInfo = await memeInjector.injectMemes({
-        ffmpegPath: 'ffmpeg',
-        ffprobePath: 'ffprobe',
-        inFile: outFile,
-        outFile: memeTmp,
-        ranges: mapped,
-        projectRoot: __dirname
-      });
-      fs.rmSync(outFile, { force: true });
-      fs.renameSync(memeTmp, outFile);
-      memeInfo.timeMap = {
-        startSec,
-        speed,
-        note: 'Önizleme saniyeleri (kaynak - start) / hız ile ezilmiş zaman çizelgesine taşındı. Aralık silindi, meme kendi süresiyle girdi.'
-      };
-    }
-
     const verify = await crush.selfCheckCrushOutput('ffmpeg', 'ffprobe', outFile);
 
     return res.json({
@@ -2713,7 +2664,6 @@ app.post('/crush', async (req, res) => {
       file: path.basename(outFile),
       settings: { ...plan.debug },
       verify,
-      meme: memeInfo,
       manualBlurRects: manualBlurRectsBody,
       manualReelsCropYNudgePx,
       manualReelsWindowShiftYPx,

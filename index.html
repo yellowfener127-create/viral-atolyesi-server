@@ -200,13 +200,15 @@
   .mcc-primary{width:100% !important;padding:12px !important;font-size:14px !important;margin-top:8px}
   .mcc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
   .mcc-renderbar{padding:14px 22px 18px;border-top:1px solid var(--border);background:#121212}
-  .meme-player{width:100%;max-height:42vh;background:#0a0a0a;border:1px solid var(--border);border-radius:10px;display:block}
-  .meme-range-row{display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;align-items:end;margin-bottom:8px}
-  .meme-range-row label{font-size:11px;color:var(--muted);display:block}
-  .meme-range-row input{width:100%;margin-bottom:0}
-  @media (max-width:640px){
-    .meme-range-row{grid-template-columns:1fr 1fr}
-  }
+  .mix-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+  .mix-slot{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px}
+  .mix-player{width:100%;max-height:320px;background:#0a0a0a;border:1px solid var(--border);border-radius:10px;display:block}
+  .mix-yt{width:100%;height:280px;background:#0a0a0a;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:8px}
+  .mix-yt iframe{width:100%;height:100%;border:0}
+  .mix-time{font-variant-numeric:tabular-nums;font-size:13px;margin:8px 0}
+  .mix-scrub{width:100%;margin:0 0 8px}
+  .mix-part{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:12px;padding:8px 0;border-bottom:1px solid #2a2a2a}
+  @media (max-width:900px){ .mix-grid{grid-template-columns:1fr} }
   .tool-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),transparent)}
   .tool-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;margin-bottom:6px}
   .tool-desc{font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.5}
@@ -307,24 +309,85 @@
 <div class="wrap">
   <div style="margin-bottom:18px">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;margin-bottom:6px">Mix &amp; Derleme</div>
-    <div style="font-size:13px;color:var(--muted)">YouTube parçalarını birleştirir. Telif Ezici bu sayfada çalışmaz.</div>
+    <div style="font-size:13px;color:var(--muted)">Video A ve Video B. Dosyayı seç veya YouTube linkini oynat, saniyeyi işaretle, parçayı sıraya ekle.</div>
+  </div>
+  <div class="mix-grid">
+    <section class="mix-slot">
+      <div class="tool-title">Video A</div>
+      <input class="tool-input" type="file" id="mixFileA" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.mkv,.m4v" onchange="mixOnFile('A', this)" />
+      <input class="tool-input" type="url" id="mixUrlA" placeholder="veya YouTube linki" />
+      <button type="button" class="tool-btn" onclick="mixLoadLink('A')">Linki oynat</button>
+      <div id="mixSrcA" style="font-size:12px;color:var(--muted);margin:8px 0">Kaynak seçilmedi</div>
+      <video id="mixVideoA" class="mix-player" controls playsinline></video>
+      <div id="mixYtWrapA" class="mix-yt" hidden><div id="mixYtA"></div></div>
+      <div class="mix-time" id="mixTimeA">0:00.00 / —</div>
+      <input class="mix-scrub" id="mixScrubA" type="range" min="0" max="1" step="0.01" value="0" oninput="mixScrub('A', this)" />
+      <div class="mcc-row">
+        <button type="button" class="tool-btn" onclick="mixNudge('A', -1)">−1s</button>
+        <button type="button" class="tool-btn" onclick="mixNudge('A', -0.1)">−0.1s</button>
+        <button type="button" class="tool-btn" onclick="mixNudge('A', 0.1)">+0.1s</button>
+        <button type="button" class="tool-btn" onclick="mixNudge('A', 1)">+1s</button>
+      </div>
+      <div class="mcc-row">
+        <label style="font-size:11px;color:var(--muted)">Başlangıç
+          <input class="tool-input" id="mixDraftStartA" type="number" min="0" step="0.01" value="0" />
+        </label>
+        <label style="font-size:11px;color:var(--muted)">Bitiş
+          <input class="tool-input" id="mixDraftEndA" type="number" min="0" step="0.01" value="10" />
+        </label>
+      </div>
+      <div class="mcc-row">
+        <button type="button" class="tool-btn" onclick="mixMark('A','start')">Şu an → başlangıç</button>
+        <button type="button" class="tool-btn" onclick="mixMark('A','end')">Şu an → bitiş</button>
+        <button type="button" class="tool-btn" onclick="mixPreviewDraft('A')">Aralığı oynat</button>
+        <button type="button" class="tool-btn" onclick="mixAddPart('A')">Parçayı sıraya ekle</button>
+      </div>
+    </section>
+    <section class="mix-slot">
+      <div class="tool-title">Video B</div>
+      <input class="tool-input" type="file" id="mixFileB" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.mkv,.m4v" onchange="mixOnFile('B', this)" />
+      <input class="tool-input" type="url" id="mixUrlB" placeholder="veya YouTube linki" />
+      <button type="button" class="tool-btn" onclick="mixLoadLink('B')">Linki oynat</button>
+      <div id="mixSrcB" style="font-size:12px;color:var(--muted);margin:8px 0">Kaynak seçilmedi</div>
+      <video id="mixVideoB" class="mix-player" controls playsinline></video>
+      <div id="mixYtWrapB" class="mix-yt" hidden><div id="mixYtB"></div></div>
+      <div class="mix-time" id="mixTimeB">0:00.00 / —</div>
+      <input class="mix-scrub" id="mixScrubB" type="range" min="0" max="1" step="0.01" value="0" oninput="mixScrub('B', this)" />
+      <div class="mcc-row">
+        <button type="button" class="tool-btn" onclick="mixNudge('B', -1)">−1s</button>
+        <button type="button" class="tool-btn" onclick="mixNudge('B', -0.1)">−0.1s</button>
+        <button type="button" class="tool-btn" onclick="mixNudge('B', 0.1)">+0.1s</button>
+        <button type="button" class="tool-btn" onclick="mixNudge('B', 1)">+1s</button>
+      </div>
+      <div class="mcc-row">
+        <label style="font-size:11px;color:var(--muted)">Başlangıç
+          <input class="tool-input" id="mixDraftStartB" type="number" min="0" step="0.01" value="0" />
+        </label>
+        <label style="font-size:11px;color:var(--muted)">Bitiş
+          <input class="tool-input" id="mixDraftEndB" type="number" min="0" step="0.01" value="8" />
+        </label>
+      </div>
+      <div class="mcc-row">
+        <button type="button" class="tool-btn" onclick="mixMark('B','start')">Şu an → başlangıç</button>
+        <button type="button" class="tool-btn" onclick="mixMark('B','end')">Şu an → bitiş</button>
+        <button type="button" class="tool-btn" onclick="mixPreviewDraft('B')">Aralığı oynat</button>
+        <button type="button" class="tool-btn" onclick="mixAddPart('B')">Parçayı sıraya ekle</button>
+      </div>
+    </section>
   </div>
   <div class="tool-card" style="max-width:920px">
+    <div class="tool-title">Parça sırası</div>
     <div class="tool-desc">
-      En az iki YouTube linki. Her videodan istediğin saniye aralıklarını seç.
-      Parçalar bu sırayla birleşir. Her geçişin arasına <code>chaos_snippets</code> klibi kendi süresiyle girer. Son parçadan sonra meme yok.
-      Çıktı: <code>Viral Atölyesi/indirilenler/mix/compilation_….mp4</code>
+      Parçalar eklediğin sırayla birleşir. Her geçişin arasına <code>chaos_snippets</code> klibi kendi süresiyle girer. Son parçadan sonra meme yok.
+      Çıktı: <code>C:\Users\DELL\Viral Atölyesi\indirilenler\mix\compilation_….mp4</code>
     </div>
-    <div id="compSourceList"></div>
-    <div class="mcc-row">
-      <button type="button" class="tool-btn" onclick="addCompSource()">+ Video ekle</button>
-      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
-        <input type="checkbox" id="compShuffle" />
-        Parça sırasını karıştır
-      </label>
-    </div>
+    <div id="mixTimeline"></div>
+    <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-top:10px">
+      <input type="checkbox" id="compShuffle" />
+      Kayıt sırasında sırayı karıştır
+    </label>
     <button class="tool-btn" type="button" id="compMixBtn" onclick="runCompilationMix()" style="margin-top:10px">Derlemeyi kaydet</button>
-    <div class="tool-result" id="compMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
+    <div class="tool-result" id="compMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
   </div>
 </div>
 </div>
@@ -350,7 +413,6 @@
         <button type="button" class="mcc-tab" data-mcc="blur" onclick="showMccTab('blur')">Önizleme &amp; Blur</button>
         <button type="button" class="mcc-tab" data-mcc="nudge" onclick="showMccTab('nudge')">Kaydırma</button>
         <button type="button" class="mcc-tab" data-mcc="hook" onclick="showMccTab('hook')">Hook</button>
-        <button type="button" class="mcc-tab" data-mcc="meme" onclick="showMccTab('meme')">Meme Enjektörü</button>
       </div>
 
     <div class="mcc-panel" id="mcc-gemini">
@@ -365,7 +427,7 @@
       <div class="tool-title" style="font-size:16px">🧨 Telif Ezici (9:16)</div>
       <div class="tool-desc">
         <strong>Telif Ezici</strong> tek bir ffmpeg render’ında 9:16 + zoom/renk + watermark + caption üretir.
-        Blur, kaydırma, hook ve meme ayarları diğer sekmelerdedir; hepsi aynı işleme gider.
+        Blur, kaydırma ve hook diğer sekmelerdedir; hepsi aynı işleme gider.
         <ul class="tool-features more" id="crushFeaturesMore">
           <li>Kenarlardan 4–6 px mikro kırpma + ~1.1× hız (±%2–%4)</li>
           <li>Manuel blur: 720×1280 referansta delogo</li>
@@ -460,27 +522,6 @@
           <input type="range" id="crushHookOffY" min="-400" max="400" step="1" value="0" style="width:140px;vertical-align:middle" />
           <span id="crushHookOffYVal">0</span>
         </label>
-      </div>
-    </div>
-
-    <div class="mcc-panel" id="mcc-meme">
-      <div class="tool-title" style="font-size:16px">⚡ Manuel Kesit &amp; Meme Enjektörü</div>
-      <div class="tool-desc">
-        Ana videoda işaretlediğin aralık tamamen kesilir.
-        Boşluğa <code>chaos_snippets</code> klibi kendi süresiyle girer (sıkıştırma/uzatma yok).
-        Aralıklar alttaki birleşik render’a gider.
-      </div>
-      <input class="tool-input" type="file" id="memeSourceFile" accept="video/*" />
-      <video id="memePlayer" class="meme-player" controls playsinline></video>
-      <div class="mcc-row" style="font-size:12px;color:var(--muted)">
-        <span id="memeTimeLabel">Süre: — · Şu an: 0.00s</span>
-        <span id="memeSnippetStatus">Klip havuzu: …</span>
-      </div>
-      <div id="memeRangeList" style="margin-top:12px"></div>
-      <div class="mcc-row">
-        <button type="button" class="tool-btn" onclick="addMemeRange()">+ Aralık ekle</button>
-        <button type="button" class="tool-btn" onclick="memeMarkStart()">Şu an → başlangıç</button>
-        <button type="button" class="tool-btn" onclick="memeMarkEnd()">Şu an → bitiş</button>
       </div>
     </div>
 
@@ -1899,13 +1940,6 @@ async function crushVideo() {
   const lab_meter_pos = __crushManual.labMeterPos || crushDefaultLabMeterPos();
   const lab_meter_pos_x_px = Math.round(Number(lab_meter_pos.x) || 360);
   const lab_meter_pos_y_px = Math.round(Number(lab_meter_pos.y) || 988);
-  let meme_ranges = [];
-  try {
-    if (typeof collectMemeRangesFromDom === "function") collectMemeRangesFromDom();
-    meme_ranges = (__memeRanges || [])
-      .map((r) => ({ start: Number(r.start), end: Number(r.end) }))
-      .filter((r) => Number.isFinite(r.start) && Number.isFinite(r.end) && r.end > r.start);
-  } catch (eMeme) { meme_ranges = []; }
 
   btn.disabled = true;
   btn.textContent = "⏳ Birleştiriliyor...";
@@ -1913,9 +1947,7 @@ async function crushVideo() {
 
   try {
     msg.style.display = "block";
-    msg.textContent = meme_ranges.length
-      ? "Telif Ezici, ardından meme kesiti… PC'ye kaydedilecek."
-      : "Telif Ezici hazırlanıyor (meme aralığı yok)…";
+    msg.textContent = "Telif Ezici hazırlanıyor…";
     let gemini_api_key = "";
     try { gemini_api_key = String(localStorage.getItem("gemini_api_key") || "").trim(); } catch(eKey) {}
     // Force model per requirement (ignore localStorage override)
@@ -1939,8 +1971,7 @@ async function crushVideo() {
         lab_meter_target_value,
         lab_meter_pos_x_px,
         lab_meter_pos_y_px,
-        manual_start_sec,
-        meme_ranges
+        manual_start_sec
       })
     });
     const localData = await localRes.json().catch(() => ({}));
@@ -1963,12 +1994,7 @@ async function crushVideo() {
       throw new Error(baseErr + gemInfo);
     }
     msg.style.display = "block";
-    const meme = localData.meme;
-    const memeLine = meme
-      ? (" · meme: -" + meme.removedSec + "s / +" + meme.insertedSec + "s → " + (meme.durationOut != null ? meme.durationOut + "s" : "?"))
-      : "";
     msg.textContent = "✅ PC'ye kaydedildi: " + (localData.savedTo || "") + "\\" + (localData.file || "") +
-      memeLine +
       (manual_blur_rects.length ? " · " + manual_blur_rects.length + " blur kutusu" : "") +
       (manual_reels_crop_y_nudge_px ? " · dikey kaydırma " + manual_reels_crop_y_nudge_px + " px" : "") +
       (hook_text ? " · manuel hook" : "") +
@@ -2061,128 +2087,337 @@ window.onload = function() {
     }
   } catch(e) {}
   try { wireCrushManualBlurUi(); } catch (e4) {}
-  try { initMemeInjectorUi(); } catch (e5) {}
   try { initCompilationMixerUi(); } catch (e6) {}
 };
 
-let __compSources = [
-  { url: "", parts: [{ start: 0, end: 10 }] },
-  { url: "", parts: [{ start: 0, end: 8 }] }
-];
+const mixSlots = {
+  A: { file: null, uploadedPath: "", uploadedKey: "", mode: "", yt: null, objectUrl: "", stopAt: null, url: "" },
+  B: { file: null, uploadedPath: "", uploadedKey: "", mode: "", yt: null, objectUrl: "", stopAt: null, url: "" }
+};
+let mixOrder = [];
+let ytApiPromise = null;
 
-function escAttr(s) {
-  return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+function mixFmt(t) {
+  if (!Number.isFinite(t) || t < 0) return "—";
+  const m = Math.floor(t / 60);
+  const s = (t - m * 60).toFixed(2).padStart(5, "0");
+  return m + ":" + s;
 }
 
-function collectCompFromDom() {
-  const blocks = document.querySelectorAll("#compSourceList .comp-source");
-  const out = [];
-  blocks.forEach((block) => {
-    const urlEl = block.querySelector(".comp-url");
-    const parts = [];
-    block.querySelectorAll(".comp-part").forEach((row) => {
-      const a = row.querySelector(".comp-start");
-      const b = row.querySelector(".comp-end");
-      parts.push({ start: a ? a.value : "", end: b ? b.value : "" });
-    });
-    out.push({ url: urlEl ? String(urlEl.value || "").trim() : "", parts });
+function youtubeIdFromUrl(raw) {
+  const s = String(raw || "").trim();
+  let m = s.match(/youtu\.be\/([A-Za-z0-9_-]{6,})/);
+  if (m) return m[1];
+  m = s.match(/[?&]v=([A-Za-z0-9_-]{6,})/);
+  if (m) return m[1];
+  m = s.match(/youtube\.com\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{6,})/);
+  if (m) return m[1];
+  return "";
+}
+
+function loadYtApi() {
+  if (window.YT && window.YT.Player) return Promise.resolve();
+  if (ytApiPromise) return ytApiPromise;
+  ytApiPromise = new Promise((resolve, reject) => {
+    const prev = window.onYouTubeIframeAPIReady;
+    const timer = setTimeout(() => reject(new Error("YouTube oynatıcısı yüklenemedi")), 12000);
+    window.onYouTubeIframeAPIReady = function() {
+      clearTimeout(timer);
+      if (typeof prev === "function") prev();
+      resolve();
+    };
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
   });
-  if (out.length) __compSources = out;
-  return __compSources;
+  return ytApiPromise;
 }
 
-function renderCompSources() {
-  const host = document.getElementById("compSourceList");
-  if (!host) return;
-  if (__compSources.length < 2) {
-    while (__compSources.length < 2) __compSources.push({ url: "", parts: [{ start: 0, end: 8 }] });
+function mixNow(slot) {
+  const s = mixSlots[slot];
+  if (s.mode === "link" && s.yt && typeof s.yt.getCurrentTime === "function") {
+    try { return Number(s.yt.getCurrentTime()) || 0; } catch (e) { return 0; }
   }
-  host.innerHTML = __compSources.map((s, si) => {
-    const letter = String.fromCharCode(65 + si);
-    const parts = (s.parts && s.parts.length ? s.parts : [{ start: 0, end: 8 }]).map((p, pi) => (
-      '<div class="meme-range-row comp-part">' +
-        '<label>Başlangıç (s)<input class="tool-input comp-start" type="number" min="0" step="0.1" value="' + escAttr(p.start) + '" /></label>' +
-        '<label>Bitiş (s)<input class="tool-input comp-end" type="number" min="0" step="0.1" value="' + escAttr(p.end) + '" /></label>' +
-        '<button type="button" class="tool-btn" onclick="removeCompPart(' + si + ',' + pi + ')">Sil</button>' +
-        '<span></span>' +
-      '</div>'
-    )).join("");
-    const removeBtn = __compSources.length > 2
-      ? '<button type="button" class="tool-btn" onclick="removeCompSource(' + si + ')">Videoyu sil</button>'
-      : "";
-    return (
-      '<div class="comp-source" style="border:1px solid #333;border-radius:10px;padding:10px;margin-bottom:10px">' +
-        '<div style="font-size:12px;margin-bottom:6px">Video ' + letter + '</div>' +
-        '<input class="tool-input comp-url" type="url" placeholder="YouTube linki" value="' + escAttr(s.url) + '" />' +
-        parts +
-        '<div class="mcc-row">' +
-          '<button type="button" class="tool-btn" onclick="addCompPart(' + si + ')">+ Parça</button>' +
-          removeBtn +
-        '</div>' +
-      '</div>'
-    );
+  const v = document.getElementById("mixVideo" + slot);
+  return v && Number.isFinite(v.currentTime) ? v.currentTime : 0;
+}
+
+function mixDur(slot) {
+  const s = mixSlots[slot];
+  if (s.mode === "link" && s.yt && typeof s.yt.getDuration === "function") {
+    try {
+      const d = Number(s.yt.getDuration());
+      return Number.isFinite(d) ? d : 0;
+    } catch (e) { return 0; }
+  }
+  const v = document.getElementById("mixVideo" + slot);
+  return v && Number.isFinite(v.duration) ? v.duration : 0;
+}
+
+function mixSeek(slot, t) {
+  const time = Math.max(0, Number(t) || 0);
+  const s = mixSlots[slot];
+  if (s.mode === "link" && s.yt && typeof s.yt.seekTo === "function") {
+    s.yt.seekTo(time, true);
+    return;
+  }
+  const v = document.getElementById("mixVideo" + slot);
+  if (v) v.currentTime = time;
+}
+
+function mixPlay(slot) {
+  const s = mixSlots[slot];
+  if (s.mode === "link" && s.yt && typeof s.yt.playVideo === "function") { s.yt.playVideo(); return; }
+  const v = document.getElementById("mixVideo" + slot);
+  if (v) v.play();
+}
+
+function mixPause(slot) {
+  const s = mixSlots[slot];
+  if (s.mode === "link" && s.yt && typeof s.yt.pauseVideo === "function") { s.yt.pauseVideo(); return; }
+  const v = document.getElementById("mixVideo" + slot);
+  if (v) v.pause();
+}
+
+function mixNudge(slot, delta) { mixSeek(slot, mixNow(slot) + Number(delta || 0)); }
+
+function mixScrub(slot, el) { mixSeek(slot, Number(el && el.value)); }
+
+function mixMark(slot, which) {
+  const el = document.getElementById(which === "start" ? "mixDraftStart" + slot : "mixDraftEnd" + slot);
+  if (el) el.value = mixNow(slot).toFixed(2);
+}
+
+function mixDraft(slot) {
+  const a = Number(document.getElementById("mixDraftStart" + slot).value);
+  const b = Number(document.getElementById("mixDraftEnd" + slot).value);
+  return { start: a, end: b };
+}
+
+function mixPreviewDraft(slot) {
+  const d = mixDraft(slot);
+  if (!Number.isFinite(d.start) || !Number.isFinite(d.end) || d.end <= d.start) {
+    alert("Başlangıç ve bitiş saniyesini seç.");
+    return;
+  }
+  mixSlots[slot].stopAt = d.end;
+  mixSeek(slot, d.start);
+  mixPlay(slot);
+}
+
+function mixTick() {
+  ["A", "B"].forEach((slot) => {
+    const now = mixNow(slot);
+    const dur = mixDur(slot);
+    const lab = document.getElementById("mixTime" + slot);
+    if (lab) lab.textContent = mixFmt(now) + " / " + (dur > 0 ? mixFmt(dur) : "—");
+    const scrub = document.getElementById("mixScrub" + slot);
+    if (scrub && dur > 0 && document.activeElement !== scrub) {
+      scrub.max = String(dur);
+      scrub.value = String(Math.min(now, dur));
+    }
+    const s = mixSlots[slot];
+    if (s.stopAt != null && now >= s.stopAt - 0.04) {
+      s.stopAt = null;
+      mixPause(slot);
+    }
+  });
+}
+
+function mixHideYt(slot) {
+  const s = mixSlots[slot];
+  if (s.yt && typeof s.yt.destroy === "function") {
+    try { s.yt.destroy(); } catch (e) {}
+  }
+  s.yt = null;
+  const wrap = document.getElementById("mixYtWrap" + slot);
+  if (wrap) {
+    wrap.hidden = true;
+    wrap.innerHTML = '<div id="mixYt' + slot + '"></div>';
+  }
+}
+
+function mixOnFile(slot, input) {
+  const file = input && input.files && input.files[0];
+  if (!file) return;
+  const s = mixSlots[slot];
+  s.file = file;
+  s.uploadedPath = "";
+  s.uploadedKey = "";
+  s.mode = "file";
+  s.stopAt = null;
+  mixHideYt(slot);
+  const v = document.getElementById("mixVideo" + slot);
+  if (s.objectUrl) { try { URL.revokeObjectURL(s.objectUrl); } catch (e) {} }
+  s.objectUrl = URL.createObjectURL(file);
+  if (v) {
+    v.hidden = false;
+    v.src = s.objectUrl;
+    v.load();
+  }
+  const badge = document.getElementById("mixSrc" + slot);
+  if (badge) badge.textContent = "Dosya: " + file.name;
+}
+
+async function mixLoadLink(slot) {
+  const url = String((document.getElementById("mixUrl" + slot) || {}).value || "").trim();
+  const id = youtubeIdFromUrl(url);
+  if (!id) { alert("YouTube linki okunamadı."); return; }
+  const s = mixSlots[slot];
+  s.mode = "link";
+  s.url = url;
+  s.stopAt = null;
+  const v = document.getElementById("mixVideo" + slot);
+  if (v) { try { v.pause(); } catch (e) {} v.hidden = true; v.removeAttribute("src"); try { v.load(); } catch (e2) {} }
+  const wrap = document.getElementById("mixYtWrap" + slot);
+  if (wrap) {
+    wrap.hidden = false;
+    wrap.innerHTML = '<div id="mixYt' + slot + '"></div>';
+  }
+  const badge = document.getElementById("mixSrc" + slot);
+  if (badge) badge.textContent = "Link yükleniyor…";
+  try {
+    await loadYtApi();
+    s.yt = new YT.Player("mixYt" + slot, {
+      videoId: id,
+      width: "100%",
+      height: "280",
+      playerVars: { rel: 0, modestbranding: 1 },
+      events: {
+        onReady: () => { if (badge) badge.textContent = "Link hazır"; }
+      }
+    });
+  } catch (e) {
+    if (badge) badge.textContent = "Oynatıcı açılamadı. Saniyeyi elle yaz; kayıt linkten iner.";
+  }
+}
+
+function renderMixTimeline() {
+  const host = document.getElementById("mixTimeline");
+  if (!host) return;
+  if (!mixOrder.length) {
+    host.innerHTML = '<div class="tool-desc">Henüz parça yok. Oynatıcıda başlangıç ve bitişi işaretleyip sıraya ekle.</div>';
+    return;
+  }
+  host.innerHTML = mixOrder.map((p, i) => {
+    const len = (p.end - p.start).toFixed(2);
+    return '<div class="mix-part"><span>' + (i + 1) + ". Video " + p.slot + " · " +
+      p.start.toFixed(2) + "–" + p.end.toFixed(2) + " sn (" + len + "s)</span>" +
+      '<span class="mcc-row" style="margin-top:0">' +
+      '<button type="button" class="tool-btn" onclick="mixPlaySaved(' + i + ')">Oynat</button>' +
+      '<button type="button" class="tool-btn" onclick="mixMove(' + i + ',-1)">Yukarı</button>' +
+      '<button type="button" class="tool-btn" onclick="mixMove(' + i + ',1)">Aşağı</button>' +
+      '<button type="button" class="tool-btn" onclick="mixRemove(' + i + ')">Sil</button>' +
+      "</span></div>";
   }).join("");
 }
 
-function initCompilationMixerUi() { renderCompSources(); }
-
-function addCompSource() {
-  collectCompFromDom();
-  if (__compSources.length >= 6) return;
-  __compSources.push({ url: "", parts: [{ start: 0, end: 8 }] });
-  renderCompSources();
+function mixAddPart(slot) {
+  const s = mixSlots[slot];
+  if (s.mode !== "file" && s.mode !== "link") {
+    alert("Önce Video " + slot + " için dosya seç veya linki oynat.");
+    return;
+  }
+  const d = mixDraft(slot);
+  if (!Number.isFinite(d.start) || !Number.isFinite(d.end) || d.end <= d.start) {
+    alert("Başlangıç ve bitiş saniyesini seç.");
+    return;
+  }
+  const len = d.end - d.start;
+  if (len < 0.4 || len > 30) {
+    alert("Parça 0.4 ile 30 saniye arasında olmalı.");
+    return;
+  }
+  if (mixOrder.length >= 12) {
+    alert("En fazla 12 parça.");
+    return;
+  }
+  mixOrder.push({
+    slot: slot,
+    start: Number(d.start.toFixed(3)),
+    end: Number(d.end.toFixed(3))
+  });
+  renderMixTimeline();
 }
 
-function removeCompSource(i) {
-  collectCompFromDom();
-  if (__compSources.length <= 2) return;
-  __compSources.splice(i, 1);
-  renderCompSources();
+function mixRemove(i) {
+  mixOrder.splice(i, 1);
+  renderMixTimeline();
 }
 
-function addCompPart(si) {
-  collectCompFromDom();
-  const s = __compSources[si];
-  if (!s) return;
-  if (!s.parts) s.parts = [];
-  if (s.parts.length >= 6) return;
-  const last = s.parts[s.parts.length - 1];
-  const start = last && Number.isFinite(Number(last.end)) ? Number(last.end) : 0;
-  s.parts.push({ start, end: start + 8 });
-  renderCompSources();
+function mixMove(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= mixOrder.length) return;
+  const t = mixOrder[i];
+  mixOrder[i] = mixOrder[j];
+  mixOrder[j] = t;
+  renderMixTimeline();
 }
 
-function removeCompPart(si, pi) {
-  collectCompFromDom();
-  const s = __compSources[si];
-  if (!s || !s.parts || s.parts.length <= 1) return;
-  s.parts.splice(pi, 1);
-  renderCompSources();
+function mixPlaySaved(i) {
+  const p = mixOrder[i];
+  if (!p) return;
+  mixSlots[p.slot].stopAt = p.end;
+  mixSeek(p.slot, p.start);
+  mixPlay(p.slot);
+}
+
+function mixFileKey(file) {
+  return file.name + ":" + file.size + ":" + file.lastModified;
+}
+
+async function uploadMixSource(file) {
+  const res = await fetch("http://127.0.0.1:8787/mix-source", {
+    method: "POST",
+    headers: { "x-original-name": encodeURIComponent(file.name || "video.mp4") },
+    body: await file.arrayBuffer()
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.absPath) throw new Error((data && data.error) ? data.error : "Dosya yüklenemedi");
+  return data.absPath;
+}
+
+function initCompilationMixerUi() {
+  renderMixTimeline();
+  if (!window.__mixTick) window.__mixTick = setInterval(mixTick, 200);
 }
 
 async function runCompilationMix() {
-  collectCompFromDom();
   const btn = document.getElementById("compMixBtn");
   const msg = document.getElementById("compMsg");
-  const sources = __compSources.map((s) => ({
-    url: String(s.url || "").trim(),
-    parts: (s.parts || []).map((p) => ({ start: Number(p.start), end: Number(p.end) }))
-      .filter((p) => Number.isFinite(p.start) && Number.isFinite(p.end) && p.end > p.start)
-  })).filter((s) => s.url && s.parts.length);
-  const urls = [...new Set(sources.map((s) => s.url))];
-  const partCount = sources.reduce((n, s) => n + s.parts.length, 0);
-  if (urls.length < 2 || partCount < 2) {
-    alert("En az 2 farklı link ve toplam 2 parça gerekli.");
+  const used = new Set(mixOrder.map((p) => p.slot));
+  if (!used.has("A") || !used.has("B") || mixOrder.length < 2) {
+    alert("Video A ve Video B'den en az birer parça ekle.");
     return;
   }
   if (btn) { btn.disabled = true; btn.textContent = "⏳ Derleniyor…"; }
-  if (msg) { msg.style.display = "block"; msg.textContent = "Kaynaklar indiriliyor, parçalar birleşiyor, meme geçişleri ekleniyor…"; }
+  if (msg) { msg.style.display = "block"; msg.textContent = "Parçalar birleşiyor, geçiş klipleri ekleniyor…"; }
   try {
+    const sources = [];
+    for (const p of mixOrder) {
+      const s = mixSlots[p.slot];
+      const part = { start: p.start, end: p.end };
+      if (s.mode === "file") {
+        if (!s.file) throw new Error("Video " + p.slot + " dosyası yok.");
+        const key = mixFileKey(s.file);
+        if (s.uploadedKey !== key || !s.uploadedPath) {
+          if (msg) msg.textContent = "Video " + p.slot + " yükleniyor…";
+          s.uploadedPath = await uploadMixSource(s.file);
+          s.uploadedKey = key;
+        }
+        sources.push({ local_path: s.uploadedPath, parts: [part] });
+      } else {
+        const url = String((document.getElementById("mixUrl" + p.slot) || {}).value || s.url || "").trim();
+        if (!url) throw new Error("Video " + p.slot + " linki boş.");
+        sources.push({ url: url, parts: [part] });
+      }
+    }
+    if (msg) msg.textContent = "Kaynaklar hazırlanıyor, parçalar birleşiyor, meme geçişleri ekleniyor…";
     const res = await fetch("http://127.0.0.1:8787/crush-compilation", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        sources,
+        sources: sources,
         shuffle: !!(document.getElementById("compShuffle") && document.getElementById("compShuffle").checked)
       })
     });
@@ -2192,7 +2427,7 @@ async function runCompilationMix() {
     if (msg) {
       msg.style.display = "block";
       msg.textContent =
-        "Kaydedildi: " + (data.savedTo || "") + "\\" + (data.file || "") +
+        "Kaydedildi: " + (data.absPath || ((data.savedTo || "") + "\\" + (data.file || ""))) +
         "\nSüre: " + (data.mix && data.mix.durationOut != null ? data.mix.durationOut + "s" : "?") +
         (memes ? ("\nGeçiş klipleri: " + memes) : "");
     }
@@ -2200,240 +2435,10 @@ async function runCompilationMix() {
   } catch (e) {
     if (msg) { msg.style.display = "block"; msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e)); }
   } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "Derlemeyi kaydet";
-    }
+    if (btn) { btn.disabled = false; btn.textContent = "Derlemeyi kaydet"; }
   }
 }
 
-function showMccTab(id) {
-  const key = String(id || "render");
-  document.querySelectorAll(".mcc-tab").forEach((b) => {
-    b.classList.toggle("active", b.getAttribute("data-mcc") === key);
-  });
-  document.querySelectorAll(".mcc-panel").forEach((p) => {
-    p.classList.toggle("active", p.id === "mcc-" + key);
-  });
-}
-
-let __memeRanges = [{ start: "", end: "" }];
-let __memeObjectUrl = null;
-let __memeLastIdx = 0;
-
-function memeNowSec() {
-  const v = document.getElementById("memePlayer");
-  return v && Number.isFinite(v.currentTime) ? Number(v.currentTime) : 0;
-}
-
-function collectMemeRangesFromDom() {
-  const rows = document.querySelectorAll("#memeRangeList .meme-range-row");
-  const out = [];
-  rows.forEach((row) => {
-    const a = Number(row.querySelector(".meme-start") && row.querySelector(".meme-start").value);
-    const b = Number(row.querySelector(".meme-end") && row.querySelector(".meme-end").value);
-    out.push({
-      start: Number.isFinite(a) ? a : "",
-      end: Number.isFinite(b) ? b : ""
-    });
-  });
-  if (out.length) __memeRanges = out;
-  return __memeRanges;
-}
-
-function renderMemeRanges() {
-  const host = document.getElementById("memeRangeList");
-  if (!host) return;
-  if (!__memeRanges.length) __memeRanges = [{ start: "", end: "" }];
-  host.innerHTML = __memeRanges.map((r, i) => {
-    const s = r.start === "" || r.start == null ? "" : String(r.start);
-    const e = r.end === "" || r.end == null ? "" : String(r.end);
-    return (
-      '<div class="meme-range-row" data-idx="' + i + '">' +
-        '<label>Başlangıç (s)<input class="tool-input meme-start" type="number" min="0" step="0.1" value="' + s + '" /></label>' +
-        '<label>Bitiş (s)<input class="tool-input meme-end" type="number" min="0" step="0.1" value="' + e + '" /></label>' +
-        '<button type="button" class="tool-btn" onclick="removeMemeRange(' + i + ')">Sil</button>' +
-        '<button type="button" class="tool-btn" onclick="seekMemeRange(' + i + ')">Git</button>' +
-      '</div>'
-    );
-  }).join("");
-}
-
-function addMemeRange() {
-  collectMemeRangesFromDom();
-  __memeRanges.push({ start: "", end: "" });
-  __memeLastIdx = __memeRanges.length - 1;
-  renderMemeRanges();
-}
-
-function removeMemeRange(i) {
-  collectMemeRangesFromDom();
-  __memeRanges.splice(i, 1);
-  if (!__memeRanges.length) __memeRanges.push({ start: "", end: "" });
-  renderMemeRanges();
-}
-
-function seekMemeRange(i) {
-  collectMemeRangesFromDom();
-  const v = document.getElementById("memePlayer");
-  const r = __memeRanges[i];
-  if (!v || !r) return;
-  const t = Number(r.start);
-  if (Number.isFinite(t)) v.currentTime = Math.max(0, t);
-}
-
-function memeMarkStart() {
-  collectMemeRangesFromDom();
-  if (!__memeRanges.length) __memeRanges.push({ start: "", end: "" });
-  const i = Math.min(__memeLastIdx, __memeRanges.length - 1);
-  __memeRanges[i].start = Number(memeNowSec().toFixed(2));
-  renderMemeRanges();
-}
-
-function memeMarkEnd() {
-  collectMemeRangesFromDom();
-  if (!__memeRanges.length) __memeRanges.push({ start: "", end: "" });
-  const i = Math.min(__memeLastIdx, __memeRanges.length - 1);
-  __memeRanges[i].end = Number(memeNowSec().toFixed(2));
-  renderMemeRanges();
-}
-
-function updateMemeTimeLabel() {
-  const v = document.getElementById("memePlayer");
-  const lab = document.getElementById("memeTimeLabel");
-  if (!lab || !v) return;
-  const d = Number.isFinite(v.duration) ? v.duration.toFixed(2) : "—";
-  lab.textContent = "Süre: " + d + "s · Şu an: " + Number(v.currentTime || 0).toFixed(2) + "s";
-}
-
-async function refreshMemeSnippetStatus() {
-  const el = document.getElementById("memeSnippetStatus");
-  if (!el) return;
-  const apply = (j) => {
-    const n = j && Number.isFinite(j.count) ? j.count : 0;
-    const dir = j && j.dir ? j.dir : "chaos_snippets";
-    el.textContent = n
-      ? ("Klip havuzu: " + n + " dosya · " + dir)
-      : ("Klip havuzu boş · MP4 koy: " + dir);
-  };
-  try {
-    const local = await fetch("http://127.0.0.1:8787/meme-snippets");
-    if (local.ok) { apply(await local.json()); return; }
-  } catch (e0) {}
-  try {
-    const remote = await fetch(backendUrl("/tools/meme-snippets"));
-    if (remote.ok) { apply(await remote.json()); return; }
-  } catch (e1) {}
-  el.textContent = "Klip havuzu: yerel sunucuya bağlanılamadı (chaos_snippets)";
-}
-
-function initMemeInjectorUi() {
-  renderMemeRanges();
-  const fileInp = document.getElementById("memeSourceFile");
-  const player = document.getElementById("memePlayer");
-  if (fileInp && player) {
-    fileInp.addEventListener("change", () => {
-      const f = fileInp.files && fileInp.files[0];
-      if (__memeObjectUrl) {
-        try { URL.revokeObjectURL(__memeObjectUrl); } catch (eRev) {}
-        __memeObjectUrl = null;
-      }
-      if (!f) return;
-      __memeObjectUrl = URL.createObjectURL(f);
-      player.src = __memeObjectUrl;
-      player.load();
-    });
-    player.addEventListener("timeupdate", updateMemeTimeLabel);
-    player.addEventListener("loadedmetadata", updateMemeTimeLabel);
-  }
-  refreshMemeSnippetStatus();
-}
-
-async function runMemeInject() {
-  const inp = document.getElementById("memeSourceFile");
-  const btn = document.getElementById("memeInjectBtn");
-  const msg = document.getElementById("memeMsg");
-  const file = inp && inp.files && inp.files[0];
-  collectMemeRangesFromDom();
-  const ranges = (__memeRanges || [])
-    .map((r) => ({ start: Number(r.start), end: Number(r.end) }))
-    .filter((r) => Number.isFinite(r.start) && Number.isFinite(r.end) && r.end > r.start);
-  if (!file) { alert("Önce ana videoyu yükle."); return; }
-  if (!ranges.length) { alert("En az bir geçerli başlangıç–bitiş aralığı gir."); return; }
-  if (btn) { btn.disabled = true; btn.textContent = "⏳ Enjekte ediliyor…"; }
-  if (msg) { msg.style.display = "block"; msg.textContent = "İşleniyor (9:16, CRF 18)…"; }
-  const headers = {
-    "Content-Type": file.type || "application/octet-stream",
-    "x-meme-ranges": JSON.stringify(ranges),
-    "x-original-name": encodeURIComponent(file.name || "video.mp4"),
-    "x-meme-json": "1",
-    "Accept": "application/json"
-  };
-  const buf = await file.arrayBuffer();
-  const showOk = (j, note) => {
-    const used = (j.snippetsUsed || []).map((s) => s.file + " @" + s.at + "s").join(", ");
-    msg.style.display = "block";
-    msg.textContent =
-      "✅ Tamam.\n" +
-      (note ? note + "\n" : "") +
-      "Klasör: " + (j.savedTo || "—") + "\n" +
-      "Dosya: " + (j.file || "—") + "\n" +
-      (j.absPath ? ("Yol: " + j.absPath + "\n") : "") +
-      "Boyut: " + (j.size || "1080x1920") + " · FPS: " + (j.fps || 30) + "\n" +
-      "Süre: " + (j.durationIn || "?") + "s → " + (j.durationOut || "?") + "s\n" +
-      (used ? ("Klipler: " + used) : "");
-  };
-  try {
-    let done = false;
-    try {
-      const localRes = await fetch("http://127.0.0.1:8787/meme-inject", {
-        method: "POST",
-        headers,
-        body: buf
-      });
-      const localText = await localRes.text();
-      if (localRes.ok) {
-        showOk(JSON.parse(localText), "Local Downloader kaydetti.");
-        done = true;
-      } else {
-        throw new Error(localText.slice(0, 400));
-      }
-    } catch (localErr) {
-      if (done) throw localErr;
-      if (msg) msg.textContent = "Yerel sunucu yok / hata. Uzak sunucu deneniyor…\n" + (localErr && localErr.message ? localErr.message : "");
-      const remoteRes = await fetch(backendUrl("/tools/meme-inject"), {
-        method: "POST",
-        headers,
-        body: buf
-      });
-      const ctype = String(remoteRes.headers.get("content-type") || "");
-      if (!remoteRes.ok) {
-        const t = await remoteRes.text();
-        throw new Error(t.slice(0, 800) || ("HTTP " + remoteRes.status));
-      }
-      if (ctype.includes("application/json")) {
-        showOk(await remoteRes.json(), "Sunucu çıktı klasörüne yazdı.");
-      } else {
-        const blob = await remoteRes.blob();
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = "meme_inject_9x16.mp4";
-        a.click();
-        msg.style.display = "block";
-        msg.textContent = "✅ İndirme başladı (meme_inject_9x16.mp4). 1080×1920, CRF 18.";
-      }
-    }
-  } catch (e) {
-    if (msg) {
-      msg.style.display = "block";
-      msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
-    } else {
-      alert(e && e.message ? e.message : String(e));
-    }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Enjekte et & kaydet (9:16)"; }
-  }
-}
 
 function saveGeminiKey() {
   const v = (document.getElementById("geminiInput").value || "").trim();

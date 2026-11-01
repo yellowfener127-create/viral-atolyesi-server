@@ -8,7 +8,6 @@ const os = require('os');
 const { pipeline } = require('stream/promises');
 const ffmpegPath = require('ffmpeg-static');
 const crush = require('./crush-pipeline');
-const memeInjector = require('./meme-injector');
 
 const app = express(); // 1. Sırada bu olmalı
 
@@ -24,8 +23,6 @@ app.use((req, res, next) => {
   if (
     req.path === '/download' ||
     req.path === '/tools/crush' ||
-    req.path === '/tools/meme-inject' ||
-    req.path === '/tools/meme-snippets' ||
     req.path.startsWith('/search/') ||
     req.path.startsWith('/youtube/') ||
     req.path.startsWith('/anthropic/')
@@ -603,34 +600,9 @@ app.post('/tools/crush', async (req, res) => {
 
     await runChild(ffmpegPath, [...plan.ffmpegArgsTail, outFile], { timeoutMs: 6 * 60 * 1000 });
 
-    let streamFile = outFile;
-    const memeRangesRaw = memeInjector.parseMemeRanges(
-      req.body?.meme_ranges ?? req.body?.memeRanges ?? []
-    );
-    if (memeRangesRaw.length) {
-      const speed = Number(plan.debug && plan.debug.effectiveSpeed) || 1.1;
-      const startSec = Number(plan.debug && plan.debug.startSec) || 0;
-      const crushedDur = Number(plan.debug && plan.debug.outDurSec) || 60;
-      const mapped = memeInjector.mapSourceRangesToCrushed(memeRangesRaw, {
-        startSec,
-        speed,
-        outDur: crushedDur
-      });
-      const memeFile = path.join(tmpDir, 'meme.mp4');
-      await memeInjector.injectMemes({
-        ffmpegPath,
-        ffprobePath: ffprobeResolved,
-        inFile: outFile,
-        outFile: memeFile,
-        ranges: mapped,
-        projectRoot: __dirname
-      });
-      streamFile = memeFile;
-    }
-
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Disposition', `attachment; filename="crushed_${brand}_9x16.mp4"`);
-    fs.createReadStream(streamFile)
+    fs.createReadStream(outFile)
       .on('error', (e) => res.status(500).end(String(e && e.message ? e.message : e)))
       .on('close', () => {})
       .pipe(res)
@@ -645,80 +617,6 @@ app.post('/tools/crush', async (req, res) => {
     try { fs.rmdirSync(tmpDir, { recursive: true }); } catch {}
   }
 });
-
-app.get('/tools/meme-snippets', (req, res) => {
-  const dir = memeInjector.resolveChaosSnippetsDir(__dirname);
-  const files = memeInjector.listSnippetFiles(dir);
-  return res.json({
-    ok: true,
-    dir,
-    count: files.length,
-    files: files.map((p) => path.basename(p))
-  });
-});
-
-app.post(
-  '/tools/meme-inject',
-  express.raw({ type: () => true, limit: '400mb' }),
-  async (req, res) => {
-    const buf = req.body;
-    if (!Buffer.isBuffer(buf) || buf.length < 1000) {
-      return res.status(400).json({ error: 'Video dosyası gerekli (binary body).' });
-    }
-    if (!ffmpegPath) return res.status(500).json({ error: 'FFmpeg bulunamadı (ffmpeg-static).' });
-    const ranges = memeInjector.parseMemeRanges(
-      req.headers['x-meme-ranges'] || req.query.ranges || '[]'
-    );
-    const origName = decodeURIComponent(String(req.headers['x-original-name'] || 'video.mp4'));
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-meme-in-'));
-    const inFile = path.join(tmpDir, 'in' + (path.extname(origName) || '.mp4'));
-    const outFile = path.join(tmpDir, 'out.mp4');
-    try {
-      fs.writeFileSync(inFile, buf);
-      const ffprobeGuess = path.join(path.dirname(ffmpegPath), process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe');
-      const ffprobeResolved = fs.existsSync(ffprobeGuess) ? ffprobeGuess : null;
-      const info = await memeInjector.injectMemes({
-        ffmpegPath,
-        ffprobePath: ffprobeResolved,
-        inFile,
-        outFile,
-        ranges,
-        projectRoot: __dirname
-      });
-      const wantJson =
-        String(req.headers['x-meme-json'] || '') === '1' ||
-        String(req.headers.accept || '').includes('application/json');
-      if (wantJson) {
-        const persistDir = path.join(__dirname, 'output', 'meme');
-        fs.mkdirSync(persistDir, { recursive: true });
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const persistFile = path.join(persistDir, `meme_inject_${stamp}.mp4`);
-        fs.copyFileSync(outFile, persistFile);
-        return res.json({
-          ok: true,
-          savedTo: persistDir,
-          file: path.basename(persistFile),
-          absPath: persistFile,
-          ...info
-        });
-      }
-      res.setHeader('Content-Type', 'video/mp4');
-      res.setHeader('Content-Disposition', 'attachment; filename="meme_inject_9x16.mp4"');
-      fs.createReadStream(outFile)
-        .on('error', (e) => res.status(500).end(String(e && e.message ? e.message : e)))
-        .pipe(res);
-    } catch (e) {
-      const code = e && e.statusCode ? e.statusCode : 500;
-      if (!res.headersSent) {
-        return res.status(code).json({ error: (e && e.message) ? String(e.message).slice(0, 1500) : String(e) });
-      }
-    } finally {
-      setTimeout(() => {
-        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-      }, 120000);
-    }
-  }
-);
 
 // Render YouTube bot doğrulaması durumunda: işlemi PC'de yapmak için .bat üret
 app.get('/tools/crush.bat', (req, res) => {

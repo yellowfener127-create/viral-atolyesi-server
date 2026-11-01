@@ -1,7 +1,7 @@
 /**
  * Derleme: birden fazla kaynaktan kesilen parçaları sıraya dizer,
  * her geçişin arasına chaos_snippets klibini kendi süresiyle koyar.
- * Telif Ezici bu dosyanın üstüne ayrıca uygulanır.
+ * Çıktı mix klasörüne yazılır. Telif Ezici bu adımda çalışmaz.
  */
 
 const fs = require('fs');
@@ -117,7 +117,8 @@ function parseCompilationSources(raw) {
   const list = Array.isArray(raw) ? raw : [];
   const sources = [];
   for (const s of list) {
-    const url = String((s && s.url) || '').trim();
+    const localPath = String((s && (s.local_path || s.localPath)) || '').trim();
+    const url = localPath ? '' : String((s && s.url) || '').trim();
     const partsIn = Array.isArray(s && s.parts) ? s.parts : [];
     const parts = [];
     for (const p of partsIn) {
@@ -129,8 +130,8 @@ function parseCompilationSources(raw) {
       if (len < MIN_PART || len > MAX_PART) continue;
       parts.push({ start: Number(a.toFixed(3)), end: Number(b.toFixed(3)) });
     }
-    if (!url || !parts.length) continue;
-    sources.push({ url, parts });
+    if ((!url && !localPath) || !parts.length) continue;
+    sources.push({ url, localPath, parts });
   }
   return sources;
 }
