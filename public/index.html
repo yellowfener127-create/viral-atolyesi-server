@@ -199,6 +199,7 @@
   .mcc-panel .tool-btn{width:auto;padding:8px 12px;font-size:12px}
   .mcc-primary{width:100% !important;padding:12px !important;font-size:14px !important;margin-top:8px}
   .mcc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+  .mcc-renderbar{padding:14px 22px 18px;border-top:1px solid var(--border);background:#121212}
   .meme-player{width:100%;max-height:42vh;background:#0a0a0a;border:1px solid var(--border);border-radius:10px;display:block}
   .meme-range-row{display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;align-items:end;margin-bottom:8px}
   .meme-range-row label{font-size:11px;color:var(--muted);display:block}
@@ -372,10 +373,6 @@
           <span id="crushLabMeterTargetVal" style="font-variant-numeric:tabular-nums">85</span>
         </label>
       </div>
-      <button class="tool-btn mcc-primary" type="button" id="crushBtn" onclick="crushVideo()">⚡ İndir + Telif Ez (9:16)</button>
-      <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
-      <div class="tool-result" id="crushCaptionBox" style="display:none;margin-top:10px"></div>
-      <button class="tool-copy-btn" id="crushCaptionCopy" style="display:none" onclick="copyToolText('crushCaptionBox','crushCaptionCopy')">📋 Caption'ı Kopyala</button>
     </div>
 
     <div class="mcc-panel" id="mcc-blur">
@@ -447,8 +444,9 @@
     <div class="mcc-panel" id="mcc-meme">
       <div class="tool-title" style="font-size:16px">⚡ Manuel Kesit &amp; Meme Enjektörü</div>
       <div class="tool-desc">
-        Ana videoyu oynat, meme basılacak saniye aralıklarını ekle.
-        Klipler <code>chaos_snippets</code> klasöründen rastgele seçilir; belirtilen aralık 9:16 CRF 18 (30 fps, 60 üstü yok) çıktıya gömülür.
+        Ana videoda işaretlediğin aralık tamamen kesilir.
+        Boşluğa <code>chaos_snippets</code> klibi kendi süresiyle girer (sıkıştırma/uzatma yok).
+        Aralıklar alttaki birleşik render’a gider.
       </div>
       <input class="tool-input" type="file" id="memeSourceFile" accept="video/*" />
       <video id="memePlayer" class="meme-player" controls playsinline></video>
@@ -462,8 +460,16 @@
         <button type="button" class="tool-btn" onclick="memeMarkStart()">Şu an → başlangıç</button>
         <button type="button" class="tool-btn" onclick="memeMarkEnd()">Şu an → bitiş</button>
       </div>
-      <button class="tool-btn mcc-primary" type="button" id="memeInjectBtn" onclick="runMemeInject()">Enjekte et &amp; kaydet (9:16)</button>
-      <div class="tool-result" id="memeMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
+    </div>
+
+    <div class="mcc-renderbar">
+      <div class="tool-desc" style="margin-bottom:8px">
+        Sekmeler yalnızca ayar toplar. Bu buton önce Telif Ezici’yi (9:16, zoom, blur, grain, hook, kaydırma, metadata), sonra meme kesitini uygular. 1080×1920, CRF 18.
+      </div>
+      <button class="tool-btn mcc-primary" type="button" id="crushBtn" onclick="crushVideo()">🚀 Tüm Ayarları Birleştir &amp; Render Al (9:16)</button>
+      <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
+      <div class="tool-result" id="crushCaptionBox" style="display:none;margin-top:10px"></div>
+      <button class="tool-copy-btn" id="crushCaptionCopy" style="display:none" onclick="copyToolText('crushCaptionBox','crushCaptionCopy')">📋 Caption'ı Kopyala</button>
     </div>
 
     </div>
@@ -1831,14 +1837,23 @@ async function crushVideo() {
   const lab_meter_pos = __crushManual.labMeterPos || crushDefaultLabMeterPos();
   const lab_meter_pos_x_px = Math.round(Number(lab_meter_pos.x) || 360);
   const lab_meter_pos_y_px = Math.round(Number(lab_meter_pos.y) || 988);
+  let meme_ranges = [];
+  try {
+    if (typeof collectMemeRangesFromDom === "function") collectMemeRangesFromDom();
+    meme_ranges = (__memeRanges || [])
+      .map((r) => ({ start: Number(r.start), end: Number(r.end) }))
+      .filter((r) => Number.isFinite(r.start) && Number.isFinite(r.end) && r.end > r.start);
+  } catch (eMeme) { meme_ranges = []; }
 
   btn.disabled = true;
-  btn.textContent = "⏳ Hazırlanıyor...";
+  btn.textContent = "⏳ Birleştiriliyor...";
   msg.style.display = "none";
 
   try {
     msg.style.display = "block";
-    msg.textContent = "Local Downloader ile hazırlanıyor (PC'ye kaydedilecek)…";
+    msg.textContent = meme_ranges.length
+      ? "Telif Ezici, ardından meme kesiti… PC'ye kaydedilecek."
+      : "Telif Ezici hazırlanıyor (meme aralığı yok)…";
     let gemini_api_key = "";
     try { gemini_api_key = String(localStorage.getItem("gemini_api_key") || "").trim(); } catch(eKey) {}
     // Force model per requirement (ignore localStorage override)
@@ -1862,7 +1877,8 @@ async function crushVideo() {
         lab_meter_target_value,
         lab_meter_pos_x_px,
         lab_meter_pos_y_px,
-        manual_start_sec
+        manual_start_sec,
+        meme_ranges
       })
     });
     const localData = await localRes.json().catch(() => ({}));
@@ -1885,7 +1901,12 @@ async function crushVideo() {
       throw new Error(baseErr + gemInfo);
     }
     msg.style.display = "block";
+    const meme = localData.meme;
+    const memeLine = meme
+      ? (" · meme: -" + meme.removedSec + "s / +" + meme.insertedSec + "s → " + (meme.durationOut != null ? meme.durationOut + "s" : "?"))
+      : "";
     msg.textContent = "✅ PC'ye kaydedildi: " + (localData.savedTo || "") + "\\" + (localData.file || "") +
+      memeLine +
       (manual_blur_rects.length ? " · " + manual_blur_rects.length + " blur kutusu" : "") +
       (manual_reels_crop_y_nudge_px ? " · dikey kaydırma " + manual_reels_crop_y_nudge_px + " px" : "") +
       (hook_text ? " · manuel hook" : "") +
@@ -1918,7 +1939,7 @@ async function crushVideo() {
     msg.textContent = "Hata: " + (e.message || e);
   } finally {
     btn.disabled = false;
-    btn.textContent = "⚡ İndir + Telif Ez (9:16)";
+    btn.textContent = "🚀 Tüm Ayarları Birleştir & Render Al (9:16)";
   }
 }
 

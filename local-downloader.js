@@ -2483,6 +2483,7 @@ app.post('/crush', async (req, res) => {
       manual_reels_window_shift_y_px: manualReelsWindowShiftYPx,
       manual_reels_hook_x_offset_px: manualReelsHookXOff,
       manual_reels_hook_y_offset_px: manualReelsHookYOff,
+      manual_start_sec: manualStartSec,
       lab_meter: {
         enabled: labMeterEnabled,
         target_percent: labMeterTargetPct,
@@ -2497,6 +2498,37 @@ app.post('/crush', async (req, res) => {
     });
     plan = await renderPlanWithFallback(plan);
 
+    let memeInfo = null;
+    const memeRangesRaw = memeInjector.parseMemeRanges(
+      req.body?.meme_ranges ?? req.body?.memeRanges ?? []
+    );
+    if (memeRangesRaw.length) {
+      const speed = Number(plan.debug && plan.debug.effectiveSpeed) || 1.1;
+      const startSec = Number(plan.debug && plan.debug.startSec) || 0;
+      const crushedDur = Number(plan.debug && plan.debug.outDurSec) || 60;
+      const mapped = memeInjector.mapSourceRangesToCrushed(memeRangesRaw, {
+        startSec,
+        speed,
+        outDur: crushedDur
+      });
+      const memeTmp = outFile.replace(/\.mp4$/i, '') + '.__meme.mp4';
+      memeInfo = await memeInjector.injectMemes({
+        ffmpegPath: 'ffmpeg',
+        ffprobePath: 'ffprobe',
+        inFile: outFile,
+        outFile: memeTmp,
+        ranges: mapped,
+        projectRoot: __dirname
+      });
+      fs.rmSync(outFile, { force: true });
+      fs.renameSync(memeTmp, outFile);
+      memeInfo.timeMap = {
+        startSec,
+        speed,
+        note: 'Önizleme saniyeleri (kaynak - start) / hız ile ezilmiş zaman çizelgesine taşındı. Aralık silindi, meme kendi süresiyle girdi.'
+      };
+    }
+
     const verify = await crush.selfCheckCrushOutput('ffmpeg', 'ffprobe', outFile);
 
     return res.json({
@@ -2505,6 +2537,7 @@ app.post('/crush', async (req, res) => {
       file: path.basename(outFile),
       settings: { ...plan.debug },
       verify,
+      meme: memeInfo,
       manualBlurRects: manualBlurRectsBody,
       manualReelsCropYNudgePx,
       manualReelsWindowShiftYPx,

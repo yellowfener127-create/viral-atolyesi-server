@@ -1478,6 +1478,7 @@ async function buildCrushRenderPlan(o) {
       filterComplexScript: filterComplexScriptPath ? path.basename(filterComplexScriptPath) : null,
       speedRamp,
       effectiveSpeed: Number(effectiveSpeed.toFixed(6)),
+      startSec: Number(startSec.toFixed(3)),
       horizontalFlip: false,
       originalFps: origFps,
       targetFps,

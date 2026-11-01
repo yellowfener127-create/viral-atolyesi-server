@@ -603,9 +603,34 @@ app.post('/tools/crush', async (req, res) => {
 
     await runChild(ffmpegPath, [...plan.ffmpegArgsTail, outFile], { timeoutMs: 6 * 60 * 1000 });
 
+    let streamFile = outFile;
+    const memeRangesRaw = memeInjector.parseMemeRanges(
+      req.body?.meme_ranges ?? req.body?.memeRanges ?? []
+    );
+    if (memeRangesRaw.length) {
+      const speed = Number(plan.debug && plan.debug.effectiveSpeed) || 1.1;
+      const startSec = Number(plan.debug && plan.debug.startSec) || 0;
+      const crushedDur = Number(plan.debug && plan.debug.outDurSec) || 60;
+      const mapped = memeInjector.mapSourceRangesToCrushed(memeRangesRaw, {
+        startSec,
+        speed,
+        outDur: crushedDur
+      });
+      const memeFile = path.join(tmpDir, 'meme.mp4');
+      await memeInjector.injectMemes({
+        ffmpegPath,
+        ffprobePath: ffprobeResolved,
+        inFile: outFile,
+        outFile: memeFile,
+        ranges: mapped,
+        projectRoot: __dirname
+      });
+      streamFile = memeFile;
+    }
+
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Disposition', `attachment; filename="crushed_${brand}_9x16.mp4"`);
-    fs.createReadStream(outFile)
+    fs.createReadStream(streamFile)
       .on('error', (e) => res.status(500).end(String(e && e.message ? e.message : e)))
       .on('close', () => {})
       .pipe(res)

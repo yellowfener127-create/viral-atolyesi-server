@@ -13,11 +13,11 @@ const OUT_W = 1080;
 const OUT_H = 1920;
 const OUT_FPS = 30; // asla 60+
 const MIN_RANGE = 0.35;
-const MAX_RANGE = 12;
+const MAX_RANGE = 90; // kesilen pencere üst sınırı; meme süresi buna sıkıştırılmaz
 
-function runFfmpeg(ffmpegPath, args, timeoutMs = 8 * 60 * 1000) {
+function runFfmpeg(ffmpegPath, args, timeoutMs = 8 * 60 * 1000, cwd) {
   return new Promise((resolve, reject) => {
-    const child = spawn(ffmpegPath, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn(ffmpegPath, args, { cwd: cwd || undefined, stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
     const timer =
       timeoutMs > 0
@@ -107,9 +107,10 @@ function normalizeRanges(ranges, duration) {
     let b = Math.max(0, Number(r.end));
     if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
     if (b < a) { const t = a; a = b; b = t; }
-    a = Math.min(a, d - MIN_RANGE);
+    // Aralık videonun dışındaysa sona çekme; tamamen at.
+    if (a >= d - 0.02) continue;
+    a = Math.max(0, a);
     b = Math.min(b, d);
-    if (a < 0) a = 0;
     let len = b - a;
     if (len < MIN_RANGE) continue;
     if (len > MAX_RANGE) b = a + MAX_RANGE;
@@ -189,16 +190,19 @@ async function writeNormalizedSegment({
   hasAudio
 }) {
   const ss = Math.max(0, Number(start) || 0);
-  const dur = Math.max(MIN_RANGE, Number(duration) || MIN_RANGE);
-  const args = ['-y', '-ss', ss.toFixed(3), '-t', dur.toFixed(3), '-i', inFile];
+  const dur = Math.max(0.08, Number(duration) || 0.08);
+  // -ss girişten sonra: kesilen aralık kaymasın. Süre -t ile kopyalanır, setpts/atempo yok.
+  const args = ['-y', '-i', inFile];
   if (!hasAudio) {
     args.push('-f', 'lavfi', '-t', dur.toFixed(3), '-i', 'anullsrc=r=44100:cl=stereo');
   }
   args.push(
+    '-ss', ss.toFixed(3),
+    '-t', dur.toFixed(3),
     '-vf', vfNormalize(),
     '-map', '0:v:0',
     '-map', hasAudio ? '0:a:0?' : '1:a:0',
-    '-shortest',
+    '-af', `apad=whole_dur=${dur.toFixed(3)}`,
     '-c:v', 'libx264',
     '-preset', 'veryfast',
     '-crf', '18',
@@ -214,7 +218,7 @@ async function writeNormalizedSegment({
   await runFfmpeg(ffmpegPath, args);
 }
 
-async function concatSegments(ffmpegPath, listPath, outFile) {
+async function concatSegments(ffmpegPath, listPath, outFile, cwd) {
   await runFfmpeg(ffmpegPath, [
     '-y',
     '-f', 'concat',
@@ -231,7 +235,7 @@ async function concatSegments(ffmpegPath, listPath, outFile) {
     '-map_metadata', '-1',
     '-map_chapters', '-1',
     outFile
-  ]);
+  ], 8 * 60 * 1000, cwd);
 }
 
 /**
@@ -263,7 +267,7 @@ async function injectMemes({
   }
   const norm = normalizeRanges(ranges, dur);
   if (!norm.length) {
-    const e = new Error('Geçerli saniye aralığı yok (min 0.35s, max 12s).');
+    const e = new Error('Geçerli saniye aralığı yok (min 0.35s). Aralık ezilmiş videonun dışında kalmış olabilir.');
     e.statusCode = 400;
     throw e;
   }
@@ -287,7 +291,7 @@ async function injectMemes({
     for (let i = 0; i < timeline.length; i++) {
       const piece = timeline[i];
       const len = piece.end - piece.start;
-      if (len < 0.12) continue;
+      if (piece.kind === 'main' && len < 0.12) continue;
       const segPath = path.join(tmpDir, `seg_${String(i).padStart(3, '0')}.mp4`);
       if (piece.kind === 'main') {
         await writeNormalizedSegment({
@@ -306,18 +310,28 @@ async function injectMemes({
           throw e;
         }
         used.add(snip);
-        const snipDur = (await probeDurationSec(ffprobePath, ffmpegPath, snip)) || len;
-        const take = Math.min(len, snipDur, MAX_RANGE);
+        const snipDur = await probeDurationSec(ffprobePath, ffmpegPath, snip);
+        if (!(snipDur > 0.12)) {
+          const e = new Error(`Meme süresi okunamadı: ${path.basename(snip)}`);
+          e.statusCode = 400;
+          throw e;
+        }
         const snipHasAudio = await probeHasAudio(ffmpegPath, snip);
+        // Aralık tamamen atılır. Yerine klibin kendi süresi konur (sıkıştırma/uzatma yok).
         await writeNormalizedSegment({
           ffmpegPath,
           inFile: snip,
           outFile: segPath,
           start: 0,
-          duration: take,
+          duration: snipDur,
           hasAudio: snipHasAudio
         });
-        snippetsUsed.push({ file: path.basename(snip), duration: Number(take.toFixed(3)), at: piece.start });
+        snippetsUsed.push({
+          file: path.basename(snip),
+          duration: Number(snipDur.toFixed(3)),
+          removedSec: Number(len.toFixed(3)),
+          at: piece.start
+        });
       }
       segFiles.push(segPath);
     }
@@ -332,20 +346,38 @@ async function injectMemes({
       .map((p) => `file '${path.basename(p).replace(/'/g, "'\\''")}'`)
       .join('\n');
     fs.writeFileSync(listPath, listBody, 'utf8');
-    await concatSegments(ffmpegPath, listPath, outFile);
+    await concatSegments(ffmpegPath, listPath, outFile, tmpDir);
   } finally {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   }
   const durationOut = (await probeDurationSec(ffprobePath, ffmpegPath, outFile)) || null;
+  const removedSec = norm.reduce((s, r) => s + (r.end - r.start), 0);
+  const insertedSec = snippetsUsed.reduce((s, x) => s + Number(x.duration || 0), 0);
   return {
     ranges: norm,
     snippetsUsed,
     snippetsDir: dir,
     durationIn: Number(dur.toFixed(3)),
     durationOut,
+    removedSec: Number(removedSec.toFixed(3)),
+    insertedSec: Number(insertedSec.toFixed(3)),
     fps: OUT_FPS,
     size: `${OUT_W}x${OUT_H}`
   };
+}
+
+/**
+ * Kaynak önizlemedeki saniyeleri, Telif Ezici sonrası zaman çizelgesine taşır.
+ * Çıktı süresi ≈ (kaynak - startSec) / hız. Aralık o anda kesilir.
+ */
+function mapSourceRangesToCrushed(ranges, { startSec = 0, speed = 1, outDur = 60 } = {}) {
+  const sp = Number(speed) > 0.2 ? Number(speed) : 1;
+  const ss = Math.max(0, Number(startSec) || 0);
+  const mapped = (ranges || []).map((r) => ({
+    start: (Number(r.start) - ss) / sp,
+    end: (Number(r.end) - ss) / sp
+  }));
+  return normalizeRanges(mapped, outDur);
 }
 
 module.exports = {
@@ -354,6 +386,7 @@ module.exports = {
   listSnippetFiles,
   parseMemeRanges,
   normalizeRanges,
+  mapSourceRangesToCrushed,
   OUT_W,
   OUT_H,
   OUT_FPS
