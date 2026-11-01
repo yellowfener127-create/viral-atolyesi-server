@@ -2044,6 +2044,28 @@ app.post('/crush-compilation', async (req, res) => {
   }
 });
 
+// Mix concat parçaları farklı renk uzayı taşıyorsa crush grafiği her sınırda yeniden kurulur,
+// kareler düşer, çerçeve deliği boş (Alice mavisi) kalır ve süre kısalır. Render öncesi tek akışa çevir.
+async function normalizeLocalCrushSource(inFile, outFile) {
+  const hasA = await probeHasAudio(inFile);
+  const args = [
+    '-y', '-i', inFile,
+    '-vf', 'fps=30,format=yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-pix_fmt', 'yuv420p',
+    '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709'
+  ];
+  if (hasA) {
+    args.push('-af', 'aresample=async=1:first_pts=0', '-c:a', 'aac', '-ar', '44100', '-ac', '2');
+  } else {
+    args.push('-an');
+  }
+  args.push('-movflags', '+faststart', outFile);
+  await run('ffmpeg', args, { timeoutMs: 12 * 60 * 1000 });
+  if (!fs.existsSync(outFile) || fs.statSync(outFile).size < 1024) {
+    throw new Error('Kaynak video tek parçaya çevrilemedi.');
+  }
+}
+
 app.post('/crush', async (req, res) => {
   const url = req.body?.url || req.query?.url;
   const brand = normBrand(req.body?.brand || req.query?.brand || 'terapi');
@@ -2243,6 +2265,13 @@ app.post('/crush', async (req, res) => {
       return res.status(500).json({
         error: 'Seçilen dosyada video akışı yok.'
       });
+    }
+
+    if (localPath) {
+      const cleanSrc = path.join(tmpDir, 'clean_src.mp4');
+      console.log('[crush] yerel kaynak tek renk uzayına çevriliyor');
+      await normalizeLocalCrushSource(inFile, cleanSrc);
+      inFile = cleanSrc;
     }
 
     const streamDur = await probeVideoDurationSec(inFile).catch(() => null);
