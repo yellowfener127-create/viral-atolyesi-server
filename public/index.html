@@ -2376,7 +2376,7 @@ function getTodayKey() {
 }
 
 function getCacheKey(cat, plat) {
-  return "cache_" + cat + "_" + plat + "_" + getTodayKey();
+  return "cache_v2_" + cat + "_" + plat + "_" + getTodayKey();
 }
 
 function getCached(cat, plat) {
@@ -2549,6 +2549,47 @@ function isBlockedReactionContent(title, channel, description) {
   return REACTION_BLOCK_RE.test(blob);
 }
 
+const TURKISH_WORD_RE = /\b(?:türkiye|turkiye|türkçe|turkce|türk|turkish|komik|eğlenceli|eglenceli|derleme|sıralama|siralama|abone|beğen|begen|hayvanlar|köpek|kopek|dakika|saniye|inanılmaz|inanilmaz|videoları|videolari|videolar|paylaş|paylas|kaçırma|kacirma|eğlence|eglence|şok|çok|güzel|küçük|büyük|çünkü|değil|için|böyle|şöyle|herkes|lütfen|teşekkür|tesekkur|merhaba|arkadaş|arkadas|kardeş|kardes|çocuk|cocuk|bebek|izleyin|izle|nasıl|nasil|neden|nerede|kimse|hiçbir|hicbir|olsun|hadi|işte|anlar|anları|en iyi)\b/i;
+const TR_QUERY_BAN = "-türkçe -turkce -türkiye -turkiye -turkish -komik -derleme -sıralama -siralama -hayvanlar -izle";
+const RANKING_COMPILATION_RE = /\b(?:compilations?|rank(?:ed|ing|ings)?|countdown|top\s*-?\s*(?:\d{1,2}|ten|five|twenty)|tier\s*lists?)\b/i;
+
+function isTurkishContent(title, channel, description, item) {
+  const blob = [title, channel, description].filter(Boolean).join(" ");
+  if (/[ğĞşŞıİ]/.test(blob)) return true;
+  if (TURKISH_WORD_RE.test(blob)) return true;
+  const lang = String(
+    (item && item.snippet && (item.snippet.defaultAudioLanguage || item.snippet.defaultLanguage)) || ""
+  ).toLowerCase();
+  return lang === "tr" || lang.startsWith("tr-");
+}
+
+function isRankingCompilationTitle(title) {
+  return RANKING_COMPILATION_RE.test(String(title || ""));
+}
+
+function mixEightyRanking(items) {
+  const rank = [];
+  const other = [];
+  for (const v of items) {
+    if (v.fromRankingQuery || isRankingCompilationTitle(v.title)) rank.push(v);
+    else other.push(v);
+  }
+  if (!rank.length) return items;
+  if (!other.length) return rank;
+  const out = [];
+  let ri = 0;
+  let oi = 0;
+  while (ri < rank.length) {
+    let added = 0;
+    for (let k = 0; k < 4 && ri < rank.length; k++) {
+      out.push(rank[ri++]);
+      added++;
+    }
+    if (added === 4 && oi < other.length) out.push(other[oi++]);
+  }
+  return out;
+}
+
 /** YouTube Data API: yaş kısıtlı içerik (Shorts listesinde gösterme) */
 function isYoutubeAgeRestrictedItem(item) {
   try {
@@ -2611,64 +2652,70 @@ function parseFilenameFromContentDisposition(header) {
 // SORGULAR
 const ALL_QUERIES = {
   animal: [
-    "cute animals funny moments","cute baby animals compilation","funny dogs and cats viral",
-    "adorable baby animals","funny animal fails","cute puppies kittens funny",
-    "baby animals being cute","funny pets compilation","animals doing funny things",
-    "cute baby moments funny","funniest animal videos","funny cat videos",
-    "dog funny moments","cute animal rescue","baby duck funny",
-    "funny hamster","cute rabbit funny","baby elephant funny","funny bird moments","cat vs dog funny",
-    "wholesome animal clips viral shorts","try not to smile cute animals","adorable rescue animal moments",
-    "funny pet reactions viral","cute animal tiktok style compilation","heartwarming animal bond moments",
-    "silly animals being silly viral","tiny animal big personality shorts","funny zoo animal moments"
+    "cute animals funny compilation ranking",
+    "funniest animal moments ranked compilation",
+    "top 10 cute baby animals compilation",
+    "funny dogs and cats ranked compilation",
+    "adorable baby animals countdown compilation",
+    "funny animal fails compilation ranking",
+    "cute puppies kittens ranked compilation",
+    "top 10 baby animals being cute compilation",
+    "funny pets compilation ranking",
+    "animals doing funny things ranked compilation",
+    "top 10 funniest animal videos compilation",
+    "cute animal rescue compilation ranking",
+    "try not to smile cute animals compilation ranking",
+    "wholesome animal clips ranked compilation",
+    "funny pet moments countdown compilation",
+    "top 10 silly animals compilation ranking",
+    "cute animals funny moments",
+    "adorable baby animals",
+    "baby duck funny",
+    "funny bird moments"
   ],
   comedy: [
-    "people funny moments caught on camera viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "public freakout funny viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "try not to laugh people fails compilation -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "hilarious street moments people viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "comedy skit viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "awkward funny moments in public viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "funny prank on people caught camera -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "workplace funny moments viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "instant karma funny people viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "ridiculous moments caught on camera people -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "funny argument in public viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "unexpected funny reaction people viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "people falling fails funny viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "funny interview moments viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "chaotic family dinner funny viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "funny sports bloopers people viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "absurd public moments funny viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "funny misunderstanding caught camera -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "unexpected comedy in public viral -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "try not to laugh challenge people -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs",
-    "hilarious timing moments viral shorts -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs"
+    "try not to laugh people fails compilation ranking",
+    "funniest public moments ranked compilation",
+    "top 10 funny people fails compilation",
+    "hilarious street moments ranked compilation",
+    "comedy skits countdown compilation",
+    "awkward public moments compilation ranking",
+    "funny pranks on people ranked compilation",
+    "top 10 workplace funny moments compilation",
+    "instant karma people ranked compilation",
+    "ridiculous moments caught on camera compilation ranking",
+    "top 10 funny arguments compilation",
+    "unexpected funny moments ranked compilation",
+    "people falling fails compilation ranking",
+    "top 10 funny interview moments compilation",
+    "chaotic family moments ranked compilation",
+    "funny sports bloopers countdown compilation",
+    "people funny moments caught on camera",
+    "public freakout funny viral",
+    "awkward funny moments in public",
+    "funny misunderstanding caught on camera"
   ],
   hope: [
+    "random acts of kindness compilation ranking",
+    "faith in humanity restored ranked compilation",
+    "top 10 strangers helping people compilation",
+    "good samaritan moments countdown compilation",
+    "emotional reunion compilation ranking",
+    "soldier surprise family reunion ranked compilation",
+    "top 10 family reunion moments compilation",
+    "hero saves someone compilation ranking",
+    "wholesome rescue stories ranked compilation",
+    "top 10 community kindness compilation",
+    "people helping elderly compilation ranking",
+    "kindness chain pay it forward ranked compilation",
+    "top 10 heartwarming rescue compilation",
+    "best wholesome moments countdown compilation",
+    "life changing kindness ranked compilation",
+    "top 10 wholesome surprises compilation",
     "random acts of kindness caught on camera",
-    "faith in humanity restored",
     "strangers help people in need",
-    "good samaritan viral",
-    "emotional reunion surprise homecoming",
-    "soldier surprise family reunion",
-    "long distance family reunion emotional",
-    "hero saves someone caught on camera",
-    "rescue story wholesome",
-    "community comes together to help",
-    "people helping elderly wholesome",
-    "kindness chain pay it forward",
-    "heartwarming rescue and recovery",
-    "best wholesome moments",
-    "gratitude reaction surprise",
-    "life changing kindness moment",
-    "wholesome surprise for stranger viral",
     "teacher student emotional moment",
-    "neighbor helping neighbor viral",
-    "donation surprise emotional reaction",
-    "small business kindness viral",
-    "kids doing the right thing wholesome",
-    "firefighter rescue emotional moment",
-    "medical staff kindness viral"
+    "neighbor helping neighbor"
   ]
 };
 
@@ -2690,7 +2737,20 @@ function seededShuffle(arr, seed) {
 
 function getTodayQueries(cat, rotation = 0) {
   const seed = getDaySeed();
-  return seededShuffle(ALL_QUERIES[cat], seed + cat.length * 7 + rotation * 100003).slice(0, 7);
+  const all = ALL_QUERIES[cat] || [];
+  const ranking = [];
+  const other = [];
+  for (const q of all) (RANKING_COMPILATION_RE.test(q) ? ranking : other).push(q);
+  const r = seededShuffle(ranking, seed + cat.length * 7 + rotation * 100003);
+  const o = seededShuffle(other, seed + 17 + rotation * 100003);
+  const picked = [];
+  for (let i = 0; i < 4; i++) if (r[i]) picked.push(r[i]);
+  if (o[0]) picked.push(o[0]);
+  if (cat === "comedy") {
+    const ban = " -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs";
+    return picked.map((q) => q.includes(" -dog") ? q : q + ban);
+  }
+  return picked;
 }
 
 // YARDIMCI FONKSİYONLAR
@@ -3094,8 +3154,9 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
       try {
         const tokenPart = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "";
         const regionPart = "&relevanceLanguage=en&regionCode=US";
+        const qSearch = q.includes("-türkçe") ? q : (q + " " + TR_QUERY_BAN);
         const sRes = await fetch(
-          backendUrl(`/youtube/search?part=snippet&q=${encodeURIComponent(q)}&type=video&videoDuration=short&order=${order}&maxResults=50&key=${encodeURIComponent(savedKey)}${regionPart}${afterParam}${tokenPart}`),
+          backendUrl(`/youtube/search?part=snippet&q=${encodeURIComponent(qSearch)}&type=video&videoDuration=short&order=${order}&maxResults=50&key=${encodeURIComponent(savedKey)}${regionPart}${afterParam}${tokenPart}`),
           { cache: "no-store" }
         );
         const sData = await sRes.json();
@@ -3138,6 +3199,7 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
           if (duration < minDur || duration > maxDur) continue;
           if (seenSet.has(String(item.id))) continue;
           if (isBlocked(title, channel)) continue;
+          if (isTurkishContent(title, channel, description, item)) continue;
           if (isBlockedRegionContent(title, channel, description)) continue;
           if (isBlockedReactionContent(title, channel, description)) continue;
           if (activeCat === "comedy" && isComedyAnimalHeavy(title, channel)) continue;
@@ -3152,7 +3214,8 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
             duration,
             score: calcScore(views, likes),
             url: "https://www.youtube.com/watch?v=" + item.id,
-            platform: "youtube"
+            platform: "youtube",
+            fromRankingQuery: RANKING_COMPILATION_RE.test(q)
           });
           if (rawItems.length >= stopAfterRaw) break outer;
         }
@@ -3175,10 +3238,11 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
 
   filtered.sort((a,b) => b.score - a.score);
   const seen = new Set();
-  return filtered.filter(v => {
+  const unique = filtered.filter(v => {
     if (seen.has(v.id)) return false;
     seen.add(v.id); return true;
   });
+  return mixEightyRanking(unique);
 }
 
 // (YouTube transcript kontrolü kaldırıldı)
