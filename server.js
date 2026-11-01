@@ -547,26 +547,6 @@ app.post('/tools/crush', async (req, res) => {
     );
     const manualStartSecRaw = Number(req.body?.manual_start_sec ?? req.body?.manualStartSec ?? 0);
     const manualStartSec = Number.isFinite(manualStartSecRaw) ? Math.max(0, manualStartSecRaw) : 0;
-    const labMeterEnabledRaw = String(req.body?.lab_meter_enabled ?? '').trim().toLowerCase();
-    const labMeterEnabled =
-      labMeterEnabledRaw === '' ? true : (labMeterEnabledRaw === '1' || labMeterEnabledRaw === 'true' || labMeterEnabledRaw === 'yes' || labMeterEnabledRaw === 'on');
-    const labMeterTargetValueRaw = Number(req.body?.lab_meter_target_value ?? req.body?.labMeterTargetValue);
-    const labMeterTargetPctRaw = Number(req.body?.lab_meter_target_percent);
-    const labMeterTargetValue =
-      Number.isFinite(labMeterTargetValueRaw)
-        ? Math.max(0, Math.min(1000, Math.round(labMeterTargetValueRaw)))
-        : null;
-    const labMeterTargetPct =
-      Number.isFinite(labMeterTargetPctRaw)
-        ? Math.max(0, Math.min(100, Math.round(labMeterTargetPctRaw)))
-        : null;
-    const labMeterPosX = Number(req.body?.lab_meter_pos_x_px);
-    const labMeterPosY = Number(req.body?.lab_meter_pos_y_px);
-    const labMeterPos720 =
-      Number.isFinite(labMeterPosX) && Number.isFinite(labMeterPosY)
-        ? { x: Math.round(labMeterPosX), y: Math.round(labMeterPosY) }
-        : null;
-
     const plan = await crush.buildCrushRenderPlan({
       inFile,
       wmFile,
@@ -584,12 +564,6 @@ app.post('/tools/crush', async (req, res) => {
       manual_reels_hook_x_offset_px: manualReelsHookXOff,
       manual_reels_hook_y_offset_px: manualReelsHookYOff,
       manual_start_sec: manualStartSec,
-      lab_meter: {
-        enabled: labMeterEnabled,
-        target_value: labMeterTargetValue,
-        target_percent: labMeterTargetPct,
-        pos_720: labMeterPos720
-      },
       manualBlurRefW: crush.MANUAL_BLUR_REF_W,
       manualBlurRefH: crush.MANUAL_BLUR_REF_H,
       hasAudio,

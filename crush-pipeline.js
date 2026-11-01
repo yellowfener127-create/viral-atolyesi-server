@@ -527,194 +527,6 @@ function buildReelsInstagramCanvasFilters({
   return parts;
 }
 
-/**
- * Lab markası reels çıktısı [v1] üzerine animasyonlu meter çubuğu + hedef yüzde yazısı (alt orta).
- * Çıkış etiketi: [v1meter] — watermark zinciri buradan beslenir.
- */
-function buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter, outW, outH }) {
-  const enabled = labMeter && typeof labMeter.enabled === 'boolean' ? labMeter.enabled : true;
-  if (!enabled) return { filters: [], debug: { enabled: false } };
-
-  // SCORE mode (0–100): prefer target_value, fall back to target_percent.
-  let T = (labMeter && Number.isFinite(Number(labMeter.target_value)))
-    ? Math.round(Number(labMeter.target_value))
-    : ((labMeter && Number.isFinite(Number(labMeter.target_percent))) ? Math.round(Number(labMeter.target_percent)) : randInt(70, 95));
-  T = Math.max(0, Math.min(100, T));
-  let S = 0;
-
-  const d = Math.max(0.01, Number(outDur) || 4);
-  const pd = Math.max(0.10, d - 5.0); // output timeline: hit target exactly 5s before end
-  const pdLit = String(pd.toFixed(6)).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
-
-  // Palette (only used for glow accents + needle; template itself is fixed)
-  let glowHex = '0xff8844';
-  let accentHex = '0xffffff';
-  if (brandNorm === 'terapi') {
-    glowHex = '0x44ccdd';
-  } else if (brandNorm === 'umut') {
-    glowHex = '0xffee88';
-    accentHex = '0xfffbf0';
-  }
-
-  const pos720 = labMeter && labMeter.pos_720 && Number.isFinite(labMeter.pos_720.x) && Number.isFinite(labMeter.pos_720.y)
-    ? { x: Math.round(labMeter.pos_720.x), y: Math.round(labMeter.pos_720.y) }
-    : null;
-  // Default: liste alanı alt-orta, koyu kutu içi (public/design_refs/lab_meter_terapi_list_overlay_ref.png)
-  const defaultPos720 = { x: 360, y: 988 };
-  const posUse = pos720 || defaultPos720;
-  const wOut = Math.max(2, Math.round(Number(outW) || 1080));
-  const hOut = Math.max(2, Math.round(Number(outH) || 1920));
-  const cx = Math.round((posUse.x / 720) * wOut);
-  const cy = Math.round((posUse.y / 1280) * hOut);
-
-  // Needle motion range (semi-circle)
-  const a0 = -2.45; // rad (left)
-  const a1 = 2.45;  // rad (right)
-  // Linear 0..T then hold T from (outDur-5s) to end — WITHOUT `if(a,b,c)` (commas inside drawtext
-  // `%{eif:...}` break on some Windows FFmpeg builds and the counter stays stuck at 0).
-  const scoreContinuous = `lt(t,${pdLit})*(${T})*t/${pdLit}+gte(t,${pdLit})*${T}`;
-  const scoreCount = `floor(${scoreContinuous})`;
-  const angleExpr = `(${a0})+(${a1 - a0})*((${scoreContinuous})/100)`;
-
-  const pulseTerms = [];
-  for (let v = 10; v <= 100; v += 10) {
-    if (v > T) break;
-    const tk = pd * (v / Math.max(1, T));
-    const t0 = (tk - 0.08).toFixed(3);
-    const t1 = (tk + 0.08).toFixed(3);
-    pulseTerms.push(`between(t\\,${t0}\\,${t1})`);
-  }
-  const pulseEnable = pulseTerms.length ? pulseTerms.join('+') : '0';
-  const targetEnable = `between(t\\,${(pd - 0.12).toFixed(3)}\\,${(pd + 0.22).toFixed(3)})`;
-
-  // FFmpeg filtergraphs use commas as separators between filters, so commas inside expressions must be escaped
-  // when they appear inside any option value (enable=..., rotate angle=..., drawtext text=...).
-  const escapeExprCommas = (s) => String(s || '').replace(/,/g, '\\,');
-  const scoreContinuousEsc = escapeExprCommas(scoreContinuous);
-  const scoreCountEsc = escapeExprCommas(scoreCount);
-  const angleExprEsc = escapeExprCommas(angleExpr);
-
-  const numText = `%{eif\\:${scoreCountEsc}\\:d}`;
-
-  // New single template: `public/lab_meter_score_template.png` (green background removed).
-  // If template input is missing, fall back to a solid panel so meter still renders.
-  const hasTemplateInput = labMeter && Number.isFinite(Number(labMeter.template_input_idx));
-  const tmplW = Math.max(520, Math.round(wOut * 0.62));
-  const tmplH = Math.round(tmplW * (810 / 1024));
-  const anchorX = Math.round(tmplW * 0.50);
-  const anchorY = Math.round(tmplH * 0.62);
-  const tmplOx = Math.round(cx - anchorX);
-  const tmplOy = Math.round(cy - anchorY);
-  const digitFromBottomPx = Math.max(44, Math.round(tmplW * 0.11));
-  const digitFontPx = Math.max(80, Math.round(tmplW * 0.20));
-
-  const needleSize = Math.max(420, Math.round(tmplW * 0.78));
-  const nx0 = Math.round(cx - needleSize / 2);
-  const ny0 = Math.round(cy - needleSize / 2);
-  const needleLen = Math.max(120, Math.round(needleSize * 0.42));
-  const needleW = Math.max(6, Math.round(needleSize * 0.018));
-  const hubR = Math.max(10, Math.round(needleSize * 0.030));
-
-  // Progress bar (arc) as cumulative segments.
-  // We avoid geq/alphamerge/blend between mismatched sizes by generating each segment in a same-size
-  // square (needleSize x needleSize) and overlaying it onto the already composited frame.
-  const segCount = 72; // smoother arc fill
-  const segRadius = Math.round(needleSize * 0.44);
-  const segThick = Math.max(10, Math.round(needleSize * 0.065));
-  const segLen = Math.max(12, Math.round(needleSize * 0.11));
-  const segW = Math.max(10, Math.round(segThick * 0.92));
-  const segX = Math.round(needleSize / 2 - segW / 2);
-  const segY = Math.round(needleSize / 2 - segRadius - segLen + Math.round(segThick * 0.20));
-  // Purple/blue like template; small glow pulse near milestones.
-  const barHex = brandNorm === 'terapi' ? '0x6E5BFF' : brandNorm === 'umut' ? '0x8D79FF' : '0x6E5BFF';
-
-  // Template cleanup: the PNG template contains a baked "0" in the score area.
-  // We must remove it, otherwise we see two "0" (template + dynamic drawtext).
-  // Do this by making that region fully transparent in the template's alpha channel.
-  const scoreBoxW = Math.max(80, Math.round(tmplW * 0.40));
-  const scoreBoxH = Math.max(60, Math.round(digitFontPx * 1.10));
-  const scoreBoxX = Math.round(anchorX - scoreBoxW / 2);
-  const scoreBoxY = Math.round(tmplH - digitFromBottomPx - scoreBoxH + Math.round(digitFontPx * 0.10));
-
-  return {
-    filters: [
-      ...(hasTemplateInput
-        ? [
-            // Robust path: avoid any blend between template and full-size video.
-            // Directly overlay the RGBA template at desired coordinates.
-            `[${Math.round(Number(labMeter.template_input_idx))}:v]scale=${tmplW}:${tmplH}:flags=lanczos+accurate_rnd+full_chroma_inp,format=rgba,split=2[tmplRgba0][tmplRgba1]`,
-            `[tmplRgba0]alphaextract,format=gray,` +
-              `drawbox=x=${scoreBoxX}:y=${scoreBoxY}:w=${scoreBoxW}:h=${scoreBoxH}:color=black@1:t=fill[tmplA]`,
-            `[tmplRgba1]format=rgb24[tmplRgb]`,
-            `[tmplRgb][tmplA]alphamerge[tmplClean]`,
-            `[v1][tmplClean]overlay=x=${tmplOx}:y=${tmplOy}:format=auto[lmT0]`,
-            // Single dynamic number (template center is cleared).
-            `[lmT0]drawtext=text='${numText}'${fontPart}:fontsize=${digitFontPx}:` +
-              `fontcolor=${accentHex}@1:borderw=3:bordercolor=0x000000@1:` +
-              `x=${cx}-text_w/2:y=${tmplOy + tmplH - digitFromBottomPx}[lm2]`
-          ]
-        : [
-            `color=c=black@0.0:s=${outW}x${outH}:d=99999,format=rgba[noop0]`,
-            `[v1][noop0]overlay=x=0:y=0:format=auto[lmT0]`,
-            `[lmT0]drawbox=x=${tmplOx}:y=${tmplOy}:w=${tmplW}:h=${tmplH}:color=0x0C0E12@1:t=fill,` +
-              `drawtext=text='${numText}'${fontPart}:fontsize=${digitFontPx}:` +
-              `fontcolor=${accentHex}@1:borderw=3:bordercolor=0x000000@1:` +
-              `x=${cx}-text_w/2:y=${tmplOy + tmplH - digitFromBottomPx}[lm2]`
-          ]),
-      // Build the cumulative progress bar as many small segments, enabled as the score increases.
-      // Each segment becomes visible once continuous score reaches its threshold.
-      ...(() => {
-        const out = [];
-        // First, pass through the current frame as the working label.
-        // We'll overlay segments one-by-one onto [lm2].
-        let cur = 'lm2';
-        for (let i = 0; i < segCount; i++) {
-          const frac = segCount <= 1 ? 1 : i / (segCount - 1);
-          const thr = (frac * 100).toFixed(3);
-          const ang = (a0 + (a1 - a0) * frac).toFixed(6);
-          const segLabel = `lmSeg${i}`;
-          const segRot = `lmSegR${i}`;
-          const next = `lmBar${i}`;
-          const enableExpr = `gte(${scoreContinuousEsc}\\,${thr})`;
-          // Glow pulses around milestones/target using enable (alpha can't be an expression in drawbox color).
-          const glowEnable = `${pulseEnable}+${targetEnable}`;
-          out.push(
-            `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
-              `drawbox=x=${segX}:y=${segY}:w=${segW}:h=${segLen}:color=${barHex}@1:t=fill,` +
-              `drawbox=x=${segX}:y=${Math.round(segY + segLen - Math.round(segThick * 0.25))}:w=${segW}:h=${Math.round(segThick * 0.25)}:` +
-                `color=${glowHex}@1:t=fill:enable='${glowEnable}'[${segLabel}]`
-          );
-          out.push(`[${segLabel}]rotate=angle='${ang}':c=none:ow=iw:oh=ih[${segRot}]`);
-          out.push(`[${cur}][${segRot}]overlay=x=${nx0}:y=${ny0}:format=auto:enable='${enableExpr}'[${next}]`);
-          cur = next;
-        }
-        // Rename final to a stable label for downstream needle overlay.
-        out.push(`[${cur}]null[lmBarDone]`);
-        return out;
-      })(),
-      `color=c=black@0.0:s=${needleSize}x${needleSize}:d=99999,format=rgba,` +
-        `drawbox=x=${Math.round(needleSize / 2 - needleW / 2)}:y=${Math.round(needleSize / 2 - needleLen)}:w=${needleW}:h=${needleLen}:color=${accentHex}@1:t=fill,` +
-        `drawbox=x=${Math.round(needleSize / 2 - hubR)}:y=${Math.round(needleSize / 2 - hubR)}:w=${hubR * 2}:h=${hubR * 2}:color=black@1:t=fill,` +
-        `drawbox=x=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:y=${Math.round(needleSize / 2 - Math.round(hubR * 0.55))}:w=${Math.round(hubR * 1.1)}:h=${Math.round(hubR * 1.1)}:color=${accentHex}@1:t=fill,` +
-        `rotate=angle='${angleExprEsc}':c=none:ow=iw:oh=ih[lmNeedle]`,
-      `[lmBarDone][lmNeedle]overlay=x=${nx0}:y=${ny0}:format=auto[v1meter]`
-    ],
-    debug: {
-      enabled: true,
-      random_start_percent: S,
-      target_value: T,
-      brandNorm,
-      pos_720: posUse,
-      template: hasTemplateInput ? 'lab_meter_score_template.png' : null,
-      tmplW,
-      tmplH,
-      anchorX,
-      anchorY,
-      tmpl_xy_out: `${tmplOx}x${tmplOy}`
-    }
-  };
-}
-
 /** ±%2–%4 hız varyasyonu (1.0 etrafında) */
 function pickSpeedRampFactor() {
   const sign = Math.random() < 0.5 ? -1 : 1;
@@ -957,10 +769,6 @@ async function buildCrushRenderPlan(o) {
     : null;
   const frameExists = !!(framePng && fs.existsSync(framePng));
 
-  // Lab meter uses a single score template PNG (green background removed).
-  const meterTemplatePng = path.join(__dirname, 'public', 'lab_meter_score_template.png');
-  const meterTemplateExists = fs.existsSync(meterTemplatePng);
-
   // Watermark boyutu yarıya indir
   const wmSize = outW >= 1080 ? 55 : 48;
   // Watermark: eski basit opaklık + tek ek: DVD gibi köşelerden seken hareket + hafif rastgele eğim
@@ -1144,29 +952,12 @@ async function buildCrushRenderPlan(o) {
   const manualReelsHookYOff = parseManualReelsHookOffsetPx(
     o.manual_reels_hook_y_offset_px ?? o.manualReelsHookYOffsetPx
   );
-  const labMeterOpt = (() => {
-    const raw = o.lab_meter ?? o.labMeter ?? null;
-    if (!raw || typeof raw !== 'object') return null;
-    const enabled = raw.enabled == null ? true : !!raw.enabled;
-    const tv = Number(raw.target_value);
-    const tp = Number(raw.target_percent);
-    const target_value = Number.isFinite(tv) ? Math.max(0, Math.min(1000, Math.round(tv))) : null;
-    const target_percent = Number.isFinite(tp) ? Math.max(0, Math.min(100, Math.round(tp))) : null;
-    const p = raw.pos_720;
-    const pos_720 =
-      p && typeof p === 'object' && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y))
-        ? { x: Math.round(Number(p.x)), y: Math.round(Number(p.y)) }
-        : null;
-    return { enabled, target_value, target_percent, pos_720 };
-  })();
   const ubRects = scaleManualBlurRectsToOutputPx(rawManual, o.manualBlurRefW, o.manualBlurRefH, outW, outH);
   const ubChain = buildManualBlurDelogoChain('v0base', ubRects, outW, outH, 'v0postblur');
 
-  // Input index planning (0=inFile, 1=frame?, 2=meter template?, then wm, then music)
+  // Input index planning (0=inFile, 1=frame?, then wm, then music)
   let nextInputIdx = 1;
   if (frameExists) nextInputIdx += 1;
-  const useLabMeterTemplate = useLabFrame && (labMeterOpt ? labMeterOpt.enabled !== false : true) && meterTemplateExists;
-  const meterTemplateInputIdx = useLabMeterTemplate ? nextInputIdx++ : null;
   const wmInputIdxPlanned = nextInputIdx++;
   const musicInputIdxPlanned = nextInputIdx; // only valid if music input exists
 
@@ -1287,14 +1078,7 @@ async function buildCrushRenderPlan(o) {
         ])
   ];
 
-  let labMeterExtra = { filters: [], debug: null };
-  if (useLabFrame) {
-    const labMeterForBuild = useLabMeterTemplate
-      ? { ...(labMeterOpt || {}), template_input_idx: meterTemplateInputIdx }
-      : { ...(labMeterOpt || {}) };
-    labMeterExtra = buildLabMeterOverlayParts({ brandNorm, outDur, fontPart, labMeter: labMeterForBuild, outW, outH });
-  }
-  const preWmLabel = labMeterExtra.filters.length ? 'v1meter' : 'v1';
+  const preWmLabel = 'v1';
 
   const wmInputIdx = wmInputIdxPlanned;
   const tailWmAndGrain = [
@@ -1333,7 +1117,6 @@ async function buildCrushRenderPlan(o) {
           hookYOffsetRefPx: manualReelsHookYOff
         })
       : legacyVisualStack),
-    ...labMeterExtra.filters,
     ...tailWmAndGrain
   ];
 
@@ -1417,8 +1200,7 @@ async function buildCrushRenderPlan(o) {
   const filterComplex = parts.join(';');
 
   // Windows CreateProcess has a strict command-line length limit.
-  // Our animated lab meter can generate a very long filtergraph, so write it to a script file
-  // and use -filter_complex_script to avoid spawn ENAMETOOLONG.
+  // Write the filtergraph to a script file and use -filter_complex_script to avoid spawn ENAMETOOLONG.
   let filterComplexScriptPath = null;
   try {
     const tmpDir =
@@ -1434,7 +1216,6 @@ async function buildCrushRenderPlan(o) {
 
   const inputs = ['-y', '-i', inFile];
   if (frameExists) inputs.push('-loop', '1', '-i', framePng);
-  if (useLabMeterTemplate) inputs.push('-loop', '1', '-i', meterTemplatePng);
   inputs.push('-loop', '1', '-i', wmFile);
   if (musicFile && fs.existsSync(musicFile)) {
     inputs.push('-stream_loop', '-1', '-i', musicFile);
@@ -1497,7 +1278,6 @@ async function buildCrushRenderPlan(o) {
       manualReelsHookYOff,
       musicFile: musicFile && fs.existsSync(musicFile) ? path.basename(musicFile) : null,
       hookFont: fontFile ? path.basename(fontFile) : null,
-      labMeter: labMeterExtra.debug
     }
   };
 }
