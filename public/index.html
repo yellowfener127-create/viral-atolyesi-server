@@ -212,6 +212,15 @@
   .mcc-panel .tool-btn{width:auto;padding:8px 12px;font-size:12px}
   .mcc-primary{width:100% !important;padding:12px !important;font-size:14px !important;margin-top:8px}
   .mcc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+  .gemini-chat{display:flex;flex-direction:column;height:min(70vh,720px);margin-top:14px;border:1px solid var(--border);border-radius:12px;background:#0e0e0e;overflow:hidden}
+  .gemini-chat-log{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+  .gemini-bubble{max-width:88%;padding:10px 12px;border-radius:12px;font-size:13px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+  .gemini-bubble.user{align-self:flex-end;background:var(--accent);color:#fff}
+  .gemini-bubble.model{align-self:flex-start;background:#1c1c1c;border:1px solid #2a2a2a}
+  .gemini-hook-btn{display:inline-block;margin-top:8px}
+  .gemini-chat-compose{display:flex;gap:8px;align-items:flex-end;padding:10px;border-top:1px solid var(--border)}
+  .gemini-chat-compose textarea{flex:1;min-height:44px;max-height:140px;margin:0;resize:vertical}
+  .gemini-chat-notice{font-size:12px;color:#ffb4a2;padding:0 14px 8px}
   .mix-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
   .mix-slot{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px}
   .mix-player{width:100%;max-height:320px;background:#0a0a0a;border:1px solid var(--border);border-radius:10px;display:block}
@@ -429,10 +438,19 @@
 
     <div class="mcc-panel" id="mcc-gemini">
       <div class="tool-title" style="font-size:16px">🧠 Gemini API Key</div>
-      <div class="tool-desc">İsteğe bağlı / eski. Hook üretimi Vertex veya bu anahtarı kullanır.</div>
+      <div class="tool-desc">Kaydedilen anahtar aşağıdaki sohbette gemini-1.5-flash modeline gider.</div>
       <input class="tool-input" type="password" id="geminiInput" placeholder="AIzaSy... Gemini API key"/>
       <button class="tool-btn" type="button" id="geminiSaveBtn" onclick="saveGeminiKey()">Kaydet</button>
       <div class="tool-result" id="geminiStatus" style="display:block;margin-top:10px;font-size:12px;color:var(--muted)"></div>
+      <div id="geminiChatMissing" class="tool-desc" style="margin-top:16px">Lütfen önce yukarıdaki alandan Gemini API Key'inizi kaydedin</div>
+      <div id="geminiChat" class="gemini-chat" style="display:none">
+        <div class="gemini-chat-log" id="geminiChatLog"></div>
+        <div class="gemini-chat-notice" id="geminiChatNotice" style="display:none"></div>
+        <div class="gemini-chat-compose">
+          <textarea id="geminiChatInput" class="tool-input" rows="2" placeholder="Gemini'ye yaz…" onkeydown="onGeminiChatKey(event)"></textarea>
+          <button type="button" class="tool-btn" id="geminiChatSend" onclick="sendGeminiChat()">Gönder</button>
+        </div>
+      </div>
     </div>
 
     <div class="mcc-panel active" id="mcc-render">
@@ -1938,11 +1956,12 @@ window.onload = function() {
       const b = document.getElementById("geminiSaveBtn");
       b.textContent = "✓ Kaydedildi";
       b.classList.add("saved");
-      if (st) st.textContent = "✅ Key kayıtlı (isteğe bağlı; Telif Ezici artık Vertex kullanmıyor).";
+      if (st) st.textContent = "✅ Key kayıtlı. Sohbet gemini-1.5-flash kullanır.";
     } else {
-      if (st) st.textContent = "Telif Ezici: manuel blur + başlık tabanlı caption (Vertex yok).";
+      if (st) st.textContent = "";
     }
   } catch(e) {}
+  try { refreshGeminiChatGate(); } catch (eGem) {}
   try { wireCrushManualBlurUi(); } catch (e4) {}
   try { initCompilationMixerUi(); } catch (e6) {}
 };
@@ -2305,6 +2324,133 @@ function showMccTab(id) {
   document.querySelectorAll(".mcc-panel").forEach((p) => {
     p.classList.toggle("active", p.id === "mcc-" + key);
   });
+  if (key === "gemini") refreshGeminiChatGate();
+}
+
+const GEMINI_CHAT_MODEL = "gemini-1.5-flash";
+let geminiChatHistory = [];
+
+function geminiKeySaved() {
+  try {
+    const g = String(localStorage.getItem("gemini_api_key") || "").trim();
+    return g.length > 10 ? g : "";
+  } catch (e) {
+    return "";
+  }
+}
+
+function refreshGeminiChatGate() {
+  const key = geminiKeySaved();
+  const chat = document.getElementById("geminiChat");
+  const miss = document.getElementById("geminiChatMissing");
+  if (chat) chat.style.display = key ? "flex" : "none";
+  if (miss) miss.style.display = key ? "none" : "block";
+}
+
+function renderGeminiChat(pending) {
+  const log = document.getElementById("geminiChatLog");
+  if (!log) return;
+  log.innerHTML = "";
+  geminiChatHistory.forEach((m, idx) => {
+    const wrap = document.createElement("div");
+    wrap.className = "gemini-bubble " + (m.role === "user" ? "user" : "model");
+    const body = document.createElement("div");
+    body.textContent = m.text;
+    wrap.appendChild(body);
+    if (m.role === "model" && String(m.text || "").trim() && m.text !== "(boş yanıt)") {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "tool-btn gemini-hook-btn";
+      btn.textContent = "Hook Sekmesine Gönder";
+      btn.onclick = function () { sendGeminiTextToHook(idx); };
+      wrap.appendChild(btn);
+    }
+    log.appendChild(wrap);
+  });
+  if (pending) {
+    const wait = document.createElement("div");
+    wait.className = "gemini-bubble model";
+    wait.textContent = "Yazıyor…";
+    log.appendChild(wait);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+function setGeminiChatNotice(text) {
+  const el = document.getElementById("geminiChatNotice");
+  if (!el) return;
+  const msg = String(text || "").trim();
+  el.textContent = msg;
+  el.style.display = msg ? "block" : "none";
+}
+
+function onGeminiChatKey(ev) {
+  if (!ev || ev.key !== "Enter" || ev.shiftKey) return;
+  ev.preventDefault();
+  sendGeminiChat();
+}
+
+async function sendGeminiChat() {
+  const key = geminiKeySaved();
+  refreshGeminiChatGate();
+  if (!key) return;
+  const input = document.getElementById("geminiChatInput");
+  const sendBtn = document.getElementById("geminiChatSend");
+  const text = String(input && input.value || "").trim();
+  if (!text || (sendBtn && sendBtn.disabled)) return;
+  if (input) input.value = "";
+  setGeminiChatNotice("");
+  geminiChatHistory.push({ role: "user", text: text });
+  renderGeminiChat(true);
+  if (sendBtn) sendBtn.disabled = true;
+  try {
+    const contents = geminiChatHistory.map((m) => ({
+      role: m.role === "model" ? "model" : "user",
+      parts: [{ text: m.text }]
+    }));
+    const res = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_CHAT_MODEL + ":generateContent",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": key
+        },
+        body: JSON.stringify({ contents: contents })
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      geminiChatHistory.pop();
+      if (input && !String(input.value || "").trim()) input.value = text;
+      const msg = (data && data.error && data.error.message) || ("HTTP " + res.status);
+      setGeminiChatNotice("Hata: " + msg);
+      return;
+    }
+    const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+    const reply = Array.isArray(parts) ? parts.map((p) => (p && p.text) || "").join("").trim() : "";
+    geminiChatHistory.push({ role: "model", text: reply || "(boş yanıt)" });
+  } catch (e) {
+    geminiChatHistory.pop();
+    if (input && !String(input.value || "").trim()) input.value = text;
+    setGeminiChatNotice("Hata: " + ((e && e.message) ? e.message : String(e)));
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
+    renderGeminiChat(false);
+  }
+}
+
+function sendGeminiTextToHook(idx) {
+  const m = geminiChatHistory[idx];
+  const text = m && m.role === "model" ? String(m.text || "").trim() : "";
+  if (!text || text === "(boş yanıt)") return;
+  const ta = document.getElementById("crushHookManual");
+  if (ta) {
+    ta.value = text;
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  showMccTab("hook");
+  if (ta) ta.focus();
 }
 
 function saveGeminiKey() {
@@ -2315,14 +2461,16 @@ function saveGeminiKey() {
     const b = document.getElementById("geminiSaveBtn");
     b.textContent = "Kaydet";
     b.classList.remove("saved");
-    if (st) st.textContent = "Key temizlendi. Director kapalı.";
+    if (st) st.textContent = "Key temizlendi.";
+    refreshGeminiChatGate();
     return;
   }
   try { localStorage.setItem("gemini_api_key", v); } catch(e) {}
   const b = document.getElementById("geminiSaveBtn");
   b.textContent = "✓ Kaydedildi";
   b.classList.add("saved");
-  if (st) st.textContent = "✅ Key kaydedildi (Local Director aktif).";
+  if (st) st.textContent = "✅ Key kaydedildi. Sohbet gemini-1.5-flash kullanır.";
+  refreshGeminiChatGate();
 }
 
 function setKeyStatus(hasKey) {
