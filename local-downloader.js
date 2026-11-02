@@ -2110,6 +2110,7 @@ app.post('/crush', async (req, res) => {
   const manualStartSecRaw = Number(req.body?.manual_start_sec ?? req.body?.manualStartSec ?? 0);
   const manualStartSec = Number.isFinite(manualStartSecRaw) ? Math.max(0, manualStartSecRaw) : 0;
   const manualHookTextRaw = String(req.body?.hook_text ?? req.body?.manual_hook_text ?? '').trim();
+  const manualCaptionRaw = String(req.body?.caption_text ?? req.body?.manual_caption ?? '').replace(/\s+/g, ' ').trim();
   const localPathRaw = String(req.body?.local_path || req.body?.localPath || '').trim();
   let localPath = '';
   if (localPathRaw) {
@@ -2279,9 +2280,10 @@ app.post('/crush', async (req, res) => {
     const fallbackCaptionBits = splitCaptionPayload(
       buildFallbackCaptionFromTitle(metaTitle || fallbackCaptionForBrand(brand), titleIsListicle)
     );
-    const finalCaption = stripBannedCaptionPhrases(
+    let finalCaption = stripBannedCaptionPhrases(
       toSingleSentenceCaption(fallbackCaptionBits.caption || fallbackCaptionForBrand(brand))
     );
+    if (manualCaptionRaw) finalCaption = manualCaptionRaw;
     const recentHooksForGemini = (cache.hooks || []).slice(-12);
     const hookGemCtx = { caption: finalCaption, recentHooks: recentHooksForGemini };
     const emojiPool = loadCrushEmojiPool();
@@ -2577,10 +2579,11 @@ app.post('/crush', async (req, res) => {
     rememberUsed(cache, 'captions', finalCaption);
     saveDirectorCache(cache);
 
-    // File name = caption + hashtags (like Windows Explorer preview).
-    // Keep it filesystem-safe and reasonably short; also ensure uniqueness.
-    const filenameBaseRaw = [finalCaption, (finalHashtags || []).join(' ')].filter(Boolean).join(' ').trim();
-    const filenameBase = safeName(filenameBaseRaw || `crushed_${brand}_9x16_${Date.now()}`);
+    // Caption kutusu doluysa dosya adı odur. Boşsa eski caption + hashtag adı kalır.
+    const filenameBaseRaw = manualCaptionRaw
+      ? manualCaptionRaw
+      : [finalCaption, (finalHashtags || []).join(' ')].filter(Boolean).join(' ').trim();
+    const filenameBase = (safeName(filenameBaseRaw || `crushed_${brand}_9x16_${Date.now()}`).replace(/[. ]+$/g, '') || `crushed_${brand}_9x16_${Date.now()}`);
     const desired = path.join(brandDir, filenameBase.endsWith('.mp4') ? filenameBase : (filenameBase + '.mp4'));
     if (!fs.existsSync(desired)) {
       outFile = desired;

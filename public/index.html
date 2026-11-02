@@ -548,8 +548,11 @@
       <div class="tool-title" style="font-size:16px">✍️ Hook &amp; Caption (Manuel)</div>
       <div class="tool-desc">Hook metnini yaz; konumu sürükle. Boş bırakırsan otomatik / Gemini üretir.</div>
       <canvas id="crushHookCanvas" width="720" height="1280" tabindex="0" style="max-width:100%;max-height:42vh;width:auto;height:auto;border:1px solid #333;border-radius:6px;background:#0a0a0a;display:block;touch-action:none"></canvas>
-      <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Hook/CAPTION (boş = otomatik/Gemini)
+      <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Hook
         <textarea id="crushHookManual" rows="2" class="tool-input" style="margin-top:4px;resize:vertical;min-height:44px;font-size:12px" placeholder="İngilizce kanca + emoji…"></textarea>
+      </label>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-top:8px">Caption / Açıklama
+        <textarea id="crushCaptionManual" rows="3" class="tool-input" style="margin-top:4px;resize:vertical;min-height:64px;font-size:12px" placeholder="İngilizce açıklama. Render dosya adı bu metin olur."></textarea>
       </label>
       <div class="mcc-row" style="font-size:11px;color:var(--muted)">
         <button type="button" class="tool-btn" id="crushHookDragBtn" onclick="toggleCrushHookDragMode()">Hook sürükle: KAPALI</button>
@@ -1826,6 +1829,7 @@ async function crushVideo() {
   const manual_reels_crop_y_nudge_px = Number(__crushManual.videoCropYNudgePx) || 0;
   const manual_reels_window_shift_y_px = Number(__crushManual.previewWindowShiftYPx) || 0;
   const hook_text = (document.getElementById("crushHookManual") && String(document.getElementById("crushHookManual").value || "").trim()) || "";
+  const caption_text = (document.getElementById("crushCaptionManual") && String(document.getElementById("crushCaptionManual").value || "").trim()) || "";
   const manual_reels_hook_x_offset_px = Number(__crushManual.hookXOffsetPx) || 0;
   const manual_reels_hook_y_offset_px = Number(__crushManual.hookYOffsetPx) || 0;
 
@@ -1853,6 +1857,7 @@ async function crushVideo() {
         manual_reels_crop_y_nudge_px,
         manual_reels_window_shift_y_px,
         hook_text,
+        caption_text,
         manual_reels_hook_x_offset_px,
         manual_reels_hook_y_offset_px,
         manual_start_sec: 0
@@ -2618,6 +2623,19 @@ function geminiHookOnly(raw) {
   return line.replace(/^(?:\*\*|__)?\s*Hook\b\s*(?:\*\*|__)?\s*:?\s*/i, "").replace(/^["“]|["”]$/g, "").replace(/\*\*/g, "").trim();
 }
 
+function geminiCaptionOnly(raw) {
+  const s = String(raw || "").replace(/\r/g, "").trim();
+  if (!s || s === "(boş yanıt)") return "";
+  const found = s.match(/(?:^|\n)\s*(?:\d+\.\s*)?(?:\*\*|__)?\s*Caption\b(?:\s*\([^)]*\))?\s*(?:\*\*|__)?\s*:?\s*([\s\S]*?)(?=\n\s*(?:\d+\.\s*)?(?:\*\*|__)?\s*Hashtags?\b|$)/i);
+  if (!found) return "";
+  const line = found[1].split("\n").map(function (l) {
+    return l.replace(/^[-*•]+\s*/, "").replace(/^\d+\.\s*/, "").trim();
+  }).filter(function (l) {
+    return l && !/^(?:\*\*|__)?\s*Hashtags?\b/i.test(l);
+  })[0] || "";
+  return line.replace(/^(?:\*\*|__)?\s*Caption\b(?:\s*\([^)]*\))?\s*(?:\*\*|__)?\s*:?\s*/i, "").replace(/^["“]|["”]$/g, "").replace(/\*\*/g, "").trim();
+}
+
 function sendGeminiTextToHook(idx) {
   const m = geminiChatHistory[idx];
   const text = m && m.role === "model" ? String(m.text || "").trim() : "";
@@ -2631,6 +2649,9 @@ function sendGeminiTextToHook(idx) {
     ta.value = hook;
     ta.dispatchEvent(new Event("input", { bubbles: true }));
   }
+  const cap = geminiCaptionOnly(text);
+  const capTa = document.getElementById("crushCaptionManual");
+  if (cap && capTa) capTa.value = cap;
   showMccTab("hook");
   if (ta) ta.focus();
 }
