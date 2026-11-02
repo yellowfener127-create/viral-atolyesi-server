@@ -438,7 +438,7 @@
 
     <div class="mcc-panel" id="mcc-gemini">
       <div class="tool-title" style="font-size:16px">🧠 Gemini API Key</div>
-      <div class="tool-desc">Kaydedilen anahtar aşağıdaki sohbette gemini-1.5-flash modeline gider.</div>
+      <div class="tool-desc">Kaydedilen anahtar aşağıdaki sohbette gemini-3.6-flash modeline gider.</div>
       <input class="tool-input" type="password" id="geminiInput" placeholder="AIzaSy... Gemini API key"/>
       <button class="tool-btn" type="button" id="geminiSaveBtn" onclick="saveGeminiKey()">Kaydet</button>
       <div class="tool-result" id="geminiStatus" style="display:block;margin-top:10px;font-size:12px;color:var(--muted)"></div>
@@ -1956,7 +1956,7 @@ window.onload = function() {
       const b = document.getElementById("geminiSaveBtn");
       b.textContent = "✓ Kaydedildi";
       b.classList.add("saved");
-      if (st) st.textContent = "✅ Key kayıtlı. Sohbet gemini-1.5-flash kullanır.";
+      if (st) st.textContent = "✅ Key kayıtlı. Sohbet gemini-3.6-flash kullanır.";
     } else {
       if (st) st.textContent = "";
     }
@@ -2327,7 +2327,7 @@ function showMccTab(id) {
   if (key === "gemini") refreshGeminiChatGate();
 }
 
-const GEMINI_CHAT_MODEL = "gemini-1.5-flash";
+const GEMINI_CHAT_MODEL = "gemini-3.6-flash";
 let geminiChatHistory = [];
 
 function geminiKeySaved() {
@@ -2428,7 +2428,7 @@ async function sendGeminiChat() {
       return;
     }
     const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
-    const reply = Array.isArray(parts) ? parts.map((p) => (p && p.text) || "").join("").trim() : "";
+    const reply = Array.isArray(parts) ? parts.filter((p) => p && !p.thought).map((p) => p.text || "").join("").trim() : "";
     geminiChatHistory.push({ role: "model", text: reply || "(boş yanıt)" });
   } catch (e) {
     geminiChatHistory.pop();
@@ -2469,7 +2469,7 @@ function saveGeminiKey() {
   const b = document.getElementById("geminiSaveBtn");
   b.textContent = "✓ Kaydedildi";
   b.classList.add("saved");
-  if (st) st.textContent = "✅ Key kaydedildi. Sohbet gemini-1.5-flash kullanır.";
+  if (st) st.textContent = "✅ Key kaydedildi. Sohbet gemini-3.6-flash kullanır.";
   refreshGeminiChatGate();
 }
 
