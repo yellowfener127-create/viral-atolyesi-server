@@ -2337,7 +2337,7 @@ function showMccTab(id) {
 }
 
 const GEMINI_CHAT_MODEL = "gemini-3.6-flash";
-const GEMINI_HOOK_SYSTEM = "Sen profesyonel bir kısa video (Reels/TikTok/Shorts) viral hook yazarısın. Görevin, kullanıcının yükleyeceği videoyu veya yazdığı konuyu analiz ederek izleyicinin ilk 3 saniyede videoyu kaydırmasını (scroll) önleyecek vurucu, merak uyandırıcı ve şoke edici kancalar (hook) yazmaktır. Üreteceğin tüm hook'lar KESİNLİKLE İNGİLİZCE olmalıdır.";
+const GEMINI_HOOK_SYSTEM = "Sen profesyonel bir kısa video (Reels/TikTok/Shorts) viral içerik yazarısın. Kullanıcının yüklediği videoyu analiz ederek şunları üretmelisin:\n1. **Hook:** İzleyicinin ilk 3 saniyede videoyu kaydırmasını kesinlikle önleyecek, vurucu, merak uyandırıcı, KESİNLİKLE İNGİLİZCE olan en iyi ve tek (1 adet) hook cümlesi. Asla uzun liste verme, sadece en iyisi olsun.\n2. **Caption (Açıklama):** Videoya uygun, etkileşimi artıran kısa ve akıcı bir açıklama metni (İngilizce).\n3. **Hashtags:** Kesinlikle şu marka/konsept etiketlerini içermelidir: #chaos #therapy #hope (ve videonun konusuna göre 2-3 adet popüler ek etiket).\nAsla uzun açıklamalar, alternatif seçenekler veya kalabalık listeler sunma. Sadece net bir şekilde: 1 Hook, 1 Caption ve Hashtagleri ver.";
 const GEMINI_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
 let geminiChatHistory = [];
 let geminiChatVideoFile = null;
@@ -2471,7 +2471,7 @@ function geminiHistoryParts(m) {
   if (m.fileUri) parts.push({ fileData: { mimeType: m.mimeType || "video/mp4", fileUri: m.fileUri } });
   const text = String(m.text || "").trim();
   if (text) parts.push({ text: text });
-  else if (m.fileUri) parts.push({ text: "Bu videoyu izle ve İngilizce hook yaz." });
+  else if (m.fileUri) parts.push({ text: "Bu videoyu izle. Yalnızca 1 İngilizce hook, 1 İngilizce caption ve hashtag ver." });
   return parts;
 }
 
@@ -2605,13 +2605,30 @@ async function sendGeminiChat() {
   }
 }
 
+function geminiHookOnly(raw) {
+  const s = String(raw || "").replace(/\r/g, "").trim();
+  if (!s || s === "(boş yanıt)") return "";
+  const found = s.match(/(?:^|\n)\s*(?:\d+\.\s*)?(?:\*\*|__)?\s*Hook\b\s*(?:\*\*|__)?\s*:?\s*([\s\S]*?)(?=\n\s*(?:\d+\.\s*)?(?:\*\*|__)?\s*(?:Caption|Hashtags?)\b|$)/i);
+  const chunk = found ? found[1] : s;
+  const line = chunk.split("\n").map(function (l) {
+    return l.replace(/^[-*•]+\s*/, "").replace(/^\d+\.\s*/, "").trim();
+  }).filter(function (l) {
+    return l && !/^(?:\*\*|__)?\s*(?:caption|hashtags?)\b/i.test(l);
+  })[0] || "";
+  return line.replace(/^(?:\*\*|__)?\s*Hook\b\s*(?:\*\*|__)?\s*:?\s*/i, "").replace(/^["“]|["”]$/g, "").replace(/\*\*/g, "").trim();
+}
+
 function sendGeminiTextToHook(idx) {
   const m = geminiChatHistory[idx];
   const text = m && m.role === "model" ? String(m.text || "").trim() : "";
-  if (!text || text === "(boş yanıt)") return;
+  const hook = geminiHookOnly(text);
+  if (!hook) {
+    setGeminiChatNotice("Hook cümlesi ayrıştırılamadı.");
+    return;
+  }
   const ta = document.getElementById("crushHookManual");
   if (ta) {
-    ta.value = text;
+    ta.value = hook;
     ta.dispatchEvent(new Event("input", { bubbles: true }));
   }
   showMccTab("hook");
