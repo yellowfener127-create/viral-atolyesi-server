@@ -44,6 +44,26 @@ function ytdlpCookieCliArgs() {
   return [];
 }
 
+function resolveYtDlpBin() {
+  const names = process.platform === 'win32' ? ['yt-dlp.exe', 'yt-dlp.cmd'] : ['yt-dlp'];
+  const dirs = String(process.env.PATH || '').split(path.delimiter);
+  for (const dir of dirs) {
+    if (!dir) continue;
+    for (const name of names) {
+      const candidate = path.join(dir, name);
+      try {
+        if (fs.existsSync(candidate)) return candidate;
+      } catch {}
+    }
+  }
+  const local = path.join(__dirname, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
+  if (fs.existsSync(local)) return local;
+  return 'yt-dlp';
+}
+
+const YTDLP_BIN = resolveYtDlpBin();
+const YTDLP_PLAYER_ARGS = ['--extractor-args', 'youtube:player_client=default,-android_vr'];
+
 function isYoutubeAgeSignInError(msg) {
   const m = String(msg || '').toLowerCase();
   return /sign in to confirm your age|confirm your age|age-restricted|inappropriate for some users|login required/i.test(m);
@@ -932,7 +952,7 @@ function splitHookTwoLines(hookText, opts) {
 async function ytDlpGetTitle(url) {
   return await new Promise((resolve) => {
     try {
-      const child = spawn('yt-dlp', ['--no-playlist', ...ytdlpCookieCliArgs(), '--print', '%(title)s', url], { stdio: ['ignore', 'pipe', 'ignore'] });
+      const child = spawn(YTDLP_BIN, ['--no-playlist', ...ytdlpCookieCliArgs(), '--print', '%(title)s', url], { stdio: ['ignore', 'pipe', 'ignore'] });
       let out = '';
       const t = setTimeout(() => {
         try {
@@ -1666,7 +1686,7 @@ function mapUsernameBlurBoxes1kToOutPx(boxes1k, inW, inH, outW, outH) {
 async function ytDlpGetDurationSec(url) {
   // duration in seconds if available, else null
   try {
-    const { stderr } = await run('yt-dlp', [
+    const { stderr } = await run(YTDLP_BIN, [
       '--no-playlist',
       '--print',
       '%(duration)s',
@@ -1678,7 +1698,7 @@ async function ytDlpGetDurationSec(url) {
 
   return await new Promise((resolve) => {
     try {
-      const child = spawn('yt-dlp', ['--no-playlist', ...ytdlpCookieCliArgs(), '--print', '%(duration)s', url], { stdio: ['ignore', 'pipe', 'ignore'] });
+      const child = spawn(YTDLP_BIN, ['--no-playlist', ...ytdlpCookieCliArgs(), '--print', '%(duration)s', url], { stdio: ['ignore', 'pipe', 'ignore'] });
       let out = '';
       const t = setTimeout(() => {
         try {
@@ -1805,7 +1825,7 @@ async function runYtDlpToResponse(res, url) {
     '--no-part',
     '--no-mtime',
     ...YTDLP_NET_ARGS,
-    '--downloader', 'ffmpeg',
+    ...YTDLP_PLAYER_ARGS,
     ...ytdlpCookieCliArgs(),
     // MP4 + AAC ses: Windows/MPC/telefonlarda "Opus desteklenmiyor" hatasını önler.
     '--merge-output-format',
@@ -1825,7 +1845,7 @@ async function runYtDlpToResponse(res, url) {
     url
   ];
 
-  const child = spawn('yt-dlp', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+  const child = spawn(YTDLP_BIN, args, { stdio: ['ignore', 'ignore', 'pipe'] });
   let stderr = '';
 
   child.stderr.on('data', (d) => {
@@ -1988,14 +2008,14 @@ app.post('/crush-compilation', async (req, res) => {
       const dlArgs = [
         '--no-playlist', '--no-part', '--no-mtime',
         ...YTDLP_NET_ARGS,
-        '--downloader', 'ffmpeg',
+        ...YTDLP_PLAYER_ARGS,
         '--merge-output-format', 'mp4',
         '-f', 'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best',
         '-o', tpl,
         ...ytdlpCookieCliArgs(),
         src.url
       ];
-      await run('yt-dlp', dlArgs, { timeoutMs: 4 * 60 * 1000 });
+      await run(YTDLP_BIN, dlArgs, { timeoutMs: 4 * 60 * 1000 });
       const file = pickNewestFile(sub);
       if (!file) return res.status(500).json({ error: 'Bir kaynak indirilemedi.' });
       fileByUrl.set(src.url, file);
@@ -2162,19 +2182,16 @@ app.post('/crush', async (req, res) => {
     const dlTimeoutMs = Math.round(clamp(((metaDur || 20) * 8000) + 60_000, 90_000, 3 * 60 * 1000));
 
     const buildCrushDlArgs = (youtubeExtractorSuffix) => {
-      const extractorPart = youtubeExtractorSuffix
-        ? ['--extractor-args', `youtube:player_client=${youtubeExtractorSuffix}`]
-        : [];
+      const client = youtubeExtractorSuffix || 'default,-android_vr';
       return [
         '--no-playlist',
         '--newline',
         '--no-part',
         '--no-mtime',
         ...YTDLP_NET_ARGS,
-        '--downloader', 'ffmpeg',
+        '--extractor-args', `youtube:player_client=${client}`,
         '--match-filter', '!is_live',
         '--merge-output-format', 'mp4',
-        ...extractorPart,
         '-f',
         'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best',
         '-o',
@@ -2186,7 +2203,7 @@ app.post('/crush', async (req, res) => {
 
     const dlArgs = buildCrushDlArgs(null);
     try {
-      await run('yt-dlp', dlArgs, { timeoutMs: dlTimeoutMs });
+      await run(YTDLP_BIN, dlArgs, { timeoutMs: dlTimeoutMs });
     } catch (e0) {
       const msg0 = String((e0 && e0.message) || e0 || '');
 
@@ -2213,25 +2230,10 @@ app.post('/crush', async (req, res) => {
           detail: msg0.slice(0, 800)
         });
       }
-      if (/did not get any data blocks|unable to download video data|http error 403|http error 416|http error 429|po token/i.test(msg0)) {
-        const dlArgsFallback = [
-          '--no-playlist',
-          '--newline',
-          '--no-part',
-          '--no-mtime',
-          ...YTDLP_NET_ARGS,
-          '--downloader', 'ffmpeg',
-          '--match-filter', '!is_live',
-          '--merge-output-format', 'mp4',
-          '-f',
-          'b[ext=mp4][acodec!=none][vcodec!=none]/best[ext=mp4]/best',
-          '-o',
-          inTpl,
-          ...ytdlpCookieCliArgs(),
-          url
-        ];
-        console.log('[yt-dlp retry] İlk deneme başarısız, progressive mp4 + ffmpeg downloader ile yeniden deneniyor...');
-        await run('yt-dlp', dlArgsFallback, { timeoutMs: dlTimeoutMs });
+      if (/did not get any data blocks|unable to download video data|http error 403|http error 416|http error 429|po token|403 forbidden/i.test(msg0)) {
+        const dlArgsFallback = buildCrushDlArgs('tv,web_safari,mweb');
+        console.log('[yt-dlp retry] İlk deneme başarısız, tv/web istemcisiyle yeniden deneniyor...');
+        await run(YTDLP_BIN, dlArgsFallback, { timeoutMs: dlTimeoutMs });
       } else {
         throw e0;
       }
@@ -2694,7 +2696,7 @@ if (require.main === module) {
   app.listen(PORT, '127.0.0.1', () => {
     console.log(`Local Downloader running on http://127.0.0.1:${PORT}`);
     console.log('Download dir:', DOWNLOAD_DIR);
-    console.log('Install yt-dlp then open your frontend and click Download.');
+    console.log('yt-dlp:', YTDLP_BIN);
   });
 }
 
