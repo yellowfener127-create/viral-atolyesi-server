@@ -972,7 +972,7 @@ function crushComputeLabWindowPx(outW, outH) {
   const brandEl = document.getElementById("crushBrand");
   const b = brandEl ? String(brandEl.value || "terapi").toLowerCase() : "terapi";
   // Kaos ile Terapi aynı video penceresi (terapi ile hizalı; ekstra iç boşluk/beyaz bant oluşmasın).
-  const winTerapi = { x: 113, y: 412, w: 853, h: 1229 };
+  const winTerapi = { x: 78, y: 348, w: 924, h: 1428 };
   const win =
     b === "kaos"
       ? winTerapi
@@ -994,7 +994,109 @@ function crushZirhFileForBrand(brand) {
   return "terapi_zrh_arka_plan.png";
 }
 
+function crushBrandHandle() {
+  const bn = document.getElementById("crushBrand");
+  const bk = bn ? String(bn.value || "terapi").toLowerCase() : "terapi";
+  if (bk === "kaos") return "@chaosllab";
+  if (bk === "umut") return "@hopellab";
+  return "@therappylab";
+}
+
+function crushProfileFilesForBrand(brand) {
+  const b = String(brand || "terapi").toLowerCase();
+  const key = b === "kaos" ? "kaos" : (b === "umut" ? "umut" : "terapi");
+  return ["profile-" + key + ".png", "watermark-" + key + ".png"];
+}
+
+function crushLoadBrandProfile() {
+  const brandEl = document.getElementById("crushBrand");
+  const brand = brandEl ? brandEl.value : "terapi";
+  const files = crushProfileFilesForBrand(brand);
+  const gen = (__crushManual._profileGen = (__crushManual._profileGen || 0) + 1);
+  const candidates = [];
+  files.forEach(function (file) {
+    try { candidates.push(new URL("public/" + file, window.location.href).href); } catch (e0) {}
+    try { candidates.push(new URL(file, window.location.href).href); } catch (e1) {}
+    candidates.push(backendUrl("/" + file));
+  });
+  const uniq = [];
+  candidates.forEach(function (u) { if (uniq.indexOf(u) < 0) uniq.push(u); });
+  function tryAt(i) {
+    if (gen !== __crushManual._profileGen) return;
+    if (i >= uniq.length) {
+      __crushManual.profileImg = null;
+      try { crushRedrawAllPreviews(); } catch (e2) {}
+      return;
+    }
+    const img = new Image();
+    img.onload = function () {
+      if (gen !== __crushManual._profileGen) return;
+      __crushManual.profileImg = img;
+      try { crushRedrawAllPreviews(); } catch (e3) {}
+    };
+    img.onerror = function () { tryAt(i + 1); };
+    img.src = uniq[i];
+  }
+  tryAt(0);
+}
+
+function crushFrostMetrics(W, H) {
+  const sx = W / 1080;
+  const sy = H / 1920;
+  const s = Math.min(sx, sy);
+  return {
+    sx: sx,
+    sy: sy,
+    s: s,
+    avatarSize: Math.max(24, Math.round(84 * s)),
+    avatarX: Math.round(64 * sx),
+    avatarY: Math.round(72 * sy),
+    handleSize: Math.max(12, Math.round(32 * s)),
+    radius: Math.max(10, Math.round(46 * s))
+  };
+}
+
+function crushRoundRectPath(ctx, x, y, w, h, r) {
+  const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+function crushDrawBrandChrome(ctx, W, H) {
+  const m = crushFrostMetrics(W, H);
+  const img = __crushManual.profileImg;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(m.avatarX + m.avatarSize / 2, m.avatarY + m.avatarSize / 2, m.avatarSize / 2, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+  if (img && img.complete && img.naturalWidth) {
+    ctx.drawImage(img, m.avatarX, m.avatarY, m.avatarSize, m.avatarSize);
+  } else {
+    ctx.fillStyle = "#d7d7d7";
+    ctx.fillRect(m.avatarX, m.avatarY, m.avatarSize, m.avatarSize);
+  }
+  ctx.restore();
+  ctx.save();
+  ctx.font = "600 " + m.handleSize + 'px "Segoe UI", sans-serif';
+  ctx.fillStyle = "#2B2B2B";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(
+    crushBrandHandle(),
+    m.avatarX + m.avatarSize + Math.round(18 * m.sx),
+    m.avatarY + m.avatarSize / 2
+  );
+  ctx.restore();
+}
+
 function crushLoadZirhFramePng() {
+  crushLoadBrandProfile();
   const brandEl = document.getElementById("crushBrand");
   const brand = brandEl ? brandEl.value : "terapi";
   const file = crushZirhFileForBrand(brand);
@@ -1090,11 +1192,10 @@ function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
   const sx = PREVIEW_W / 1080;
   const sc = Math.min(sx, sy);
   const wyWin = crushComputeLabWindowPx(PREVIEW_W, PREVIEW_H).wy;
-  const fontSize = Math.max(12, Math.round(44 * sc));
+  const fontSize = Math.max(13, Math.round(46 * sc));
   const lineStep = Math.max(Math.round(fontSize * 1.30), fontSize + 4);
-  // Hook alanını çok az yukarı genişlet (kenarlara değil, sadece üstten).
-  // (Therapy/Hope/Chaos hepsinde aynı davranış.)
-  const hookAreaTop = Math.round(16 * sy);
+  const frost = crushFrostMetrics(PREVIEW_W, PREVIEW_H);
+  const hookAreaTop = frost.avatarY + frost.avatarSize + Math.round(18 * sy);
   const hookAreaBottom = Math.max(hookAreaTop + 1, Math.round(wyWin - 18 * sy));
   const blockH = (lines.length - 1) * lineStep + Math.round(fontSize * 1.08);
   let hookYTop = Math.max(hookAreaTop, Math.round(((hookAreaTop + hookAreaBottom) / 2) - (blockH / 2)));
@@ -1102,10 +1203,8 @@ function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
   const hyOff = (Number(__crushManual.hookYOffsetPx) || 0) * (PREVIEW_H / 1280);
   hookYTop += hyOff;
   ctx.save();
-  ctx.font = "600 " + fontSize + 'px "Segoe UI","Segoe UI Emoji","Segoe UI Historic",sans-serif';
-  const bn = document.getElementById("crushBrand");
-  const bk = bn ? String(bn.value || "terapi").toLowerCase() : "terapi";
-  ctx.fillStyle = bk === "kaos" ? "#A9A9A9" : (bk === "umut" ? "#8CA9B7" : "#6B8EA2");
+  ctx.font = "700 " + fontSize + 'px "Segoe UI","Segoe UI Emoji","Segoe UI Historic",sans-serif';
+  ctx.fillStyle = "#2B2B2B";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   lines.forEach(function (ln, i) {
@@ -1176,21 +1275,9 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   const PREVIEW_H = cv.height;
 
   if (!v || !v.videoWidth) {
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = "#c9d0d6";
     ctx.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
-    const frm0 = __crushManual.frameImg;
-    if (frm0 && frm0.complete && frm0.naturalWidth) {
-      ctx.drawImage(frm0, 0, 0, PREVIEW_W, PREVIEW_H);
-    } else {
-      ctx.fillStyle = "#b8c5d6";
-      ctx.font = '14px "Segoe UI",sans-serif';
-      const bn = document.getElementById("crushBrand");
-      ctx.fillText(
-        "Marka zırhı yükleniyor (" + crushZirhFileForBrand(bn ? bn.value : "terapi") + ")…",
-        20,
-        48
-      );
-    }
+    crushDrawBrandChrome(ctx, PREVIEW_W, PREVIEW_H);
     crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H);
     return;
   }
@@ -1246,24 +1333,21 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   const sctx = tmpSc.getContext("2d");
   sctx.drawImage(tmpV0, 0, 0, PREVIEW_W, PREVIEW_H, 0, 0, iw2, ih2);
 
-  // Zırh deseni arkada kalır. Desen yokken videoyu arkaya basma; yoksa pencereyle üst üste biner.
-  const br = (document.getElementById("crushBrand") && String(document.getElementById("crushBrand").value || "terapi").toLowerCase()) || "terapi";
-  ctx.fillStyle = br === "umut" ? "#F5F5F5" : "#F0F8FF";
-  ctx.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
-  const frm = __crushManual.frameImg;
-  if (frm && frm.complete && frm.naturalWidth) {
-    ctx.drawImage(frm, 0, 0, PREVIEW_W, PREVIEW_H);
-  }
-  const shrink = 1.0;
-  const vww = Math.max(2, Math.round(ww * shrink));
-  const vwh = Math.max(2, Math.round(wh * shrink));
-  const vx = Math.round(wx + (ww - vww) / 2);
-  // Hook/Kaydırma önizlemesinde üstteki (pencere) videoyu çok az aşağı al (%2 civarı).
-  const previewDown = Math.round(wh * 0.02);
-  // 2. slider: pencere içi videonun kendisini komple kaydır (crop değil, destination y).
+  const blurPx = Math.max(8, Math.round(16 * (PREVIEW_H / 1280)));
+  ctx.save();
+  ctx.filter = "blur(" + blurPx + "px)";
+  const bleed = blurPx * 2;
+  ctx.drawImage(tmpV0, -bleed, -bleed, PREVIEW_W + bleed * 2, PREVIEW_H + bleed * 2);
+  ctx.restore();
+  const radius = crushFrostMetrics(PREVIEW_W, PREVIEW_H).radius;
   const manualShiftPx = Math.round((Number(__crushManual.previewWindowShiftYPx) || 0) * (PREVIEW_H / 1280));
-  const vy = Math.round(wy + (wh - vwh) / 2) + previewDown + manualShiftPx;
-  ctx.drawImage(tmpSc, cropX, cropY, vww, vwh, vx, vy, vww, vwh);
+  const vy = wy + manualShiftPx;
+  ctx.save();
+  crushRoundRectPath(ctx, wx, vy, ww, wh, radius);
+  ctx.clip();
+  ctx.drawImage(tmpSc, cropX, cropY, ww, wh, wx, vy, ww, wh);
+  ctx.restore();
+  crushDrawBrandChrome(ctx, PREVIEW_W, PREVIEW_H);
   crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H);
 }
 

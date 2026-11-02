@@ -274,6 +274,43 @@ function pickExistingFontForDrawtext() {
 }
 
 /** Terapi/Umut Reels üst yazısı: renkli emoji + Latin (Windows’ta Segoe UI Emoji). */
+function brandSocialHandle(brandNorm) {
+  if (brandNorm === 'kaos') return '@chaosllab';
+  if (brandNorm === 'umut') return '@hopellab';
+  return '@therappylab';
+}
+
+function resolveBrandProfilePng(brandNorm) {
+  const key = brandNorm === 'kaos' ? 'kaos' : (brandNorm === 'umut' ? 'umut' : 'terapi');
+  const names = [`profile-${key}.png`, `watermark-${key}.png`];
+  for (const name of names) {
+    const p = path.join(__dirname, 'public', name);
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch {}
+  }
+  return null;
+}
+
+function pickSegoeFontFile(kind) {
+  const bold = [
+    'C:\\Windows\\Fonts\\segoeuib.ttf',
+    'C:\\Windows\\Fonts\\segoeuisb.ttf',
+    'C:\\Windows\\Fonts\\segoeui.ttf'
+  ];
+  const semi = [
+    'C:\\Windows\\Fonts\\segoeuisb.ttf',
+    'C:\\Windows\\Fonts\\segoeui.ttf',
+    'C:\\Windows\\Fonts\\segoeuib.ttf'
+  ];
+  for (const p of (kind === 'hook' ? bold : semi)) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch {}
+  }
+  return pickExistingFontForDrawtext();
+}
+
 function pickFontForReelsHookDrawtext() {
   if (process.platform === 'win32') {
     const emojiFirst = [
@@ -413,9 +450,12 @@ function buildReelsInstagramCanvasFilters({
   outW,
   outH,
   fontPart,
+  hookFontPart,
+  handleFontPart,
+  handleText,
   hookEnable,
   escapedLines,
-  frameFileExists,
+  profileExists,
   cropYNudgeRefPx = 0,
   windowShiftYRefPx = 0,
   hookXOffsetRefPx = 0,
@@ -428,18 +468,19 @@ function buildReelsInstagramCanvasFilters({
   // Therapy (terapi): mevcut “düzgün” yerleşimi bozma — eski sabit pencere.
   // Chaos/Hope: video tam beyaz pencerenin içine otursun (taşma yok) — gerçek pencere bbox.
   // Kaos/Terapi aynı video penceresi (beyaz boşluk / farklı bbox kaynaklı çerçeve farkını kapatır).
-  const winTerapi = { x: 113, y: 412, w: 853, h: 1229 };
-  const win =
-    brandNorm === 'kaos'
-      ? winTerapi
-      : brandNorm === 'umut'
-        ? winTerapi
-        : winTerapi;
+  const winTerapi = { x: 78, y: 348, w: 924, h: 1428 };
+  const win = winTerapi;
   const wx = Math.round(win.x * sx);
   const wy = Math.round(win.y * sy);
   const ww = Math.round(win.w * sx);
   const wh = Math.round(win.h * sy);
-  const fontSize = Math.max(20, Math.round(44 * s));
+  const fontSize = Math.max(22, Math.round(46 * s));
+  const handleSize = Math.max(16, Math.round(32 * s));
+  const avatarSize = Math.max(36, Math.round(84 * s));
+  const avatarX = Math.round(64 * sx);
+  const avatarY = Math.round(72 * sy);
+  const radius = Math.max(16, Math.round(46 * s));
+  const ink = '0x2B2B2B';
   const lineStep = Math.max(Math.round(fontSize * 1.30), fontSize + 4);
   const maxCapLines = 2;
   const lines = (escapedLines || []).slice(0, maxCapLines);
@@ -448,7 +489,7 @@ function buildReelsInstagramCanvasFilters({
   // Hook'u video penceresinin üstündeki boşlukta ortala (eski/kompakt alan)
   // Hook alanını çok az yukarı genişlet (kenarlara değil, sadece üstten).
   // (Therapy/Hope/Chaos hepsinde aynı davranış.)
-  const hookAreaTop = Math.round(16 * sy);
+  const hookAreaTop = avatarY + avatarSize + Math.round(18 * sy);
   const hookAreaBottom = Math.max(hookAreaTop + 1, Math.round(wy - 18 * sy));
   const hxOff = Math.round(
     parseManualReelsHookOffsetPx(hookXOffsetRefPx) * (outW / MANUAL_BLUR_REF_W)
@@ -459,10 +500,6 @@ function buildReelsInstagramCanvasFilters({
   const hookYTop =
     Math.max(hookAreaTop, Math.round(((hookAreaTop + hookAreaBottom) / 2) - (blockH / 2))) + hyOff;
 
-  // Reels frame mode requires the 2nd video input [1:v] (frame).
-  // If it's missing, fall back to a safe solid background.
-  const bgHex = brandNorm === 'umut' ? '0xF5F5F5' : '0xF0F8FF';
-
   const nudge = Number.isFinite(Number(cropYNudgeRefPx)) ? Math.round(Number(cropYNudgeRefPx)) : 0;
   // 2. slider: pencere içindeki videonun kendisini (overlay) yukarı/aşağı kaydır.
   const winShift = parseManualReelsWindowShiftYPx(windowShiftYRefPx);
@@ -471,53 +508,51 @@ function buildReelsInstagramCanvasFilters({
   const cropYExpr =
     `max(0\\,min(ih-oh\\,max(0\\,(ih-oh)*0.42)+ih*${nudgeRatio.toFixed(8)}))`;
 
-  // Brand-specific hook colors (user-provided exact palette)
-  // kaos  : #A9A9A9 (koyu gümüş)
-  // umut  : #8CA9B7 (140,169,183)
-  // terapi: #6B8EA2 (107,142,162) a.k.a. Steel/Dusty Blue
-  const hookColor =
-    brandNorm === 'kaos'
-      ? '0xA9A9A9'
-      : (brandNorm === 'umut' ? '0x8CA9B7' : '0x6B8EA2');
+  const blurSigma = Math.max(8, Math.round(20 * s));
+  const vww = Math.max(2, ww);
+  const vwh = Math.max(2, wh);
+  const vx = wx;
+  const vy = wy + winShiftPx;
+  const roundA =
+    `if(lte(hypot(max(abs(X-W/2)-(W/2-${radius})\\,0)\\,max(abs(Y-H/2)-(H/2-${radius})\\,0))\\,${radius})\\,255\\,0)`;
+  const circleA = `if(lte(hypot(X-W/2\\,Y-H/2)\\,W/2-1)\\,255\\,0)`;
+  const nameX = avatarX + (profileExists ? avatarSize + Math.round(18 * sx) : Math.round(8 * sx));
+  const nameY = avatarY + Math.max(0, Math.round((avatarSize - handleSize) * 0.38));
+  const handleEsc = escapeDrawtextText(handleText || brandSocialHandle(brandNorm));
+  const hookFont = hookFontPart || fontPart;
+  const handleFont = handleFontPart || fontPart;
 
-  const parts = frameFileExists ? [
-    // Use brand-tinted background instead of a forced white base.
-    `color=c=${bgHex}:s=${outW}x${outH}:d=99999[base]`,
-    // Zırh PNG opak: önce arka plan üstüne tam çerçeve; video pencereye üstte bindirilir (UI önizlemesiyle uyumlu).
-    `[1:v]scale=${outW}:${outH},format=rgba,setsar=1[frame]`,
-    `[base][frame]overlay=x=0:y=0:format=auto[frmBase]`,
-    // Kaynaktaki üst hook/bantı gizlemek için crop'ı biraz aşağıdan al (üstten kırp).
-    // FFmpeg filtergraph: max(0\,expr) içindeki virgül kaçırılmalı, yoksa yeni filtre sanır.
-    // Manuel nudge (720×1280 px referansı): ih*(nudge/1280) ifadesi ölçeklenmiş kare üzerinde kaydırır.
-    // Hope: videoyu pencere içinde biraz küçült (kenar payı). Kaos/Terapi %100 pencere dolu.
-    ...(() => {
-      const shrinkBrand = 1.0;
-      const shrink = shrinkBrand;
-      const vww = Math.max(2, Math.round(ww * shrink));
-      const vwh = Math.max(2, Math.round(wh * shrink));
-      const vx = Math.round(wx + (ww - vww) / 2);
-      const vy = Math.round(wy + (wh - vwh) / 2) + winShiftPx;
-      return [
-        `[v0]scale=${vww}:${vwh}:force_original_aspect_ratio=increase,crop=${vww}:${vwh}:(iw-ow)/2:${cropYExpr},setsar=1[vid]`,
-        `[frmBase][vid]overlay=x=${vx}:y=${vy}:shortest=1[vt0]`
-      ];
-    })()
-  ] : [
-    `color=c=${bgHex}:s=${outW}x${outH}:d=99999[bg]`,
-    `[v0]scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},setsar=1[vid]`,
-    `[bg][vid]overlay=x=(W-w)/2:y=(H-h)/2:shortest=1[vt0]`
+  const parts = [
+    `[v0]split=2[frostSrc][sharpSrc]`,
+    `[frostSrc]scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},gblur=sigma=${blurSigma}[frost]`,
+    `[sharpSrc]scale=${vww}:${vwh}:force_original_aspect_ratio=increase,crop=${vww}:${vwh}:(iw-ow)/2:${cropYExpr},setsar=1,format=rgba[sharpBox]`,
+    `[sharpBox]geq=r='r(X\\,Y)':g='g(X\\,Y)':b='b(X\\,Y)':a='${roundA}'[sharpRound]`,
+    `[frost][sharpRound]overlay=x=${vx}:y=${Math.max(0, vy)}:shortest=1[vtWin]`
   ];
+  let cur = 'vtWin';
+  if (profileExists) {
+    parts.push(
+      `[1:v]scale=${avatarSize}:${avatarSize}:force_original_aspect_ratio=increase,crop=${avatarSize}:${avatarSize},setsar=1,format=rgba,` +
+        `geq=r='r(X\\,Y)':g='g(X\\,Y)':b='b(X\\,Y)':a='${circleA}'[avatar]`
+    );
+    parts.push(`[${cur}][avatar]overlay=x=${avatarX}:y=${avatarY}:shortest=1[vtAv]`);
+    cur = 'vtAv';
+  }
+  parts.push(
+    `[${cur}]drawtext=text='${handleEsc}'${handleFont}:fontsize=${handleSize}:fontcolor=${ink}:` +
+      `x=${nameX}:y=${nameY}[vtName]`
+  );
+  cur = 'vtName';
   if (!lines.length) {
-    parts.push(`[vt0]format=yuv420p[v1]`);
+    parts.push(`[${cur}]format=yuv420p[v1]`);
     return parts;
   }
-  let cur = 'vt0';
   lines.forEach((line, i) => {
     const last = i === lines.length - 1;
     const next = last ? 'v1b' : `vth${i}`;
     const y = hookYTop + i * lineStep;
     parts.push(
-      `[${cur}]drawtext=text='${line}'${fontPart}:fontsize=${fontSize}:fontcolor=${hookColor}:` +
+      `[${cur}]drawtext=text='${line}'${hookFont}:fontsize=${fontSize}:fontcolor=${ink}:` +
         `fix_bounds=1:text_shaping=1:` +
         `x='max(${padX}\\,min((w-text_w)/2+${hxOff}\\,w-text_w-${padX}))':y=${y}:enable='${hookEnable}'[${next}]`
     );
@@ -758,16 +793,8 @@ async function buildCrushRenderPlan(o) {
     (brandNorm === 'terapi' || brandNorm === 'umut' || brandNorm === 'kaos') && o.useReelsInstagramCanvas !== false;
   const useReelsInstagramCanvas =
     (brandNorm === 'terapi' || brandNorm === 'umut' || brandNorm === 'kaos') && o.useReelsInstagramCanvas !== false;
-  const framePng = useLabFrame
-    ? path.join(
-        __dirname,
-        'public',
-        brandNorm === 'kaos'
-          ? 'kaos_zrh_arka_plan.png'
-          : (brandNorm === 'umut' ? 'umut_zrh_arka_plan.png' : 'terapi_zrh_arka_plan.png')
-      )
-    : null;
-  const frameExists = !!(framePng && fs.existsSync(framePng));
+  const profilePng = useLabFrame ? resolveBrandProfilePng(brandNorm) : null;
+  const profileExists = !!(profilePng && fs.existsSync(profilePng));
 
   // Watermark boyutu yarıya indir
   const wmSize = outW >= 1080 ? 55 : 48;
@@ -924,10 +951,14 @@ async function buildCrushRenderPlan(o) {
   const noBandTextTopY = Math.max(18, Math.round(outH * 0.055));
   const noBandTextBottomY = noBandTextTopY + noBandFontSize + noBandLineGap;
 
-  const fontFile = useLabFrame ? pickFontForReelsHookDrawtext() : pickExistingFontForDrawtext();
+  const fontFile = useLabFrame ? pickSegoeFontFile('hook') : pickExistingFontForDrawtext();
+  const handleFontFile = useLabFrame ? pickSegoeFontFile('handle') : fontFile;
   const fontPart = fontFile
     ? `:fontfile='${escapeDrawtextText(fontFile.replace(/\\/g, '/'))}'`
     : '';
+  const handleFontPart = handleFontFile
+    ? `:fontfile='${escapeDrawtextText(handleFontFile.replace(/\\/g, '/'))}'`
+    : fontPart;
 
   const hookEnable = "between(t,0,1e9)";
   const coverFillOpacity = cover ? 1.0 : 0;
@@ -955,9 +986,9 @@ async function buildCrushRenderPlan(o) {
   const ubRects = scaleManualBlurRectsToOutputPx(rawManual, o.manualBlurRefW, o.manualBlurRefH, outW, outH);
   const ubChain = buildManualBlurDelogoChain('v0base', ubRects, outW, outH, 'v0postblur');
 
-  // Input index planning (0=inFile, 1=frame?, then wm, then music)
+  // Input index planning (0=inFile, 1=profile?, then wm, then music)
   let nextInputIdx = 1;
-  if (frameExists) nextInputIdx += 1;
+  if (profileExists) nextInputIdx += 1;
   const wmInputIdxPlanned = nextInputIdx++;
   const musicInputIdxPlanned = nextInputIdx; // only valid if music input exists
 
@@ -1108,9 +1139,12 @@ async function buildCrushRenderPlan(o) {
           outW,
           outH,
           fontPart,
+          hookFontPart: fontPart,
+          handleFontPart,
+          handleText: brandSocialHandle(brandNorm),
           hookEnable,
           escapedLines: reelsEscapedLines,
-          frameFileExists: frameExists,
+          profileExists,
           cropYNudgeRefPx: manualReelsCropYNudgePx,
           windowShiftYRefPx: manualReelsWindowShiftYPx,
           hookXOffsetRefPx: manualReelsHookXOff,
@@ -1215,7 +1249,7 @@ async function buildCrushRenderPlan(o) {
   }
 
   const inputs = ['-y', '-i', inFile];
-  if (frameExists) inputs.push('-loop', '1', '-i', framePng);
+  if (profileExists) inputs.push('-loop', '1', '-i', profilePng);
   inputs.push('-loop', '1', '-i', wmFile);
   if (musicFile && fs.existsSync(musicFile)) {
     inputs.push('-stream_loop', '-1', '-i', musicFile);
