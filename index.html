@@ -1286,6 +1286,8 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   }
 
   const tctx = tmpV0.getContext("2d");
+  tctx.imageSmoothingEnabled = true;
+  tctx.imageSmoothingQuality = "high";
   tctx.fillStyle = "#000";
   tctx.fillRect(0, 0, PREVIEW_W, PREVIEW_H);
   const s1 = Math.max(PREVIEW_W / vw, PREVIEW_H / vh);
@@ -1319,18 +1321,24 @@ function crushDrawVideoFrameOntoCanvas(cv) {
   tmpSc.width = Math.max(1, Math.ceil(iw2));
   tmpSc.height = Math.max(1, Math.ceil(ih2));
   const sctx = tmpSc.getContext("2d");
+  sctx.imageSmoothingEnabled = true;
+  sctx.imageSmoothingQuality = "high";
   sctx.drawImage(tmpV0, 0, 0, PREVIEW_W, PREVIEW_H, 0, 0, iw2, ih2);
 
   const blurPx = Math.max(8, Math.round(16 * (PREVIEW_H / 1280)));
   ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.filter = "blur(" + blurPx + "px)";
   const bleed = blurPx * 2;
-  ctx.drawImage(tmpV0, -bleed, -bleed, PREVIEW_W + bleed * 2, PREVIEW_H + bleed * 2);
+  ctx.drawImage(tmpSc, cropX, cropY, ww, wh, -bleed, -bleed, PREVIEW_W + bleed * 2, PREVIEW_H + bleed * 2);
   ctx.restore();
   const radius = crushFrostMetrics(PREVIEW_W, PREVIEW_H).radius;
   const manualShiftPx = Math.round((Number(__crushManual.previewWindowShiftYPx) || 0) * (PREVIEW_H / 1280));
   const vy = wy + manualShiftPx;
   ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   crushRoundRectPath(ctx, wx, vy, ww, wh, radius);
   ctx.clip();
   ctx.drawImage(tmpSc, cropX, cropY, ww, wh, wx, vy, ww, wh);

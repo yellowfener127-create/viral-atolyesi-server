@@ -61,6 +61,15 @@ function resolveYtDlpBin() {
   return 'yt-dlp';
 }
 
+// 1080p'ye kadar parçalı video+ses. Tek parça "best" hem düşük kalite hem tek bağlantıda yavaş.
+const YTDLP_FAST_FORMAT =
+  'bv*[ext=mp4][vcodec!=none][width=1080]+ba[ext=m4a][acodec!=none]/' +
+  'bv*[ext=mp4][vcodec!=none][height=1080]+ba[ext=m4a][acodec!=none]/' +
+  'bv*[ext=mp4][vcodec!=none][width<=1080][height<=1920]+ba[ext=m4a][acodec!=none]/' +
+  'bv*[ext=mp4][vcodec!=none][height<=1080]+ba[ext=m4a][acodec!=none]/' +
+  'bv*[ext=mp4][vcodec!=none]+ba[ext=m4a][acodec!=none]/' +
+  'b[ext=mp4][acodec!=none][vcodec!=none]/best';
+
 const YTDLP_BIN = resolveYtDlpBin();
 const YTDLP_PLAYER_ARGS = ['--extractor-args', 'youtube:player_client=default,-android_vr'];
 
@@ -1834,12 +1843,7 @@ async function runYtDlpToResponse(res, url) {
     // Öncelik: mp4 video + m4a (aac) ses; yoksa tek parça mp4; en sonda best.
     // 1080p hedefi: Shorts'ta genişlik genelde 1080 (yükseklik 1920), yatayda yükseklik 1080 (genişlik 1920).
     // Önce 1080 wide/1080 tall mp4+ m4a dene; yoksa "1080'e kadar" mp4; yoksa genel mp4.
-    'bv*[ext=mp4][vcodec!=none][width=1080]+ba[ext=m4a][acodec!=none]/' +
-      'bv*[ext=mp4][vcodec!=none][height=1080]+ba[ext=m4a][acodec!=none]/' +
-      'bv*[ext=mp4][vcodec!=none][width<=1080][height<=1920]+ba[ext=m4a][acodec!=none]/' +
-      'bv*[ext=mp4][vcodec!=none][height<=1080]+ba[ext=m4a][acodec!=none]/' +
-      'bv*[ext=mp4][vcodec!=none]+ba[ext=m4a][acodec!=none]/' +
-      'b[ext=mp4][acodec!=none][vcodec!=none]/best',
+    YTDLP_FAST_FORMAT,
     '-o',
     outTpl,
     url
@@ -2010,7 +2014,7 @@ app.post('/crush-compilation', async (req, res) => {
         ...YTDLP_NET_ARGS,
         ...YTDLP_PLAYER_ARGS,
         '--merge-output-format', 'mp4',
-        '-f', 'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best',
+        '-f', YTDLP_FAST_FORMAT,
         '-o', tpl,
         ...ytdlpCookieCliArgs(),
         src.url
@@ -2215,7 +2219,7 @@ app.post('/crush', async (req, res) => {
         '--match-filter', '!is_live',
         '--merge-output-format', 'mp4',
         '-f',
-        'best[ext=mp4][acodec!=none][vcodec!=none]/best[acodec!=none][vcodec!=none]/best',
+        YTDLP_FAST_FORMAT,
         '-o',
         inTpl,
         ...ytdlpCookieCliArgs(),

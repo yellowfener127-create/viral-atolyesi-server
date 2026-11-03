@@ -528,10 +528,9 @@ function buildReelsInstagramCanvasFilters({
   const handleFont = handleFontPart || fontPart;
 
   const parts = [
-    `[v0]split=2[frostSrc][sharpSrc]`,
-    `[frostSrc]scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},gblur=sigma=${blurSigma}[frost]`,
-    `[sharpSrc]scale=${vww}:${vwh}:force_original_aspect_ratio=increase,crop=${vww}:${vwh}:(iw-ow)/2:${cropYExpr},setsar=1,format=rgba[sharpBox]`,
-    `[sharpBox]geq=r='r(X\\,Y)':g='g(X\\,Y)':b='b(X\\,Y)':a='${roundA}'[sharpRound]`,
+    `[v0]scale=${vww}:${vwh}:force_original_aspect_ratio=increase:flags=lanczos,crop=${vww}:${vwh}:(iw-ow)/2:${cropYExpr},setsar=1,split=2[sharpBox][frostCrop]`,
+    `[frostCrop]scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},gblur=sigma=${blurSigma}[frost]`,
+    `[sharpBox]format=rgba,geq=r='r(X\\,Y)':g='g(X\\,Y)':b='b(X\\,Y)':a='${roundA}'[sharpRound]`,
     `[frost][sharpRound]overlay=x=${vx}:y=${Math.max(0, vy)}:shortest=1[vtWin]`
   ];
   let cur = 'vtWin';
