@@ -475,12 +475,13 @@ function buildReelsInstagramCanvasFilters({
   const ww = Math.round(win.w * sx);
   const wh = Math.round(win.h * sy);
   const fontSize = Math.max(22, Math.round(46 * s));
-  const handleSize = Math.max(16, Math.round(32 * s));
-  const avatarSize = Math.max(36, Math.round(84 * s));
+  const handleSize = Math.max(20, Math.round(42 * s));
+  const avatarSize = Math.max(44, Math.round(100 * s));
   const avatarX = Math.round(64 * sx);
-  const avatarY = Math.round(72 * sy);
+  const avatarY = Math.round(108 * sy);
   const radius = Math.max(16, Math.round(46 * s));
   const ink = '0x2B2B2B';
+  const handleInk = '0x161616';
   const lineStep = Math.max(Math.round(fontSize * 1.30), fontSize + 4);
   const maxCapLines = 2;
   const lines = (escapedLines || []).slice(0, maxCapLines);
@@ -489,7 +490,7 @@ function buildReelsInstagramCanvasFilters({
   // Hook'u video penceresinin üstündeki boşlukta ortala (eski/kompakt alan)
   // Hook alanını çok az yukarı genişlet (kenarlara değil, sadece üstten).
   // (Therapy/Hope/Chaos hepsinde aynı davranış.)
-  const hookAreaTop = avatarY + avatarSize + Math.round(18 * sy);
+  const hookAreaTop = Math.round(72 * sy) + Math.max(36, Math.round(84 * s)) + Math.round(18 * sy);
   const hookAreaBottom = Math.max(hookAreaTop + 1, Math.round(wy - 18 * sy));
   const hxOff = Math.round(
     parseManualReelsHookOffsetPx(hookXOffsetRefPx) * (outW / MANUAL_BLUR_REF_W)
@@ -539,7 +540,7 @@ function buildReelsInstagramCanvasFilters({
     cur = 'vtAv';
   }
   parts.push(
-    `[${cur}]drawtext=text='${handleEsc}'${handleFont}:fontsize=${handleSize}:fontcolor=${ink}:` +
+    `[${cur}]drawtext=text='${handleEsc}'${handleFont}:fontsize=${handleSize}:fontcolor=${handleInk}:` +
       `x=${nameX}:y=${nameY}[vtName]`
   );
   cur = 'vtName';
@@ -952,7 +953,7 @@ async function buildCrushRenderPlan(o) {
   const noBandTextBottomY = noBandTextTopY + noBandFontSize + noBandLineGap;
 
   const fontFile = useLabFrame ? pickSegoeFontFile('hook') : pickExistingFontForDrawtext();
-  const handleFontFile = useLabFrame ? pickSegoeFontFile('handle') : fontFile;
+  const handleFontFile = useLabFrame ? pickSegoeFontFile('hook') : fontFile;
   const fontPart = fontFile
     ? `:fontfile='${escapeDrawtextText(fontFile.replace(/\\/g, '/'))}'`
     : '';
