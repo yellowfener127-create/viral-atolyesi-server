@@ -4,8 +4,9 @@
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const BASE_EDIT_SPEED = 1.1; // mevcut 1.10x hız
 const AUDIO_EXTS = new Set(['.mp3', '.m4a', '.wav', '.aac', '.ogg', '.flac']);
@@ -455,6 +456,9 @@ function buildReelsInstagramCanvasFilters({
   handleText,
   hookEnable,
   escapedLines,
+  hookFontFile,
+  emojiInputs,
+  emojiIndexBase = 0,
   profileExists,
   cropYNudgeRefPx = 0,
   windowShiftYRefPx = 0,
@@ -548,24 +552,82 @@ function buildReelsInstagramCanvasFilters({
     parts.push(`[${cur}]format=yuv420p[v1]`);
     return parts;
   }
-  lines.forEach((line, i) => {
-    const last = i === lines.length - 1;
-    const next = last ? 'v1b' : `vth${i}`;
-    const y = hookYTop + i * lineStep;
-    parts.push(
-      `[${cur}]drawtext=text='${line}'${hookFont}:fontsize=${fontSize}:fontcolor=${ink}:` +
-        `fix_bounds=1:text_shaping=1:` +
-        `x='max(${padX}\\,min((w-text_w)/2+${hxOff}\\,w-text_w-${padX}))':y=${y}:enable='${hookEnable}'[${next}]`
-    );
-    cur = next;
-  });
+  const lineRuns = lines.map((line) => splitEmojiRuns(line));
+  const hasColorEmoji = lineRuns.some((runs) => runs.some((r) => r.emoji && ensureTwemojiPng(r.text)));
+  if (!hasColorEmoji || !hookFontFile || !Array.isArray(emojiInputs)) {
+    lines.forEach((line, i) => {
+      const last = i === lines.length - 1;
+      const next = last ? 'v1b' : `vth${i}`;
+      const y = hookYTop + i * lineStep;
+      parts.push(
+        `[${cur}]drawtext=text='${escapeDrawtextText(line)}'${hookFont}:fontsize=${fontSize}:fontcolor=${ink}:` +
+          `fix_bounds=1:text_shaping=1:` +
+          `x='max(${padX}\\,min((w-text_w)/2+${hxOff}\\,w-text_w-${padX}))':y=${y}:enable='${hookEnable}'[${next}]`
+      );
+      cur = next;
+    });
+  } else {
+    const emojiPx = fontSize;
+    const prepared = lineRuns.map((runs) => runs.map((r) => {
+      if (r.emoji) {
+        const png = ensureTwemojiPng(r.text);
+        if (png) return { kind: 'emoji', png, text: r.text };
+      }
+      return { kind: 'text', text: r.text };
+    }));
+    const textPieces = [];
+    prepared.forEach((runs) => {
+      runs.forEach((p) => {
+        if (p.kind === 'text') textPieces.push(p.text);
+      });
+    });
+    const measured = measureHookTextWidths(hookFontFile, fontSize, textPieces);
+    let mi = 0;
+    prepared.forEach((runs, i) => {
+      const pieces = runs.map((p) => {
+        if (p.kind === 'emoji') return { kind: 'emoji', png: p.png, w: emojiPx };
+        const w = measured ? measured[mi++] : Math.round(String(p.text).length * fontSize * 0.52);
+        return { kind: 'text', text: p.text, w: w || 0 };
+      });
+      const total = pieces.reduce((sum, p) => sum + p.w, 0);
+      let x = Math.round((outW - total) / 2) + hxOff;
+      const minX = padX;
+      const maxX = Math.max(minX, outW - padX - total);
+      if (x < minX) x = minX;
+      if (x > maxX) x = maxX;
+      const y = hookYTop + i * lineStep;
+      pieces.forEach((p, pi) => {
+        const last = i === prepared.length - 1 && pi === pieces.length - 1;
+        const next = last ? 'v1b' : `vhk${i}x${pi}`;
+        if (p.kind === 'emoji') {
+          const idx = emojiIndexBase + emojiInputs.length;
+          emojiInputs.push(p.png);
+          parts.push(`[${idx}:v]scale=${emojiPx}:${emojiPx}:flags=lanczos,format=rgba[emj${idx}]`);
+          parts.push(
+            `[${cur}][emj${idx}]overlay=x=${Math.round(x)}:y=${y}:shortest=1:format=auto[${next}]`
+          );
+          cur = next;
+        } else if (String(p.text || '').length) {
+          parts.push(
+            `[${cur}]drawtext=text='${escapeDrawtextText(p.text)}'${hookFont}:fontsize=${fontSize}:fontcolor=${ink}:` +
+              `fix_bounds=1:text_shaping=1:x=${Math.round(x)}:y=${y}:enable='${hookEnable}'[${next}]`
+          );
+          cur = next;
+        } else if (last) {
+          parts.push(`[${cur}]format=rgba[${next}]`);
+          cur = next;
+        }
+        x += p.w;
+      });
+    });
+  }
   parts.push(`[${cur}]format=yuv420p[v1]`);
   return parts;
 }
 
-/** Arka plan müziği tam %3. Bu değerin üstüne çıkmaz. */
+/** Arka plan müziği tam %0.5. Bu değerin üstüne çıkmaz. */
 function dipMusicVolume() {
-  return 0.03;
+  return 0.005;
 }
 
 function parseMemeWindows(raw) {
@@ -581,7 +643,7 @@ function parseMemeWindows(raw) {
 }
 
 /**
- * Meme aralığında müzik %0, diğer kesitlerde %3.
+ * Meme aralığında müzik %0, diğer kesitlerde %0.5.
  * Pencereler kaynak zamanıdır; render hızına göre çıktı zamanına çevrilir.
  */
 function musicVolumeFilter(windows, startSec, speed, outDur) {
@@ -601,6 +663,104 @@ function musicVolumeFilter(windows, startSec, speed, outDur) {
   }
   if (!gates.length) return `volume=${dip}`;
   return `volume='if(${gates.join('+')}\\,0\\,${dip})'`;
+}
+
+function splitEmojiRuns(line) {
+  const s = String(line || '');
+  const re = /\p{Extended_Pictographic}(?:\uFE0F|\uFE0E|\p{Emoji_Modifier})*(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E|\p{Emoji_Modifier})*)*/gu;
+  const runs = [];
+  let last = 0;
+  for (const m of s.matchAll(re)) {
+    const i = m.index || 0;
+    if (i > last) runs.push({ emoji: false, text: s.slice(last, i) });
+    runs.push({ emoji: true, text: m[0] });
+    last = i + m[0].length;
+  }
+  if (last < s.length) runs.push({ emoji: false, text: s.slice(last) });
+  if (!runs.length && s) runs.push({ emoji: false, text: s });
+  return runs;
+}
+
+function twemojiFileName(seq) {
+  const parts = [];
+  for (const ch of String(seq || '')) {
+    const cp = ch.codePointAt(0);
+    if (cp === 0xfe0e || cp === 0xfe0f) continue;
+    parts.push(cp.toString(16));
+  }
+  return parts.join('-');
+}
+
+function ensureTwemojiPng(seq) {
+  const name = twemojiFileName(seq);
+  if (!name) return null;
+  const dir = path.join(os.tmpdir(), 'va-twemoji');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+  const dest = path.join(dir, `${name}.png`);
+  try {
+    if (fs.existsSync(dest) && fs.statSync(dest).size > 80) return dest;
+  } catch {}
+  const urls = [
+    `https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/72x72/${name}.png`,
+    `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${name}.png`
+  ];
+  for (const url of urls) {
+    const r = spawnSync('curl.exe', ['-fsSL', '--max-time', '12', '-o', dest, url], { windowsHide: true });
+    try {
+      if (r.status === 0 && fs.existsSync(dest) && fs.statSync(dest).size > 80) return dest;
+    } catch {}
+    try { fs.rmSync(dest, { force: true }); } catch {}
+  }
+  return null;
+}
+
+function measureHookTextWidths(fontFile, fontSize, texts) {
+  if (!fontFile || !texts.length) return texts.map(() => 0);
+  const stamp = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const dir = os.tmpdir();
+  const inJson = path.join(dir, `va_tw_${stamp}.json`);
+  const outJson = path.join(dir, `va_tw_${stamp}.out.json`);
+  const ps1 = path.join(dir, `va_tw_${stamp}.ps1`);
+  const script = [
+    'param([string]$FontFile,[double]$FontSize,[string]$InJson,[string]$OutJson)',
+    'Add-Type -AssemblyName System.Drawing',
+    '$items = ConvertFrom-Json ([System.IO.File]::ReadAllText($InJson))',
+    '$pfc = New-Object System.Drawing.Text.PrivateFontCollection',
+    '$pfc.AddFontFile($FontFile)',
+    '$family = $pfc.Families[0]',
+    '$font = New-Object System.Drawing.Font($family, [single]$FontSize, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Pixel)',
+    '$bmp = New-Object System.Drawing.Bitmap 8,8',
+    '$g = [System.Drawing.Graphics]::FromImage($bmp)',
+    '$g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAlias',
+    '$sf = New-Object System.Drawing.StringFormat ([System.Drawing.StringFormat]::GenericTypographic)',
+    '$sf.FormatFlags = [System.Drawing.StringFormatFlags]::MeasureTrailingSpaces',
+    '$widths = New-Object System.Collections.Generic.List[double]',
+    'foreach ($t in @($items)) {',
+    '  $s = $g.MeasureString([string]$t, $font, [int]::MaxValue, $sf)',
+    '  [void]$widths.Add([Math]::Round($s.Width, 2))',
+    '}',
+    '[System.IO.File]::WriteAllText($OutJson, ($widths | ConvertTo-Json -Compress))'
+  ].join('\n');
+  try {
+    fs.writeFileSync(inJson, JSON.stringify(texts), 'utf8');
+    fs.writeFileSync(ps1, script, 'utf8');
+    const r = spawnSync(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1, '-FontFile', fontFile, '-FontSize', String(fontSize), '-InJson', inJson, '-OutJson', outJson],
+      { windowsHide: true, timeout: 20000 }
+    );
+    if (r.status !== 0 || !fs.existsSync(outJson)) return null;
+    const parsed = JSON.parse(fs.readFileSync(outJson, 'utf8'));
+    const arr = Array.isArray(parsed) ? parsed : [parsed];
+    if (arr.length !== texts.length) return null;
+    return arr.map((n) => Math.max(0, Number(n) || 0));
+  } catch {
+    return null;
+  } finally {
+    for (const p of [inJson, outJson, ps1]) {
+      try { fs.rmSync(p, { force: true }); } catch {}
+    }
+  }
 }
 
 /** ±%2–%4 hız varyasyonu (1.0 etrafında) */
@@ -1086,8 +1246,11 @@ async function buildCrushRenderPlan(o) {
 
   const capChars = Math.max(18, Math.round(34 * (outW / 1080)));
   const reelsEscapedLines = useLabFrame
-    ? splitHookIntoLines55(hookTextBandStyled).map((ln) => escapeDrawtextText(String(ln || '').trim()))
+    ? splitHookIntoLines55(hookTextBandStyled).map((ln) => String(ln || '').trim()).filter(Boolean)
     : [];
+  const emojiInputs = [];
+  const hasMusicInput = !!(musicFile && fs.existsSync(musicFile));
+  const emojiIndexBase = musicInputIdxPlanned + (hasMusicInput ? 1 : 0);
 
   const noiseOpEff = useReelsInstagramCanvas ? 0.002 : noiseOpacity;
   const grainOpEff = useReelsInstagramCanvas ? 0.006 : grainOpacity;
@@ -1185,6 +1348,9 @@ async function buildCrushRenderPlan(o) {
           handleText: brandSocialHandle(brandNorm),
           hookEnable,
           escapedLines: reelsEscapedLines,
+          hookFontFile: fontFile,
+          emojiInputs,
+          emojiIndexBase,
           profileExists,
           cropYNudgeRefPx: manualReelsCropYNudgePx,
           windowShiftYRefPx: manualReelsWindowShiftYPx,
@@ -1304,6 +1470,9 @@ async function buildCrushRenderPlan(o) {
   inputs.push('-loop', '1', '-i', wmFile);
   if (musicFile && fs.existsSync(musicFile)) {
     inputs.push('-stream_loop', '-1', '-i', musicFile);
+  }
+  for (const emojiPng of emojiInputs) {
+    inputs.push('-loop', '1', '-i', emojiPng);
   }
 
   const ffArgs = [
