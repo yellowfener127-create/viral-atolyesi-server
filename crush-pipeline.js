@@ -480,8 +480,8 @@ function buildReelsInstagramCanvasFilters({
   const avatarX = Math.round(64 * sx);
   const avatarY = Math.round(108 * sy);
   const radius = Math.max(16, Math.round(46 * s));
-  const ink = '0x2B2B2B';
-  const handleInk = '0x161616';
+  const ink = 'white';
+  const handleInk = 'white@0.75';
   const lineStep = Math.max(Math.round(fontSize * 1.30), fontSize + 4);
   const maxCapLines = 2;
   const lines = (escapedLines || []).slice(0, maxCapLines);
@@ -952,8 +952,8 @@ async function buildCrushRenderPlan(o) {
   const noBandTextTopY = Math.max(18, Math.round(outH * 0.055));
   const noBandTextBottomY = noBandTextTopY + noBandFontSize + noBandLineGap;
 
-  const fontFile = useLabFrame ? pickSegoeFontFile('hook') : pickExistingFontForDrawtext();
-  const handleFontFile = useLabFrame ? pickSegoeFontFile('hook') : fontFile;
+  const fontFile = pickExistingFontForDrawtext();
+  const handleFontFile = fontFile;
   const fontPart = fontFile
     ? `:fontfile='${escapeDrawtextText(fontFile.replace(/\\/g, '/'))}'`
     : '';

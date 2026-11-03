@@ -1072,8 +1072,8 @@ function crushDrawBrandChrome(ctx, W, H) {
   }
   ctx.restore();
   ctx.save();
-  ctx.font = "700 " + m.handleSize + 'px "Segoe UI", sans-serif';
-  ctx.fillStyle = "#161616";
+  ctx.font = "700 " + m.handleSize + 'px Arial, sans-serif';
+  ctx.fillStyle = "rgba(255,255,255,0.75)";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText(
@@ -1191,8 +1191,8 @@ function crushDrawHookPreview(ctx, PREVIEW_W, PREVIEW_H) {
   const hyOff = (Number(__crushManual.hookYOffsetPx) || 0) * (PREVIEW_H / 1280);
   hookYTop += hyOff;
   ctx.save();
-  ctx.font = "700 " + fontSize + 'px "Segoe UI","Segoe UI Emoji","Segoe UI Historic",sans-serif';
-  ctx.fillStyle = "#2B2B2B";
+  ctx.font = "700 " + fontSize + 'px Arial, sans-serif';
+  ctx.fillStyle = "#FFFFFF";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   lines.forEach(function (ln, i) {
