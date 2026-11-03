@@ -182,6 +182,8 @@ async function mixCompilation({
   const segFiles = [];
   const usedMemes = [];
   const timeline = [];
+  const memeWindows = [];
+  let cursorSec = 0;
   try {
     for (let i = 0; i < order.length; i++) {
       const clip = order[i];
@@ -198,6 +200,7 @@ async function mixCompilation({
       });
       segFiles.push(segPath);
       timeline.push({ kind: 'part', label: clip.label || '', start: clip.start, end: clip.end });
+      cursorSec += len;
 
       if (i < order.length - 1) {
         const pool = memes.filter((m) => !usedMemes.includes(m));
@@ -210,16 +213,24 @@ async function mixCompilation({
           throw e;
         }
         const memePath = path.join(tmpDir, `meme_${String(i).padStart(2, '0')}.mp4`);
+        const snipAudio = await probeHasAudio(ffmpegPath, snip);
+        const memeStart = cursorSec;
+        const memeEnd = cursorSec + snipDur;
         await writeSegment({
           ffmpegPath,
           inFile: snip,
           outFile: memePath,
           start: 0,
           duration: snipDur,
-          hasAudio: false
+          hasAudio: snipAudio
         });
         segFiles.push(memePath);
         usedMemes.push(snip);
+        memeWindows.push({
+          start: Number(memeStart.toFixed(3)),
+          end: Number(memeEnd.toFixed(3))
+        });
+        cursorSec = memeEnd;
         timeline.push({ kind: 'meme', file: path.basename(snip), duration: Number(snipDur.toFixed(3)) });
       }
     }
@@ -244,6 +255,7 @@ async function mixCompilation({
   const durationOut = await probeDurationSec(ffprobePath, ffmpegPath, outFile);
   return {
     timeline,
+    memeWindows,
     memes: usedMemes.map((p) => path.basename(p)),
     snippetsDir: dir,
     contentSec: Number(contentSec.toFixed(3)),

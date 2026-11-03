@@ -563,9 +563,44 @@ function buildReelsInstagramCanvasFilters({
   return parts;
 }
 
-/** Arka plan müziği dip seviye: %3–%5. Konuşmayı bastırmaz. */
-function pickDipMusicVolume() {
-  return randRange(0.03, 0.05);
+/** Arka plan müziği tam %3. Bu değerin üstüne çıkmaz. */
+function dipMusicVolume() {
+  return 0.03;
+}
+
+function parseMemeWindows(raw) {
+  const list = Array.isArray(raw) ? raw : [];
+  const out = [];
+  for (const w of list) {
+    const start = Number(w && (w.start ?? w.from));
+    const end = Number(w && (w.end ?? w.to));
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    out.push({ start, end });
+  }
+  return out;
+}
+
+/**
+ * Meme aralığında müzik %0, diğer kesitlerde %3.
+ * Pencereler kaynak zamanıdır; render hızına göre çıktı zamanına çevrilir.
+ */
+function musicVolumeFilter(windows, startSec, speed, outDur) {
+  const dip = dipMusicVolume().toFixed(4);
+  const sp = Number(speed) > 0.2 ? Number(speed) : 1;
+  const ss = Math.max(0, Number(startSec) || 0);
+  const cap = Math.max(0, Number(outDur) || 0);
+  const gates = [];
+  for (const w of parseMemeWindows(windows)) {
+    let a = (w.start - ss) / sp;
+    let b = (w.end - ss) / sp;
+    if (!(b > a) || b <= 0 || a >= cap) continue;
+    a = Math.max(0, a);
+    b = Math.min(cap, b);
+    if (b - a < 0.04) continue;
+    gates.push(`between(t\\,${a.toFixed(3)}\\,${b.toFixed(3)})`);
+  }
+  if (!gates.length) return `volume=${dip}`;
+  return `volume='if(${gates.join('+')}\\,0\\,${dip})'`;
 }
 
 /** ±%2–%4 hız varyasyonu (1.0 etrafında) */
@@ -957,8 +992,8 @@ async function buildCrushRenderPlan(o) {
   const noBandTextTopY = Math.max(18, Math.round(outH * 0.055));
   const noBandTextBottomY = noBandTextTopY + noBandFontSize + noBandLineGap;
 
-  const fontFile = pickExistingFontForDrawtext();
-  const handleFontFile = fontFile;
+  const handleFontFile = pickExistingFontForDrawtext();
+  const fontFile = useLabFrame ? pickFontForReelsHookDrawtext() : handleFontFile;
   const fontPart = fontFile
     ? `:fontfile='${escapeDrawtextText(fontFile.replace(/\\/g, '/'))}'`
     : '';
@@ -1175,7 +1210,12 @@ async function buildCrushRenderPlan(o) {
       const musicDur = (await probeAudioDuration(ffmpegPath, ffprobePath, musicFile)) || 120;
       const maxStart = Math.max(0, musicDur - 0.25);
       const musicStart = Math.random() * maxStart;
-      const bgVol = pickDipMusicVolume();
+      const musicVol = musicVolumeFilter(
+        o.meme_windows ?? o.memeWindows,
+        startSec,
+        effectiveSpeed,
+        outDur
+      );
 
       const musicInputIdx = musicInputIdxPlanned;
       if (useRubberband) {
@@ -1188,7 +1228,7 @@ async function buildCrushRenderPlan(o) {
           `atrim=0:${outDur.toFixed(3)},asetpts=PTS-STARTPTS[a0];` +
           `[${musicInputIdx}:a]atrim=start=${musicStart.toFixed(3)}:duration=${outDur.toFixed(3)},asetpts=PTS-STARTPTS,` +
           `aformat=sample_fmts=fltp:channel_layouts=stereo,` +
-          `volume=${bgVol.toFixed(4)}[bg];` +
+          `${musicVol}[bg];` +
           `[a0][bg]amix=inputs=2:duration=first:normalize=0[a]`;
       } else {
         audioFilter =
@@ -1200,7 +1240,7 @@ async function buildCrushRenderPlan(o) {
           `atrim=0:${outDur.toFixed(3)},asetpts=PTS-STARTPTS[a0];` +
           `[${musicInputIdx}:a]atrim=start=${musicStart.toFixed(3)}:duration=${outDur.toFixed(3)},asetpts=PTS-STARTPTS,` +
           `aformat=sample_fmts=fltp:channel_layouts=stereo,` +
-          `volume=${bgVol.toFixed(4)}[bg];` +
+          `${musicVol}[bg];` +
           `[a0][bg]amix=inputs=2:duration=first:normalize=0[a]`;
       }
       parts.push(audioFilter);
@@ -1227,12 +1267,17 @@ async function buildCrushRenderPlan(o) {
     const musicDur = (await probeAudioDuration(ffmpegPath, ffprobePath, musicFile)) || 120;
     const maxStart = Math.max(0, musicDur - 0.25);
     const musicStart = Math.random() * maxStart;
-    const bgVol = pickDipMusicVolume();
+    const musicVol = musicVolumeFilter(
+      o.meme_windows ?? o.memeWindows,
+      startSec,
+      effectiveSpeed,
+      outDur
+    );
     const musicInputIdx = musicInputIdxPlanned;
     parts.push(
       `[${musicInputIdx}:a]atrim=start=${musicStart.toFixed(3)}:duration=${outDur.toFixed(3)},asetpts=PTS-STARTPTS,` +
         `aformat=sample_fmts=fltp:channel_layouts=stereo,` +
-        `volume=${bgVol.toFixed(4)}[a]`
+        `${musicVol}[a]`
     );
     mapAudioOut = true;
   }

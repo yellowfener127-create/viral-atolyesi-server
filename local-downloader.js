@@ -2048,6 +2048,13 @@ app.post('/crush-compilation', async (req, res) => {
     const mixDir = getMixDir();
     const outFile = path.join(mixDir, `compilation_${Date.now()}.mp4`);
     fs.copyFileSync(mixed, outFile);
+    try {
+      fs.writeFileSync(
+        outFile + '.memes.json',
+        JSON.stringify({ memeWindows: Array.isArray(mixInfo.memeWindows) ? mixInfo.memeWindows : [] }),
+        'utf8'
+      );
+    } catch {}
     return res.json({
       ok: true,
       savedTo: mixDir,
@@ -2063,6 +2070,20 @@ app.post('/crush-compilation', async (req, res) => {
     release();
   }
 });
+
+function readCompilationMemeWindows(localPath) {
+  const raw = String(localPath || '').trim();
+  if (!raw) return [];
+  const side = raw + '.memes.json';
+  try {
+    if (!fs.existsSync(side)) return [];
+    const parsed = JSON.parse(fs.readFileSync(side, 'utf8'));
+    const list = Array.isArray(parsed) ? parsed : (parsed && parsed.memeWindows);
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
 
 // Mix concat parçaları farklı renk uzayı taşıyorsa crush grafiği her sınırda yeniden kurulur,
 // kareler düşer, çerçeve deliği boş (Alice mavisi) kalır ve süre kısalır. Render öncesi tek akışa çevir.
@@ -2628,7 +2649,8 @@ app.post('/crush', async (req, res) => {
             hasAudio,
             ffmpegPath: 'ffmpeg',
             ffprobePath: 'ffprobe',
-            useRubberband: false
+            useRubberband: false,
+            meme_windows: memeWindows
           });
           await runFfmpeg(retryPlan);
           return retryPlan;
@@ -2637,6 +2659,7 @@ app.post('/crush', async (req, res) => {
       }
     };
 
+    const memeWindows = readCompilationMemeWindows(localPath);
     let plan = await crush.buildCrushRenderPlan({
       inFile,
       wmFile,
@@ -2657,6 +2680,7 @@ app.post('/crush', async (req, res) => {
       manual_start_sec: manualStartSec,
       manualBlurRefW: crush.MANUAL_BLUR_REF_W,
       manualBlurRefH: crush.MANUAL_BLUR_REF_H,
+      meme_windows: memeWindows,
       hasAudio,
       ffmpegPath: 'ffmpeg',
       ffprobePath: 'ffprobe',
