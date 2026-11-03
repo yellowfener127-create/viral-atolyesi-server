@@ -210,14 +210,13 @@ async function mixCompilation({
           throw e;
         }
         const memePath = path.join(tmpDir, `meme_${String(i).padStart(2, '0')}.mp4`);
-        const snipAudio = await probeHasAudio(ffmpegPath, snip);
         await writeSegment({
           ffmpegPath,
           inFile: snip,
           outFile: memePath,
           start: 0,
           duration: snipDur,
-          hasAudio: snipAudio
+          hasAudio: false
         });
         segFiles.push(memePath);
         usedMemes.push(snip);

@@ -563,6 +563,11 @@ function buildReelsInstagramCanvasFilters({
   return parts;
 }
 
+/** Arka plan müziği dip seviye: %3–%5. Konuşmayı bastırmaz. */
+function pickDipMusicVolume() {
+  return randRange(0.03, 0.05);
+}
+
 /** ±%2–%4 hız varyasyonu (1.0 etrafında) */
 function pickSpeedRampFactor() {
   const sign = Math.random() < 0.5 ? -1 : 1;
@@ -1170,7 +1175,7 @@ async function buildCrushRenderPlan(o) {
       const musicDur = (await probeAudioDuration(ffmpegPath, ffprobePath, musicFile)) || 120;
       const maxStart = Math.max(0, musicDur - 0.25);
       const musicStart = Math.random() * maxStart;
-      const bgVol = randRange(0.07, 0.1);
+      const bgVol = pickDipMusicVolume();
 
       const musicInputIdx = musicInputIdxPlanned;
       if (useRubberband) {
@@ -1222,7 +1227,7 @@ async function buildCrushRenderPlan(o) {
     const musicDur = (await probeAudioDuration(ffmpegPath, ffprobePath, musicFile)) || 120;
     const maxStart = Math.max(0, musicDur - 0.25);
     const musicStart = Math.random() * maxStart;
-    const bgVol = randRange(0.07, 0.1);
+    const bgVol = pickDipMusicVolume();
     const musicInputIdx = musicInputIdxPlanned;
     parts.push(
       `[${musicInputIdx}:a]atrim=start=${musicStart.toFixed(3)}:duration=${outDur.toFixed(3)},asetpts=PTS-STARTPTS,` +
