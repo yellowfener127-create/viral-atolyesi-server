@@ -569,7 +569,8 @@ app.post('/tools/crush', async (req, res) => {
       hasAudio,
       ffmpegPath,
       ffprobePath: ffprobeResolved,
-      useRubberband: false
+      useRubberband: false,
+      tmpDir
     });
 
     await runChild(ffmpegPath, [...plan.ffmpegArgsTail, outFile], { timeoutMs: 6 * 60 * 1000 });

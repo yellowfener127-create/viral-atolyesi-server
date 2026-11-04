@@ -2050,7 +2050,15 @@ app.post('/crush-compilation', async (req, res) => {
     });
 
     const mixDir = getMixDir();
-    const outFile = path.join(mixDir, `compilation_${Date.now()}.mp4`);
+    const captionName = String(req.body?.caption_text ?? req.body?.manual_caption ?? '').replace(/\s+/g, ' ').trim();
+    const base = captionName
+      ? (safeName(captionName).replace(/[. ]+$/g, '') || `compilation_${Date.now()}`)
+      : `compilation_${Date.now()}`;
+    let outFile = path.join(mixDir, base.endsWith('.mp4') ? base : (base + '.mp4'));
+    if (fs.existsSync(outFile)) {
+      const stem = base.replace(/\.mp4$/i, '');
+      outFile = path.join(mixDir, safeName(stem).slice(0, 160) + `_${Date.now()}.mp4`);
+    }
     fs.copyFileSync(mixed, outFile);
     try {
       fs.writeFileSync(
@@ -2654,7 +2662,8 @@ app.post('/crush', async (req, res) => {
             ffmpegPath: 'ffmpeg',
             ffprobePath: 'ffprobe',
             useRubberband: false,
-            meme_windows: memeWindows
+            meme_windows: memeWindows,
+            tmpDir
           });
           await runFfmpeg(retryPlan);
           return retryPlan;
@@ -2688,7 +2697,8 @@ app.post('/crush', async (req, res) => {
       hasAudio,
       ffmpegPath: 'ffmpeg',
       ffprobePath: 'ffprobe',
-      useRubberband: true
+      useRubberband: true,
+      tmpDir
     });
     plan = await renderPlanWithFallback(plan);
 

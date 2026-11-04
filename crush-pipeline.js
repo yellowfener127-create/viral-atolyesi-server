@@ -1456,7 +1456,7 @@ async function buildCrushRenderPlan(o) {
     const tmpDir =
       (o && typeof o.tmpDir === 'string' && o.tmpDir)
         ? o.tmpDir
-        : (inFile ? path.dirname(inFile) : os.tmpdir());
+        : os.tmpdir();
     filterComplexScriptPath = path.join(tmpDir, `va_filter_complex_${Date.now()}_${Math.random().toString(16).slice(2)}.txt`);
     fs.writeFileSync(filterComplexScriptPath, filterComplex, { encoding: 'utf8' });
   } catch (e) {

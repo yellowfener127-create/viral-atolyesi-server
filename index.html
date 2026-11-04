@@ -2389,7 +2389,8 @@ async function runCompilationMix() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sources: sources,
-        shuffle: !!(document.getElementById("compShuffle") && document.getElementById("compShuffle").checked)
+        shuffle: !!(document.getElementById("compShuffle") && document.getElementById("compShuffle").checked),
+        caption_text: (document.getElementById("crushCaptionManual") && String(document.getElementById("crushCaptionManual").value || "").trim()) || ""
       })
     });
     const data = await res.json().catch(() => ({}));
