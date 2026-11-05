@@ -113,6 +113,47 @@ function shuffleInPlace(arr) {
   return arr;
 }
 
+function snippetDeckPath(dir) {
+  return path.join(dir, '.va-snippet-deck.json');
+}
+
+function loadSnippetDeck(dir, files) {
+  const names = files.map((p) => path.basename(p));
+  const known = new Set(names);
+  let remaining = [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(snippetDeckPath(dir), 'utf8'));
+    if (Array.isArray(parsed.remaining)) {
+      remaining = parsed.remaining.filter((n) => known.has(n));
+    }
+  } catch {}
+  if (!remaining.length) remaining = shuffleInPlace(names.slice());
+  return { remaining, names };
+}
+
+function saveSnippetDeck(dir, deck) {
+  try {
+    fs.writeFileSync(snippetDeckPath(dir), JSON.stringify({ remaining: deck.remaining }), 'utf8');
+  } catch {}
+}
+
+/** Klasör bitene kadar tekrarsız. Havuz tükenince karılır ve baştan devam eder. */
+function drawSnippet(deck, files, usedNames) {
+  const byName = new Map(files.map((p) => [path.basename(p), p]));
+  const known = new Set(deck.names);
+  const refill = (skip) => shuffleInPlace(deck.names.filter((n) => known.has(n) && !skip.has(n)));
+  deck.remaining = deck.remaining.filter((n) => known.has(n) && !usedNames.has(n));
+  if (!deck.remaining.length) deck.remaining = refill(usedNames);
+  if (!deck.remaining.length) {
+    usedNames.clear();
+    deck.remaining = refill(usedNames);
+  }
+  const name = deck.remaining.pop();
+  if (!name) return null;
+  usedNames.add(name);
+  return byName.get(name) || null;
+}
+
 function parseCompilationSources(raw) {
   const list = Array.isArray(raw) ? raw : [];
   const sources = [];
@@ -178,9 +219,11 @@ async function mixCompilation({
   const order = pieces.slice();
   if (shuffle) shuffleInPlace(order);
 
+  const deck = loadSnippetDeck(dir, memes);
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-mix-'));
   const segFiles = [];
   const usedMemes = [];
+  const usedMemeNames = new Set();
   const timeline = [];
   const memeWindows = [];
   let cursorSec = 0;
@@ -203,9 +246,12 @@ async function mixCompilation({
       cursorSec += len;
 
       if (i < order.length - 1) {
-        const pool = memes.filter((m) => !usedMemes.includes(m));
-        const srcPool = pool.length ? pool : memes;
-        const snip = srcPool[Math.floor(Math.random() * srcPool.length)];
+        const snip = drawSnippet(deck, memes, usedMemeNames);
+        if (!snip) {
+          const e = new Error('Uygun meme klibi bulunamadı.');
+          e.statusCode = 400;
+          throw e;
+        }
         const snipDur = await probeDurationSec(ffprobePath, ffmpegPath, snip);
         if (!(snipDur > 0.12)) {
           const e = new Error(`Meme süresi okunamadı: ${path.basename(snip)}`);
@@ -248,6 +294,7 @@ async function mixCompilation({
       '-c', 'copy',
       outFile
     ], 8 * 60 * 1000, tmpDir);
+    saveSnippetDeck(dir, deck);
   } finally {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   }

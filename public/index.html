@@ -406,7 +406,7 @@
   <div class="tool-card" style="max-width:920px">
     <div class="tool-title">Parça sırası</div>
     <div class="tool-desc">
-      Parçalar eklediğin sırayla birleşir. Her geçişin arasına <code>chaos_snippets</code> klibi kendi süresiyle girer. Son parçadan sonra meme yok.
+      Parçalar eklediğin sırayla birleşir. Her geçişin arasına <code>chaos_snippets</code> klasöründeki kliplerden biri girer; klasör bitmeden aynı klip tekrar seçilmez. Son parçadan sonra meme yok.
       Çıktı: <code>C:\Users\DELL\Videos\Viral Atölyesi İndirilenler\mix\compilation_….mp4</code>
     </div>
     <div id="mixTimeline"></div>
@@ -2930,10 +2930,10 @@ const BLOCKED_KEYWORDS = [
 
 // Hope Lab: kaza/yaralanma vb. içerikleri tamamen kapat
 const HOPE_BLOCKED_KEYWORDS = [
-  // injury/accident
+  // injury/accident — film/dizi başlıklarındaki death/kill/shot burada yok
   "accident","car crash","crash","injury","injured","wounded","blood","bleeding","gore","graphic",
-  "hit and run","overdose","suicide","self-harm","self harm","shot","shooting","stab","stabbing",
-  "death","dead","dies","fatal","funeral","murder","killed","kill","assault","violence",
+  "hit and run","overdose","suicide","self-harm","self harm","stab","stabbing",
+  "funeral","murder","assault",
   // TR
   "kaza","yaralan","yaralı","kan","ölüm","öldü","öldür","cenaze","bıçak","bıçaklı","silah","ateş",
   "intihar","şiddet","vahşet","kavga","saldırı","patlama"
@@ -3158,10 +3158,28 @@ const ALL_QUERIES = {
     "best wholesome moments countdown compilation",
     "life changing kindness ranked compilation",
     "top 10 wholesome surprises compilation",
+    "best movie scenes ranked compilation",
+    "funniest movie moments countdown compilation",
+    "top 10 tv show scenes compilation",
+    "iconic film moments ranked compilation",
+    "best series moments compilation ranking",
+    "movie plot twist scenes ranked compilation",
+    "top 10 sitcom moments compilation",
+    "emotional movie scenes countdown compilation",
+    "tv show cliffhanger moments ranked compilation",
+    "best movie dialogue scenes compilation ranking",
+    "top 10 series moments compilation",
+    "funniest tv scenes ranked compilation",
+    "movie montage moments countdown compilation",
+    "best cinema scenes compilation ranking",
     "random acts of kindness caught on camera",
     "strangers help people in need",
     "teacher student emotional moment",
-    "neighbor helping neighbor"
+    "neighbor helping neighbor",
+    "movie scene you have to see",
+    "tv show moment worth rewatching",
+    "film clip that hits different",
+    "series scene everyone talks about"
   ]
 };
 
@@ -3190,7 +3208,23 @@ function getTodayQueries(cat, rotation = 0) {
   const r = seededShuffle(ranking, seed + cat.length * 7 + rotation * 100003);
   const o = seededShuffle(other, seed + 17 + rotation * 100003);
   const picked = [];
-  for (let i = 0; i < 4; i++) if (r[i]) picked.push(r[i]);
+  if (cat === "hope") {
+    const kindRe = /\b(?:kindness|humanity|reunion|rescue|hero|wholesome|samaritan|helping|elderly|soldier|pay it forward)\b/i;
+    const filmRe = /\b(?:movie|movies|film|films|cinema|tv|sitcom|series)\b/i;
+    const kindRank = r.filter((q) => kindRe.test(q));
+    const filmRank = r.filter((q) => filmRe.test(q));
+    if (kindRank[0]) picked.push(kindRank[0]);
+    for (const q of filmRank) {
+      if (picked.length >= 4) break;
+      if (!picked.includes(q)) picked.push(q);
+    }
+    for (const q of r) {
+      if (picked.length >= 4) break;
+      if (!picked.includes(q)) picked.push(q);
+    }
+  } else {
+    for (let i = 0; i < 4; i++) if (r[i]) picked.push(r[i]);
+  }
   if (o[0]) picked.push(o[0]);
   if (cat === "comedy") {
     const ban = " -dog -cat -puppy -kitten -animals -animal -pet -pets -cats -dogs";
