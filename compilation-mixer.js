@@ -45,14 +45,28 @@ function probeDurationSec(ffprobePath, ffmpegPath, filePath) {
   return new Promise((resolve) => {
     const bin = ffprobePath || 'ffprobe';
     const child = spawn(bin, [
-      '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', filePath
+      '-v', 'error',
+      '-show_entries', 'format=duration:stream=duration,codec_type',
+      '-of', 'json',
+      filePath
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout.on('data', (d) => { out += d.toString(); });
     child.on('error', () => resolve(null));
     child.on('close', () => {
-      const n = parseFloat(String(out).trim());
-      resolve(Number.isFinite(n) && n > 0 ? n : null);
+      let best = 0;
+      try {
+        const j = JSON.parse(out);
+        const formatDur = Number(j && j.format && j.format.duration);
+        if (Number.isFinite(formatDur) && formatDur > best) best = formatDur;
+        const streams = (j && j.streams) || [];
+        for (const s of streams) {
+          if (s && s.codec_type && s.codec_type !== 'video') continue;
+          const n = Number(s && s.duration);
+          if (Number.isFinite(n) && n > best) best = n;
+        }
+      } catch {}
+      resolve(best > 0 ? best : null);
     });
   });
 }
@@ -71,24 +85,25 @@ function vfNormalize() {
   return (
     `scale=${OUT_W}:${OUT_H}:force_original_aspect_ratio=decrease,` +
     `pad=${OUT_W}:${OUT_H}:(ow-iw)/2:(oh-ih)/2:color=black,` +
-    `fps=${OUT_FPS},setsar=1,format=yuv420p`
+    `fps=${OUT_FPS}:start_time=0:round=near,setpts=PTS-STARTPTS,setsar=1,format=yuv420p`
   );
 }
 
 async function writeSegment({ ffmpegPath, inFile, outFile, start, duration, hasAudio }) {
   const ss = Math.max(0, Number(start) || 0);
-  const dur = Math.max(0.08, Number(duration) || 0.08);
+  const hasDur = Number.isFinite(Number(duration)) && Number(duration) > 0;
+  const durText = hasDur ? Number(duration).toFixed(3) : '';
   const args = ['-y', '-i', inFile];
   if (!hasAudio) {
-    args.push('-f', 'lavfi', '-t', dur.toFixed(3), '-i', 'anullsrc=r=44100:cl=stereo');
+    args.push('-f', 'lavfi', '-t', hasDur ? durText : '3600', '-i', 'anullsrc=r=44100:cl=stereo');
   }
+  args.push('-ss', ss.toFixed(3));
+  if (hasDur) args.push('-t', durText);
   args.push(
-    '-ss', ss.toFixed(3),
-    '-t', dur.toFixed(3),
     '-vf', vfNormalize(),
     '-map', '0:v:0',
     '-map', hasAudio ? '0:a:0?' : '1:a:0',
-    '-af', `apad=whole_dur=${dur.toFixed(3)}`,
+    '-af', hasDur ? `asetpts=PTS-STARTPTS,apad=whole_dur=${durText}` : 'asetpts=PTS-STARTPTS',
     '-c:v', 'libx264',
     '-preset', 'veryfast',
     '-crf', '18',
@@ -98,6 +113,9 @@ async function writeSegment({ ffmpegPath, inFile, outFile, start, duration, hasA
     '-ar', '44100',
     '-ac', '2',
     '-b:a', '128k',
+    '-muxdelay', '0',
+    '-muxpreload', '0',
+    '-avoid_negative_ts', 'make_zero',
     outFile
   );
   await runFfmpeg(ffmpegPath, args);
@@ -121,19 +139,30 @@ function loadSnippetDeck(dir, files) {
   const names = files.map((p) => path.basename(p));
   const known = new Set(names);
   let remaining = [];
+  let seen = null;
   try {
     const parsed = JSON.parse(fs.readFileSync(snippetDeckPath(dir), 'utf8'));
     if (Array.isArray(parsed.remaining)) {
       remaining = parsed.remaining.filter((n) => known.has(n));
     }
+    if (Array.isArray(parsed.seen)) seen = parsed.seen.filter((n) => known.has(n));
   } catch {}
+  if (seen) {
+    const seenSet = new Set(seen);
+    const fresh = names.filter((n) => !seenSet.has(n) && !remaining.includes(n));
+    if (fresh.length) remaining = remaining.concat(shuffleInPlace(fresh));
+  }
   if (!remaining.length) remaining = shuffleInPlace(names.slice());
   return { remaining, names };
 }
 
 function saveSnippetDeck(dir, deck) {
   try {
-    fs.writeFileSync(snippetDeckPath(dir), JSON.stringify({ remaining: deck.remaining }), 'utf8');
+    fs.writeFileSync(
+      snippetDeckPath(dir),
+      JSON.stringify({ remaining: deck.remaining, seen: deck.names }),
+      'utf8'
+    );
   } catch {}
 }
 
@@ -252,16 +281,10 @@ async function mixCompilation({
           e.statusCode = 400;
           throw e;
         }
-        const snipDur = await probeDurationSec(ffprobePath, ffmpegPath, snip);
-        if (!(snipDur > 0.12)) {
-          const e = new Error(`Meme süresi okunamadı: ${path.basename(snip)}`);
-          e.statusCode = 400;
-          throw e;
-        }
+        let snipDur = await probeDurationSec(ffprobePath, ffmpegPath, snip);
         const memePath = path.join(tmpDir, `meme_${String(i).padStart(2, '0')}.mp4`);
         const snipAudio = await probeHasAudio(ffmpegPath, snip);
         const memeStart = cursorSec;
-        const memeEnd = cursorSec + snipDur;
         await writeSegment({
           ffmpegPath,
           inFile: snip,
@@ -270,6 +293,9 @@ async function mixCompilation({
           duration: snipDur,
           hasAudio: snipAudio
         });
+        if (!(snipDur > 0)) snipDur = await probeDurationSec(ffprobePath, ffmpegPath, memePath);
+        if (!(snipDur > 0)) snipDur = 0.04;
+        const memeEnd = cursorSec + snipDur;
         segFiles.push(memePath);
         usedMemes.push(snip);
         memeWindows.push({

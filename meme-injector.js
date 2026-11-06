@@ -190,19 +190,20 @@ async function writeNormalizedSegment({
   hasAudio
 }) {
   const ss = Math.max(0, Number(start) || 0);
-  const dur = Math.max(0.08, Number(duration) || 0.08);
-  // -ss girişten sonra: kesilen aralık kaymasın. Süre -t ile kopyalanır, setpts/atempo yok.
+  const hasDur = Number.isFinite(Number(duration)) && Number(duration) > 0;
+  const durText = hasDur ? Number(duration).toFixed(3) : '';
+  // Süre yoksa klibin tamamı konur. -ss girişten sonra: kesilen aralık kaymasın.
   const args = ['-y', '-i', inFile];
   if (!hasAudio) {
-    args.push('-f', 'lavfi', '-t', dur.toFixed(3), '-i', 'anullsrc=r=44100:cl=stereo');
+    args.push('-f', 'lavfi', '-t', hasDur ? durText : '3600', '-i', 'anullsrc=r=44100:cl=stereo');
   }
+  args.push('-ss', ss.toFixed(3));
+  if (hasDur) args.push('-t', durText);
   args.push(
-    '-ss', ss.toFixed(3),
-    '-t', dur.toFixed(3),
     '-vf', vfNormalize(),
     '-map', '0:v:0',
     '-map', hasAudio ? '0:a:0?' : '1:a:0',
-    '-af', `apad=whole_dur=${dur.toFixed(3)}`,
+    '-af', hasDur ? `asetpts=PTS-STARTPTS,apad=whole_dur=${durText}` : 'asetpts=PTS-STARTPTS',
     '-c:v', 'libx264',
     '-preset', 'veryfast',
     '-crf', '18',
@@ -310,12 +311,8 @@ async function injectMemes({
           throw e;
         }
         used.add(snip);
-        const snipDur = await probeDurationSec(ffprobePath, ffmpegPath, snip);
-        if (!(snipDur > 0.12)) {
-          const e = new Error(`Meme süresi okunamadı: ${path.basename(snip)}`);
-          e.statusCode = 400;
-          throw e;
-        }
+        let snipDur = await probeDurationSec(ffprobePath, ffmpegPath, snip);
+        if (!(snipDur > 0)) snipDur = null;
         const snipHasAudio = await probeHasAudio(ffmpegPath, snip);
         // Aralık tamamen atılır. Yerine klibin kendi süresi konur (sıkıştırma/uzatma yok).
         await writeNormalizedSegment({
@@ -326,9 +323,10 @@ async function injectMemes({
           duration: snipDur,
           hasAudio: snipHasAudio
         });
+        if (!(snipDur > 0)) snipDur = 0;
         snippetsUsed.push({
           file: path.basename(snip),
-          duration: Number(snipDur.toFixed(3)),
+          duration: Number(Number(snipDur).toFixed(3)),
           removedSec: Number(len.toFixed(3)),
           at: piece.start
         });
