@@ -1514,6 +1514,13 @@ function safeName(s) {
     .slice(0, 180) || 'video';
 }
 
+/** Dosya adı caption cümlesi ve hashtaglerdir. Ayrı açıklama dosyası yazılmaz. */
+function captionAsFileStem(raw) {
+  return String(raw || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function run(bin, args, { timeoutMs } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -2050,7 +2057,7 @@ app.post('/crush-compilation', async (req, res) => {
     });
 
     const mixDir = getMixDir();
-    const captionName = String(req.body?.caption_text ?? req.body?.manual_caption ?? '').replace(/\s+/g, ' ').trim();
+    const captionName = captionAsFileStem(req.body?.caption_text ?? req.body?.manual_caption ?? '');
     const base = captionName
       ? (safeName(captionName).replace(/[. ]+$/g, '') || `compilation_${Date.now()}`)
       : `compilation_${Date.now()}`;
@@ -2614,7 +2621,7 @@ app.post('/crush', async (req, res) => {
 
     // Caption kutusu doluysa dosya adı odur. Boşsa eski caption + hashtag adı kalır.
     const filenameBaseRaw = manualCaptionRaw
-      ? manualCaptionRaw
+      ? (captionAsFileStem(manualCaptionRaw) || manualCaptionRaw)
       : [finalCaption, (finalHashtags || []).join(' ')].filter(Boolean).join(' ').trim();
     const filenameBase = (safeName(filenameBaseRaw || `crushed_${brand}_9x16_${Date.now()}`).replace(/[. ]+$/g, '') || `crushed_${brand}_9x16_${Date.now()}`);
     const desired = path.join(brandDir, filenameBase.endsWith('.mp4') ? filenameBase : (filenameBase + '.mp4'));

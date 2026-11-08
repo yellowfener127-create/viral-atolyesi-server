@@ -2425,7 +2425,7 @@ function showMccTab(id) {
 
 const GEMINI_CHAT_MODEL = "gemini-3.6-flash";
 const GEMINI_STORY_SYSTEM = "You are a senior short-form story editor. The uploaded video is one compilation cut from TWO DIFFERENT ranking videos, not a single clip. Watch the file from the first moment to the last. Do not judge it from one frame or one freeze. Keep the two rankings separate. Write a beat sheet in order: who does what, what changes, and how each ranking pays off. Then one short paragraph on how the two rankings sit together as one video. No hook, no caption, no hashtags.";
-const GEMINI_HOOK_SYSTEM = "You are a professional retention writer for Reels, TikTok, and Shorts. These videos are compilations of TWO different ranking videos. You are given the full beat sheet of both rankings. Read that entire beat sheet before you write. The hook must come from the whole video, both rankings together, not from a single frame or a single clip. Write one hook that makes a stranger stop scrolling, and one caption that carries the story without spoiling the last beat.\n\nOutput exactly this shape and nothing else:\nHOOK:\n<one English line, under 12 words, no quotes, no hashtags>\nCAPTION:\n<one or two English sentences>\nHASHTAGS:\n#chaos #therapy #hope plus 2 or 3 topical tags\n\nEnglish only. One hook. One caption. No alternatives, no labels beyond those three.";
+const GEMINI_HOOK_SYSTEM = "You are a professional retention writer for Reels, TikTok, and Shorts. These videos are compilations of TWO different ranking videos. You are given the full beat sheet of both rankings. Read that entire beat sheet before you write. The hook must come from the whole video, both rankings together, not from a single frame or a single clip. It has to stop a stranger in the first 3 seconds.\n\nOutput exactly this shape and nothing else:\nHOOK:\n<one English line, 53 characters MAXIMUM including spaces and the emoji. Count every character. Include exactly one fitting emoji inside the line. No hashtags. No quotes.>\nCAPTION:\n<one or two English sentences that carry both rankings without spoiling the last beat. Include at least one fitting emoji. No hashtags in this block.>\nHASHTAGS:\n<exactly 5 hashtags, no more and no less: #chaos #therapy #hope plus exactly 2 topical tags>\n\nAlways use emojis. Never skip the emoji on the hook or the caption. English only. One hook. One caption. No alternatives.";
 const GEMINI_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
 let geminiChatHistory = [];
 let geminiChatVideoFile = null;
@@ -2679,7 +2679,7 @@ async function sendGeminiChat() {
         { role: "model", parts: [{ text: story || "No beat sheet." }] },
         {
           role: "user",
-          parts: [{ text: "Read that entire beat sheet. Write the hook from the whole video, both rankings, not from one moment. Use the HOOK / CAPTION / HASHTAGS format." }]
+          parts: [{ text: "Read that entire beat sheet. Write the hook from the whole video, both rankings, not from one moment. Hook is one line, 53 characters max including one emoji, strong enough to stop the scroll in 3 seconds. Caption includes an emoji. Hashtags are exactly 5: #chaos #therapy #hope and 2 topical tags. Use the HOOK / CAPTION / HASHTAGS format." }]
         }
       ]));
       setGeminiChatNotice("");
@@ -2767,10 +2767,33 @@ function geminiHashtagLine(raw) {
   return found[1].split("\n").map(geminiCleanLine).filter(Boolean).join(" ").trim();
 }
 
+function geminiClipChars(text, max) {
+  const chars = Array.from(String(text || "").replace(/\s+/g, " ").trim());
+  if (chars.length <= max) return chars.join("");
+  let cut = chars.slice(0, max).join("");
+  const sp = cut.lastIndexOf(" ");
+  if (sp >= Math.floor(max * 0.55)) cut = cut.slice(0, sp);
+  return cut.trim();
+}
+
+function geminiFiveTags(raw) {
+  const required = ["#chaos", "#therapy", "#hope"];
+  const found = String(raw || "").match(/#[^\s#]+/g) || [];
+  const seen = new Set(required.map(function (t) { return t.toLowerCase(); }));
+  const extra = [];
+  found.forEach(function (t) {
+    const key = String(t || "").toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    extra.push(t);
+  });
+  return required.concat(extra.slice(0, 2)).join(" ");
+}
+
 function geminiSplitCopy(raw) {
-  const hook = geminiLabeledBlock(raw, "Hook", "Caption|Hashtags?");
+  const hook = geminiClipChars(geminiLabeledBlock(raw, "Hook", "Caption|Hashtags?"), 53);
   const caption = geminiLabeledBlock(raw, "Caption", "Hashtags?");
-  const tags = geminiHashtagLine(raw);
+  const tags = geminiFiveTags(geminiHashtagLine(raw));
   if (!hook || !caption) return null;
   return { hook: hook, caption: caption, hashtags: tags };
 }
@@ -2781,12 +2804,12 @@ function pushGeminiCopyMessages(raw) {
     geminiChatHistory.push({ role: "model", text: String(raw || "").trim() || "(boş yanıt)" });
     return;
   }
-  const tagLine = split.hashtags ? split.hashtags : "#chaos #therapy #hope";
   geminiChatHistory.push({ role: "model", kind: "hook", text: split.hook });
   geminiChatHistory.push({
     role: "model",
     kind: "caption",
-    text: split.caption + "\n" + tagLine
+    text: split.caption + "\n" + split.hashtags,
+    fileName: (split.caption + " " + split.hashtags).trim()
   });
 }
 
@@ -2807,9 +2830,10 @@ function sendGeminiBubble(idx) {
   }
   if (m.kind === "caption") {
     const ta = document.getElementById("crushCaptionManual");
+    const fileName = String(m.fileName || text.split("\n")[0] || "").trim();
     showMccTab("hook");
     if (ta) {
-      ta.value = text;
+      ta.value = fileName;
       ta.dispatchEvent(new Event("input", { bubbles: true }));
       ta.focus();
     }
