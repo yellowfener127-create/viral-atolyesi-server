@@ -2719,28 +2719,39 @@ function geminiVideoAskParts(m, instruction) {
   return parts;
 }
 
+function geminiBusyError(msg, status) {
+  const s = String(msg || "");
+  return status === 429 || status === 503 || /high demand|try again later|unavailable|overloaded|resource exhausted/i.test(s);
+}
+
 async function geminiGenerate(key, systemText, contents) {
-  const res = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_CHAT_MODEL + ":generateContent",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": key
-      },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemText }] },
-        contents: contents
-      })
+  let lastMsg = "Gemini yanıt vermedi.";
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const res = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_CHAT_MODEL + ":generateContent",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": key
+        },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemText }] },
+          contents: contents
+        })
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+      return Array.isArray(parts) ? parts.filter((p) => p && !p.thought).map((p) => p.text || "").join("").trim() : "";
     }
-  );
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = (data && data.error && data.error.message) || ("HTTP " + res.status);
-    throw new Error(msg);
+    lastMsg = (data && data.error && data.error.message) || ("HTTP " + res.status);
+    if (!geminiBusyError(lastMsg, res.status) || attempt === 4) throw new Error(lastMsg);
+    setGeminiChatNotice("Gemini şu an yoğun. Aynı video ile yeniden deneniyor…");
+    await new Promise(function (resolve) { setTimeout(resolve, attempt * 3000); });
   }
-  const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
-  return Array.isArray(parts) ? parts.filter((p) => p && !p.thought).map((p) => p.text || "").join("").trim() : "";
+  throw new Error(lastMsg);
 }
 
 function geminiCleanLine(raw) {
