@@ -929,42 +929,33 @@ function buildManualBlurDelogoChain(inputLabel, rects, outW, outH, finalLabel) {
   ).slice(0, 10);
   if (!list.length) return { chain: '', outLabel: inputLabel };
 
-  const parts = [];
-  let cur = inputLabel;
-  list.forEach((r, i) => {
-    const W = Math.max(1, Math.round(Number(outW) || 1080));
-    const H = Math.max(1, Math.round(Number(outH) || 1920));
-
+  const W = Math.max(1, Math.round(Number(outW) || 1080));
+  const H = Math.max(1, Math.round(Number(outH) || 1920));
+  // Bu FFmpeg, delogo kutusunu init'te her yandan 1 px büyütür.
+  // x=0 veya x+w karenin sınırına değerse "Logo area is outside of the frame" olur.
+  const edge = 1;
+  const fitted = [];
+  for (const r of list) {
     let x = Math.round(r.x);
     let y = Math.round(r.y);
     let w = Math.round(r.w);
     let h = Math.round(r.h);
-
-    // delogo is strict: rectangle must be fully inside the frame.
-    // Keep a 1px inset from right/bottom borders (some FFmpeg builds are picky about edge touches).
-    x = Math.max(0, Math.min(Math.max(0, W - 9), x));
-    y = Math.max(0, Math.min(Math.max(0, H - 9), y));
-
-    let wClamp = Math.max(8, Math.min(Math.max(0, W - x - 1), w));
-    let hClamp = Math.max(8, Math.min(Math.max(0, H - y - 1), h));
-    w = wClamp;
-    h = hClamp;
-
-    // If sizing still overflows (stale rects / rounding), shrink position inward.
-    if (x + w >= W || y + h >= H) {
-      x = Math.max(0, Math.min(Math.max(0, W - w - 1), x));
-      y = Math.max(0, Math.min(Math.max(0, H - h - 1), y));
-    }
-
-    w -= w % 2;
-    h -= h % 2;
-    if (w < 8 || h < 8) return;
-    if (x < 0 || y < 0) return;
-    if (x + w >= W || y + h >= H) return;
-
-    const nextLab = i === list.length - 1 ? finalLabel : `dlb${i}`;
-    // Bazı Windows FFmpeg derlemelerinde delogo "band" seçeneği yok — sadece x,y,w,h (+ show).
-    parts.push(`[${cur}]delogo=x=${x}:y=${y}:w=${w}:h=${h}:show=0[${nextLab}]`);
+    x = Math.max(edge, Math.min(W - edge - 8, x));
+    y = Math.max(edge, Math.min(H - edge - 8, y));
+    w = Math.max(8, Math.min(W - edge - x, w));
+    h = Math.max(8, Math.min(H - edge - y, h));
+    if (w % 2) w -= 1;
+    if (h % 2) h -= 1;
+    if (w < 8 || h < 8) continue;
+    if (x < edge || y < edge) continue;
+    if (x + w > W - edge || y + h > H - edge) continue;
+    fitted.push({ x, y, w, h });
+  }
+  const parts = [];
+  let cur = inputLabel;
+  fitted.forEach((r, i) => {
+    const nextLab = i === fitted.length - 1 ? finalLabel : `dlb${i}`;
+    parts.push(`[${cur}]delogo=x=${r.x}:y=${r.y}:w=${r.w}:h=${r.h}:show=0[${nextLab}]`);
     cur = nextLab;
   });
   if (!parts.length) return { chain: '', outLabel: inputLabel };
