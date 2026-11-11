@@ -8,6 +8,7 @@ const path = require('path');
 const crypto = require('crypto');
 const crush = require('./crush-pipeline');
 const compilationMixer = require('./compilation-mixer');
+const voiceInjector = require('./voice-injector');
 const publishQueue = require('./publish-queue');
 
 const app = express();
@@ -19,6 +20,11 @@ const DEFAULT_DIR = path.join(process.env.USERPROFILE || process.cwd(), 'Videos'
 const DOWNLOAD_DIR = process.env.VA_DOWNLOAD_DIR || DEFAULT_DIR;
 function getMixDir() {
   const dir = process.env.VA_MIX_DIR || path.join(DOWNLOAD_DIR, 'mix');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+function getVoiceDir() {
+  const dir = process.env.VA_VOICE_DIR || path.join(DOWNLOAD_DIR, 'voice');
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -2085,6 +2091,151 @@ app.post('/crush-compilation', async (req, res) => {
       file: path.basename(outFile),
       absPath: outFile,
       mix: mixInfo
+    });
+  } catch (e) {
+    const code = e && e.statusCode ? e.statusCode : 500;
+    return res.status(code).json({ error: (e && e.message) ? e.message : String(e) });
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    release();
+  }
+});
+
+app.post('/voice-compilation', async (req, res) => {
+  const sources = compilationMixer.parseCompilationSources(req.body?.sources);
+  const sourceKeyOf = (s) => s.localPath
+    ? ('file:' + path.resolve(s.localPath).toLowerCase())
+    : ('url:' + String(s.url || '').toLowerCase());
+  const distinct = [...new Set(sources.map(sourceKeyOf))];
+  if (distinct.length < 2) {
+    return res.status(400).json({ error: 'Video A ve Video B ayrı kaynak olmalı. Her birinden en az bir parça seç.' });
+  }
+  const clipCount = sources.reduce((n, s) => n + s.parts.length, 0);
+  if (clipCount < 2) {
+    return res.status(400).json({ error: 'En az 2 parça seç.' });
+  }
+  const shuffle = req.body?.shuffle === true || req.body?.shuffle === '1' || req.body?.shuffle === 'true';
+  const hooks = Array.isArray(req.body?.hooks) ? req.body.hooks : [];
+  const needsDownload = sources.some((s) => s.url && !s.localPath);
+
+  const crushKey = `voice::${distinct.join('|')}`;
+  const now = Date.now();
+  const prev = __crushInProgress.get(crushKey);
+  if (prev && (now - prev) < 15 * 60 * 1000) {
+    return res.status(409).json({ error: 'Bu voice derleme zaten işleniyor.' });
+  }
+  __crushInProgress.set(crushKey, now);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    try { __crushInProgress.delete(crushKey); } catch {}
+  };
+  res.on('close', release);
+  res.on('finish', release);
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-voice-src-'));
+  try {
+    const hasYtDlp = needsDownload ? await existsOnPath('yt-dlp') : true;
+    const hasFfmpeg = await existsOnPath('ffmpeg');
+    const hasFfprobe = await existsOnPath('ffprobe');
+    if (needsDownload && !hasYtDlp) return res.status(500).json({ error: 'yt-dlp bulunamadı.' });
+    if (!hasFfmpeg || !hasFfprobe) return res.status(500).json({ error: 'ffmpeg/ffprobe bulunamadı.' });
+
+    const fileByUrl = new Map();
+    const fileForSource = [];
+    const videoExts = new Set(['.mp4', '.mov', '.webm', '.mkv', '.m4v']);
+    for (let i = 0; i < sources.length; i++) {
+      const src = sources[i];
+      if (src.localPath) {
+        const abs = path.resolve(src.localPath);
+        if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+          return res.status(400).json({ error: 'Yerel video bulunamadı.' });
+        }
+        if (!videoExts.has(path.extname(abs).toLowerCase())) {
+          return res.status(400).json({ error: 'Video dosyası seç (.mp4, .mov, .webm, .mkv).' });
+        }
+        fileForSource[i] = abs;
+        continue;
+      }
+      if (fileByUrl.has(src.url)) {
+        fileForSource[i] = fileByUrl.get(src.url);
+        continue;
+      }
+      const dur = await ytDlpGetDurationSec(src.url);
+      if (dur && dur > 180) {
+        return res.status(400).json({ error: `Kaynak çok uzun (${Math.round(dur)}s). Derleme için 3 dakikanın altını kullan.` });
+      }
+      const sub = path.join(tmpDir, `src_${i}`);
+      fs.mkdirSync(sub, { recursive: true });
+      const tpl = path.join(sub, 'in.%(ext)s');
+      const dlArgs = [
+        '--no-playlist', '--no-part', '--no-mtime',
+        ...YTDLP_NET_ARGS,
+        ...YTDLP_PLAYER_ARGS,
+        '--merge-output-format', 'mp4',
+        '-f', YTDLP_FAST_FORMAT,
+        '-o', tpl,
+        ...ytdlpCookieCliArgs(),
+        src.url
+      ];
+      await run(YTDLP_BIN, dlArgs, { timeoutMs: 4 * 60 * 1000 });
+      const file = pickNewestFile(sub);
+      if (!file) return res.status(500).json({ error: 'Bir kaynak indirilemedi.' });
+      fileByUrl.set(src.url, file);
+      fileForSource[i] = file;
+    }
+
+    const clips = [];
+    sources.forEach((s, si) => {
+      const file = fileForSource[si];
+      s.parts.forEach((p) => {
+        clips.push({
+          file,
+          start: p.start,
+          end: p.end,
+          label: `${s.localPath ? 'Dosya' : 'Link'} ${si + 1} ${p.start}-${p.end}`
+        });
+      });
+    });
+
+    const mixed = path.join(tmpDir, 'voiced.mp4');
+    const mixInfo = await voiceInjector.mixVoiceCompilation({
+      ffmpegPath: 'ffmpeg',
+      ffprobePath: 'ffprobe',
+      clips,
+      hooks,
+      shuffle,
+      outFile: mixed
+    });
+
+    const voiceDir = getVoiceDir();
+    const captionName = captionAsFileStem(req.body?.caption_text ?? req.body?.manual_caption ?? '');
+    const base = captionName
+      ? (safeName(captionName).replace(/[. ]+$/g, '') || `voice_${Date.now()}`)
+      : `voice_${Date.now()}`;
+    let outFile = path.join(voiceDir, base.endsWith('.mp4') ? base : (base + '.mp4'));
+    if (fs.existsSync(outFile)) {
+      const stem = base.replace(/\.mp4$/i, '');
+      outFile = path.join(voiceDir, safeName(stem).slice(0, 160) + `_${Date.now()}.mp4`);
+    }
+    fs.copyFileSync(mixed, outFile);
+    try {
+      fs.writeFileSync(
+        outFile + '.memes.json',
+        JSON.stringify({
+          memeWindows: (mixInfo.voiceWindows || []).map((w) => ({ start: w.start, end: w.end })),
+          voice: true
+        }),
+        'utf8'
+      );
+    } catch {}
+    return res.json({
+      ok: true,
+      savedTo: voiceDir,
+      file: path.basename(outFile),
+      absPath: outFile,
+      voice: mixInfo
     });
   } catch (e) {
     const code = e && e.statusCode ? e.statusCode : 500;

@@ -284,6 +284,7 @@
   <div class="nav">
     <button class="nav-btn active" data-page="main" onclick="showPage('main')">🏠 Ana Sayfa</button>
     <button class="nav-btn" data-page="mix" onclick="showPage('mix')">🎬 Mix &amp; Derleme</button>
+    <button class="nav-btn" data-page="voice" onclick="showPage('voice')">🎙️ Voice Enjektör</button>
     <button class="nav-btn" data-page="tools" onclick="showPage('tools')">🛠️ Araçlar</button>
   </div>
   <div class="day-badge" id="dayBadge">📅 <strong>—</strong></div>
@@ -416,6 +417,93 @@
     </label>
     <button class="tool-btn" type="button" id="compMixBtn" onclick="runCompilationMix()" style="margin-top:10px">Derlemeyi kaydet</button>
     <div class="tool-result" id="compMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
+  </div>
+</div>
+</div>
+
+<div class="page" id="page-voice">
+<div class="wrap">
+  <div style="margin-bottom:18px">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;margin-bottom:6px">Voice Enjektör</div>
+    <div style="font-size:13px;color:var(--muted)">Video A ve Video B. Parçayı sıraya ekle. Her geçişte 5-6 kelimelik kanca, renkli kartta sesle birlikte okunur. Ses bitince kart kaybolur ve video kaldığı yerden devam eder. Mix &amp; Derleme aynı şekilde meme kliplerini kullanmaya devam eder.</div>
+  </div>
+  <div class="mix-grid">
+    <section class="mix-slot">
+      <div class="tool-title">Video A</div>
+      <input class="tool-input" type="file" id="voiceFileA" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.mkv,.m4v" onchange="voiceOnFile('A', this)" />
+      <input class="tool-input" type="url" id="voiceUrlA" placeholder="veya YouTube linki" />
+      <button type="button" class="tool-btn" onclick="voiceLoadLink('A')">Linki oynat</button>
+      <div id="voiceSrcA" style="font-size:12px;color:var(--muted);margin:8px 0">Kaynak seçilmedi</div>
+      <video id="voiceVideoA" class="mix-player" controls playsinline></video>
+      <div id="voiceYtWrapA" class="mix-yt" hidden><div id="voiceYtA"></div></div>
+      <div class="mix-time" id="voiceTimeA">0:00.00 / —</div>
+      <input class="mix-scrub" id="voiceScrubA" type="range" min="0" max="1" step="0.01" value="0" oninput="voiceScrub('A', this)" />
+      <div class="mcc-row">
+        <button type="button" class="tool-btn" onclick="voiceNudge('A', -1)">−1s</button>
+        <button type="button" class="tool-btn" onclick="voiceNudge('A', -0.1)">−0.1s</button>
+        <button type="button" class="tool-btn" onclick="voiceNudge('A', 0.1)">+0.1s</button>
+        <button type="button" class="tool-btn" onclick="voiceNudge('A', 1)">+1s</button>
+      </div>
+      <div class="mcc-row">
+        <label style="font-size:11px;color:var(--muted)">Başlangıç
+          <input class="tool-input" id="voiceDraftStartA" type="number" min="0" step="0.01" value="0" />
+        </label>
+        <label style="font-size:11px;color:var(--muted)">Bitiş
+          <input class="tool-input" id="voiceDraftEndA" type="number" min="0" step="0.01" value="10" />
+        </label>
+      </div>
+      <div class="mcc-row">
+        <button type="button" class="tool-btn" onclick="voiceMark('A','start')">Şu an → başlangıç</button>
+        <button type="button" class="tool-btn" onclick="voiceMark('A','end')">Şu an → bitiş</button>
+        <button type="button" class="tool-btn" onclick="voicePreviewDraft('A')">Aralığı oynat</button>
+        <button type="button" class="tool-btn" onclick="voiceAddPart('A')">Parçayı sıraya ekle</button>
+      </div>
+    </section>
+    <section class="mix-slot">
+      <div class="tool-title">Video B</div>
+      <input class="tool-input" type="file" id="voiceFileB" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.mkv,.m4v" onchange="voiceOnFile('B', this)" />
+      <input class="tool-input" type="url" id="voiceUrlB" placeholder="veya YouTube linki" />
+      <button type="button" class="tool-btn" onclick="voiceLoadLink('B')">Linki oynat</button>
+      <div id="voiceSrcB" style="font-size:12px;color:var(--muted);margin:8px 0">Kaynak seçilmedi</div>
+      <video id="voiceVideoB" class="mix-player" controls playsinline></video>
+      <div id="voiceYtWrapB" class="mix-yt" hidden><div id="voiceYtB"></div></div>
+      <div class="mix-time" id="voiceTimeB">0:00.00 / —</div>
+      <input class="mix-scrub" id="voiceScrubB" type="range" min="0" max="1" step="0.01" value="0" oninput="voiceScrub('B', this)" />
+      <div class="mcc-row">
+        <button type="button" class="tool-btn" onclick="voiceNudge('B', -1)">−1s</button>
+        <button type="button" class="tool-btn" onclick="voiceNudge('B', -0.1)">−0.1s</button>
+        <button type="button" class="tool-btn" onclick="voiceNudge('B', 0.1)">+0.1s</button>
+        <button type="button" class="tool-btn" onclick="voiceNudge('B', 1)">+1s</button>
+      </div>
+      <div class="mcc-row">
+        <label style="font-size:11px;color:var(--muted)">Başlangıç
+          <input class="tool-input" id="voiceDraftStartB" type="number" min="0" step="0.01" value="0" />
+        </label>
+        <label style="font-size:11px;color:var(--muted)">Bitiş
+          <input class="tool-input" id="voiceDraftEndB" type="number" min="0" step="0.01" value="8" />
+        </label>
+      </div>
+      <div class="mcc-row">
+        <button type="button" class="tool-btn" onclick="voiceMark('B','start')">Şu an → başlangıç</button>
+        <button type="button" class="tool-btn" onclick="voiceMark('B','end')">Şu an → bitiş</button>
+        <button type="button" class="tool-btn" onclick="voicePreviewDraft('B')">Aralığı oynat</button>
+        <button type="button" class="tool-btn" onclick="voiceAddPart('B')">Parçayı sıraya ekle</button>
+      </div>
+    </section>
+  </div>
+  <div class="tool-card" style="max-width:920px">
+    <div class="tool-title">Parça sırası</div>
+    <div class="tool-desc">
+      Parçalar eklediğin sırayla birleşir. Her geçişin arasına pembe, sarı, camgöbeği gibi canlı bir kart girer. Ortadaki yazı ElevenLabs sesiyle aynı anda başlar ve ses bitince birlikte kaybolur. Anahtarı <code>.env</code> içindeki <code>ELEVENLABS_API_KEY</code> ve <code>ELEVENLABS_VOICE_ID</code> karşılar.
+      Çıktı: <code>C:\Users\DELL\Videos\Viral Atölyesi İndirilenler\voice\</code>
+    </div>
+    <div id="voiceTimeline"></div>
+    <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-top:10px">
+      <input type="checkbox" id="voiceShuffle" />
+      Kayıt sırasında sırayı karıştır
+    </label>
+    <button class="tool-btn" type="button" id="voiceMixBtn" onclick="runVoiceCompilation()" style="margin-top:10px">Voice derlemeyi kaydet</button>
+    <div class="tool-result" id="voiceMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
   </div>
 </div>
 </div>
@@ -2072,6 +2160,7 @@ window.onload = function() {
   try { refreshGeminiChatGate(); } catch (eGem) {}
   try { wireCrushManualBlurUi(); } catch (e4) {}
   try { initCompilationMixerUi(); } catch (e6) {}
+  try { initVoiceMixerUi(); } catch (e7) {}
 };
 
 const mixSlots = {
@@ -2421,6 +2510,302 @@ async function runCompilationMix() {
     if (msg) { msg.style.display = "block"; msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e)); }
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "Derlemeyi kaydet"; }
+  }
+}
+
+const VOICE_DEFAULTS = [
+  "Wait until you see this",
+  "Number three will shock you",
+  "Do not skip this one",
+  "The next one is worse",
+  "Watch what happens right now"
+];
+const voiceSlots = {
+  A: { file: null, uploadedPath: "", uploadedKey: "", mode: "", yt: null, objectUrl: "", stopAt: null, url: "" },
+  B: { file: null, uploadedPath: "", uploadedKey: "", mode: "", yt: null, objectUrl: "", stopAt: null, url: "" }
+};
+let voiceOrder = [];
+
+function voiceNow(slot) {
+  const s = voiceSlots[slot];
+  if (s.mode === "link" && s.yt && typeof s.yt.getCurrentTime === "function") {
+    try { return Number(s.yt.getCurrentTime()) || 0; } catch (e) { return 0; }
+  }
+  const v = document.getElementById("voiceVideo" + slot);
+  return v && Number.isFinite(v.currentTime) ? v.currentTime : 0;
+}
+function voiceDur(slot) {
+  const s = voiceSlots[slot];
+  if (s.mode === "link" && s.yt && typeof s.yt.getDuration === "function") {
+    try { const d = Number(s.yt.getDuration()); return Number.isFinite(d) ? d : 0; } catch (e) { return 0; }
+  }
+  const v = document.getElementById("voiceVideo" + slot);
+  return v && Number.isFinite(v.duration) ? v.duration : 0;
+}
+function voiceSeek(slot, t) {
+  const time = Math.max(0, Number(t) || 0);
+  const s = voiceSlots[slot];
+  if (s.mode === "link" && s.yt && typeof s.yt.seekTo === "function") { s.yt.seekTo(time, true); return; }
+  const v = document.getElementById("voiceVideo" + slot);
+  if (v) v.currentTime = time;
+}
+function voicePlay(slot) {
+  const s = voiceSlots[slot];
+  if (s.mode === "link" && s.yt && typeof s.yt.playVideo === "function") { s.yt.playVideo(); return; }
+  const v = document.getElementById("voiceVideo" + slot);
+  if (v) v.play();
+}
+function voicePause(slot) {
+  const s = voiceSlots[slot];
+  if (s.mode === "link" && s.yt && typeof s.yt.pauseVideo === "function") { s.yt.pauseVideo(); return; }
+  const v = document.getElementById("voiceVideo" + slot);
+  if (v) v.pause();
+}
+function voiceNudge(slot, delta) { voiceSeek(slot, voiceNow(slot) + Number(delta || 0)); }
+function voiceScrub(slot, el) { voiceSeek(slot, Number(el && el.value)); }
+function voiceMark(slot, which) {
+  const el = document.getElementById(which === "start" ? "voiceDraftStart" + slot : "voiceDraftEnd" + slot);
+  if (el) el.value = voiceNow(slot).toFixed(2);
+}
+function voiceDraft(slot) {
+  const a = Number(document.getElementById("voiceDraftStart" + slot).value);
+  const b = Number(document.getElementById("voiceDraftEnd" + slot).value);
+  return { start: a, end: b };
+}
+function voicePreviewDraft(slot) {
+  const d = voiceDraft(slot);
+  if (!Number.isFinite(d.start) || !Number.isFinite(d.end) || d.end <= d.start) {
+    alert("Başlangıç ve bitiş saniyesini seç.");
+    return;
+  }
+  voiceSlots[slot].stopAt = d.end;
+  voiceSeek(slot, d.start);
+  voicePlay(slot);
+}
+function voiceTick() {
+  ["A", "B"].forEach((slot) => {
+    const now = voiceNow(slot);
+    const dur = voiceDur(slot);
+    const lab = document.getElementById("voiceTime" + slot);
+    if (lab) lab.textContent = mixFmt(now) + " / " + (dur > 0 ? mixFmt(dur) : "—");
+    const scrub = document.getElementById("voiceScrub" + slot);
+    if (scrub && dur > 0 && document.activeElement !== scrub) {
+      scrub.max = String(dur);
+      scrub.value = String(Math.min(now, dur));
+    }
+    const s = voiceSlots[slot];
+    if (s.stopAt != null && now >= s.stopAt - 0.04) {
+      s.stopAt = null;
+      voicePause(slot);
+    }
+  });
+}
+function voiceHideYt(slot) {
+  const s = voiceSlots[slot];
+  if (s.yt && typeof s.yt.destroy === "function") { try { s.yt.destroy(); } catch (e) {} }
+  s.yt = null;
+  const wrap = document.getElementById("voiceYtWrap" + slot);
+  if (wrap) {
+    wrap.hidden = true;
+    wrap.innerHTML = '<div id="voiceYt' + slot + '"></div>';
+  }
+}
+function voiceOnFile(slot, input) {
+  const file = input && input.files && input.files[0];
+  if (!file) return;
+  const s = voiceSlots[slot];
+  s.file = file;
+  s.uploadedPath = "";
+  s.uploadedKey = "";
+  s.mode = "file";
+  s.stopAt = null;
+  voiceHideYt(slot);
+  const v = document.getElementById("voiceVideo" + slot);
+  if (s.objectUrl) { try { URL.revokeObjectURL(s.objectUrl); } catch (e) {} }
+  s.objectUrl = URL.createObjectURL(file);
+  if (v) { v.hidden = false; v.src = s.objectUrl; v.load(); }
+  const badge = document.getElementById("voiceSrc" + slot);
+  if (badge) badge.textContent = "Dosya: " + file.name;
+}
+async function voiceLoadLink(slot) {
+  const url = String((document.getElementById("voiceUrl" + slot) || {}).value || "").trim();
+  const id = youtubeIdFromUrl(url);
+  if (!id) { alert("YouTube linki okunamadı."); return; }
+  const s = voiceSlots[slot];
+  s.mode = "link";
+  s.url = url;
+  s.stopAt = null;
+  const v = document.getElementById("voiceVideo" + slot);
+  if (v) { try { v.pause(); } catch (e) {} v.hidden = true; v.removeAttribute("src"); try { v.load(); } catch (e2) {} }
+  const wrap = document.getElementById("voiceYtWrap" + slot);
+  if (wrap) { wrap.hidden = false; wrap.innerHTML = '<div id="voiceYt' + slot + '"></div>'; }
+  const badge = document.getElementById("voiceSrc" + slot);
+  if (badge) badge.textContent = "Link yükleniyor…";
+  try {
+    await loadYtApi();
+    s.yt = new YT.Player("voiceYt" + slot, {
+      videoId: id,
+      width: "100%",
+      height: "280",
+      playerVars: { rel: 0, modestbranding: 1 },
+      events: { onReady: () => { if (badge) badge.textContent = "Link hazır"; } }
+    });
+  } catch (e) {
+    if (badge) badge.textContent = "Oynatıcı açılamadı. Saniyeyi elle yaz; kayıt linkten iner.";
+  }
+}
+function voiceEsc(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+function voiceReadHooks() {
+  voiceOrder.forEach((p, i) => {
+    const el = document.getElementById("voiceHook" + i);
+    if (el) p.hook = el.value;
+  });
+}
+function renderVoiceTimeline() {
+  const host = document.getElementById("voiceTimeline");
+  if (!host) return;
+  if (!voiceOrder.length) {
+    host.innerHTML = '<div class="tool-desc">Henüz parça yok. Oynatıcıda başlangıç ve bitişi işaretleyip sıraya ekle.</div>';
+    return;
+  }
+  host.innerHTML = voiceOrder.map((p, i) => {
+    const len = (p.end - p.start).toFixed(2);
+    const hook = i < voiceOrder.length - 1
+      ? '<label style="display:block;margin-top:8px;font-size:11px;color:var(--muted)">Bu parçadan sonra okunacak cümle (5-6 kelime)' +
+        '<input class="tool-input" id="voiceHook' + i + '" value="' + voiceEsc(p.hook || "") + '" /></label>'
+      : "";
+    return '<div class="mix-part" style="flex-direction:column;align-items:stretch"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><span>' +
+      (i + 1) + ". Video " + p.slot + " · " + p.start.toFixed(2) + "–" + p.end.toFixed(2) + " sn (" + len + "s)</span>" +
+      '<span class="mcc-row" style="margin-top:0">' +
+      '<button type="button" class="tool-btn" onclick="voicePlaySaved(' + i + ')">Oynat</button>' +
+      '<button type="button" class="tool-btn" onclick="voiceMove(' + i + ',-1)">Yukarı</button>' +
+      '<button type="button" class="tool-btn" onclick="voiceMove(' + i + ',1)">Aşağı</button>' +
+      '<button type="button" class="tool-btn" onclick="voiceRemove(' + i + ')">Sil</button>' +
+      "</span></div>" + hook + "</div>";
+  }).join("");
+}
+function voiceAddPart(slot) {
+  const s = voiceSlots[slot];
+  if (s.mode !== "file" && s.mode !== "link") {
+    alert("Önce Video " + slot + " için dosya seç veya linki oynat.");
+    return;
+  }
+  const d = voiceDraft(slot);
+  if (!Number.isFinite(d.start) || !Number.isFinite(d.end) || d.end <= d.start) {
+    alert("Başlangıç ve bitiş saniyesini seç.");
+    return;
+  }
+  const len = d.end - d.start;
+  if (len < 0.4 || len > 30) {
+    alert("Parça 0.4 ile 30 saniye arasında olmalı.");
+    return;
+  }
+  if (voiceOrder.length >= 12) {
+    alert("En fazla 12 parça.");
+    return;
+  }
+  voiceReadHooks();
+  voiceOrder.push({
+    slot: slot,
+    start: Number(d.start.toFixed(3)),
+    end: Number(d.end.toFixed(3)),
+    hook: VOICE_DEFAULTS[voiceOrder.length % VOICE_DEFAULTS.length]
+  });
+  renderVoiceTimeline();
+}
+function voiceRemove(i) {
+  voiceReadHooks();
+  voiceOrder.splice(i, 1);
+  renderVoiceTimeline();
+}
+function voiceMove(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= voiceOrder.length) return;
+  voiceReadHooks();
+  const t = voiceOrder[i];
+  voiceOrder[i] = voiceOrder[j];
+  voiceOrder[j] = t;
+  renderVoiceTimeline();
+}
+function voicePlaySaved(i) {
+  const p = voiceOrder[i];
+  if (!p) return;
+  voiceSlots[p.slot].stopAt = p.end;
+  voiceSeek(p.slot, p.start);
+  voicePlay(p.slot);
+}
+function voiceWordCount(s) {
+  return String(s || "").trim().split(/\s+/).filter(Boolean).length;
+}
+function initVoiceMixerUi() {
+  renderVoiceTimeline();
+  if (!window.__voiceTick) window.__voiceTick = setInterval(voiceTick, 200);
+}
+async function runVoiceCompilation() {
+  const btn = document.getElementById("voiceMixBtn");
+  const msg = document.getElementById("voiceMsg");
+  voiceReadHooks();
+  const used = new Set(voiceOrder.map((p) => p.slot));
+  if (!used.has("A") || !used.has("B") || voiceOrder.length < 2) {
+    alert("Video A ve Video B'den en az birer parça ekle.");
+    return;
+  }
+  const hooks = voiceOrder.slice(0, -1).map((p) => String(p.hook || "").trim());
+  for (let i = 0; i < hooks.length; i++) {
+    const n = voiceWordCount(hooks[i]);
+    if (hooks[i] && (n < 5 || n > 6)) {
+      alert("Geçiş " + (i + 1) + " cümlesi 5 veya 6 kelime olmalı.");
+      return;
+    }
+  }
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Ses kartları hazırlanıyor…"; }
+  if (msg) { msg.style.display = "block"; msg.textContent = "Parçalar birleşiyor, ElevenLabs kancaları okunuyor…"; }
+  try {
+    const sources = [];
+    for (const p of voiceOrder) {
+      const s = voiceSlots[p.slot];
+      const part = { start: p.start, end: p.end };
+      if (s.mode === "file") {
+        if (!s.file) throw new Error("Video " + p.slot + " dosyası yok.");
+        const key = mixFileKey(s.file);
+        if (s.uploadedKey !== key || !s.uploadedPath) {
+          if (msg) msg.textContent = "Video " + p.slot + " yükleniyor…";
+          s.uploadedPath = await uploadMixSource(s.file);
+          s.uploadedKey = key;
+        }
+        sources.push({ local_path: s.uploadedPath, parts: [part] });
+      } else {
+        const url = String((document.getElementById("voiceUrl" + p.slot) || {}).value || s.url || "").trim();
+        if (!url) throw new Error("Video " + p.slot + " linki boş.");
+        sources.push({ url: url, parts: [part] });
+      }
+    }
+    const res = await fetch("http://127.0.0.1:8787/voice-compilation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sources: sources,
+        hooks: hooks,
+        shuffle: !!(document.getElementById("voiceShuffle") && document.getElementById("voiceShuffle").checked),
+        caption_text: (document.getElementById("crushCaptionManual") && String(document.getElementById("crushCaptionManual").value || "").trim()) || ""
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
+    const lines = (data.voice && data.voice.lines) ? data.voice.lines.join(" | ") : "";
+    if (msg) {
+      msg.style.display = "block";
+      msg.textContent =
+        "Kaydedildi: " + (data.absPath || ((data.savedTo || "") + "\\" + (data.file || ""))) +
+        "\nSüre: " + (data.voice && data.voice.durationOut != null ? data.voice.durationOut + "s" : "?") +
+        (lines ? ("\nKancalar: " + lines) : "");
+    }
+  } catch (e) {
+    if (msg) { msg.style.display = "block"; msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e)); }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Voice derlemeyi kaydet"; }
   }
 }
 
