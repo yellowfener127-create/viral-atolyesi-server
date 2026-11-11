@@ -8,6 +8,7 @@ const path = require('path');
 const crypto = require('crypto');
 const crush = require('./crush-pipeline');
 const compilationMixer = require('./compilation-mixer');
+const publishQueue = require('./publish-queue');
 
 const app = express();
 app.use(cors());
@@ -1888,6 +1889,10 @@ async function runYtDlpToResponse(res, url) {
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
+app.get('/publish/queue', (req, res) => {
+  res.json(publishQueue.snapshot());
+});
+
 app.get('/download', async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: 'url gerekli' });
@@ -2711,6 +2716,20 @@ app.post('/crush', async (req, res) => {
 
     const verify = await crush.selfCheckCrushOutput('ffmpeg', 'ffprobe', outFile);
 
+    let hookPublish = { ok: false, skipped: true, reason: 'Çıkış doğrulanamadı.' };
+    if (verify && verify.ok) {
+      try {
+        hookPublish = await publishQueue.finishHookedPublish({
+          videoPath: outFile,
+          hookText: hook && hook.text ? hook.text : '',
+          caption: filenameBaseRaw
+        });
+      } catch (hookErr) {
+        hookPublish = { ok: false, error: (hookErr && hookErr.message) ? hookErr.message : String(hookErr) };
+        console.warn('[hook-publish]', hookPublish.error);
+      }
+    }
+
     return res.json({
       ok: true,
       savedTo: brandDir,
@@ -2730,7 +2749,8 @@ app.post('/crush', async (req, res) => {
       musicHint:
         crush.listMusicFiles(crush.getCrushMusicDir(PUBLIC_DIR, brand)).length < 1
           ? 'BGM yok: public/audio/crush/<konsept>/ içine lisanslı .mp3/.m4a ekleyin (README).'
-          : null
+          : null,
+      hookPublish
     });
   } catch (e) {
     return res.status(500).json({ error: (e && e.message) ? e.message : String(e) });
@@ -2745,6 +2765,7 @@ if (require.main === module) {
     console.log(`Local Downloader running on http://127.0.0.1:${PORT}`);
     console.log('Download dir:', DOWNLOAD_DIR);
     console.log('yt-dlp:', YTDLP_BIN);
+    publishQueue.startScheduler();
   });
 }
 
