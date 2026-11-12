@@ -233,10 +233,11 @@ function pickPoolHook(name, used) {
 const VOICE_HOOK_SYSTEM = [
   'Sen kıdemli bir viral Shorts/Reels içerik üreticisisin ve izleyiciyi ilk 2 saniyede kilitleyen (hook) metinler yazıyorsun. Sana verilen bu kısa video klibini analiz et. Görevin, bu klip ekrana gelmeden HEMEN ÖNCE araya girecek renkli geçiş ekranında seslendirilecek bir kanca cümle üretmek.',
   'KURALLAR:',
-  "- Kesinlikle geçmiş zaman kullanma ('şunu izlediniz' gibi asla olmasın). İzleyiciyi videoya çekecek şekilde merak uyandırıcı, 'şuna hazır ol', 'bak şimdi ne olacak', 'şunu gördün mü' tarzı geleceğe yönelik veya anlık tetikleyici bir dil kullan.",
+  "- Kesinlikle geçmiş zaman kullanma ('you already watched this' gibi asla olmasın). İzleyiciyi videoya çekecek şekilde merak uyandırıcı, 'get ready for this', 'watch what happens next', 'wait until you see this' tarzı geleceğe yönelik veya anlık tetikleyici bir dil kullan.",
   '- Maksimum 6 kelime olsun.',
   '- Asla aynı kalıpları veya kelimeleri tekrarlama; çok yaratıcı, şaşırtıcı ve dinamik ol.',
-  '- Sadece saf metni döndür, başka hiçbir açıklama ekleme.'
+  '- Kancayı yalnızca İngilizce yaz. Türkçe kelime, ek veya cümle kullanma.',
+  '- Sadece saf İngilizce metni döndür, başka hiçbir açıklama ekleme.'
 ].join('\n');
 
 function voiceGeminiModel() {
@@ -311,11 +312,17 @@ function cleanModelHook(text) {
     .trim();
 }
 
+function isTurkishHook(line) {
+  const text = String(line || '');
+  if (/[ğüşıöçĞÜŞİÖÇ]/.test(text)) return true;
+  return /\b(ve|bir|bu|şu|icin|için|gibi|kadar|simdi|şimdi|bak|hazir|hazır|olacak|gordun|gördün|izle|izledin|degil|değil)\b/i.test(text);
+}
+
 function hookAsk(avoid, retry) {
   const banned = (avoid || []).map((line) => String(line || '').trim()).filter(Boolean).slice(0, 16);
-  const skip = banned.length ? ` Şu cümleleri tekrarlama: ${banned.join(' | ')}.` : '';
-  if (retry) return `Önceki cevap 5 veya 6 kelime değildi. Tam 5 veya 6 kelime yaz. Daha kısa olmasın. Sadece cümle.${skip}`;
-  return `Bu klibi analiz et. Tam 5 veya 6 kelime yaz. Daha kısa olmasın. Sadece cümle.${skip}`;
+  const skip = banned.length ? ` Do not repeat these lines: ${banned.join(' | ')}.` : '';
+  if (retry) return `The previous line was not English or was not 5 or 6 words. Write one English hook only. Exactly 5 or 6 words. No Turkish.${skip}`;
+  return `Watch this clip. Write one English hook only. Exactly 5 or 6 words. No Turkish. No explanation.${skip}`;
 }
 
 function visibleGeminiText(data) {
@@ -457,6 +464,10 @@ async function geminiHookFromClip(clipPath, apiKey, avoid) {
       }
       if (!line) {
         reason = 'Gemini boş cevap verdi.';
+        continue;
+      }
+      if (isTurkishHook(line)) {
+        reason = `Gemini Türkçe yazdı: "${line}"`;
         continue;
       }
       if (taken.has(line)) {
