@@ -251,6 +251,15 @@
   .tool-btn{width:100%;padding:12px;background:var(--accent);color:white;border:none;border-radius:9px;font-family:'Outfit',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:background 0.2s}
   .tool-btn:hover{background:#6a57f2}
   .tool-btn:disabled{opacity:0.5;cursor:not-allowed}
+  .gemini-key-list{display:flex;flex-direction:column;gap:8px;margin:4px 0 12px}
+  .gemini-key-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+  .gemini-key-row.active{border-color:#3dd68c;box-shadow:0 0 0 1px #3dd68c}
+  .gemini-key-meta{min-width:0}
+  .gemini-key-name{font-size:13px;font-weight:700}
+  .gemini-key-mask{font-size:12px;color:var(--muted);font-family:ui-monospace,Consolas,monospace;margin-top:2px}
+  .gemini-key-badge{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#143d2a;color:#7dffa8;font-size:11px;font-weight:700;vertical-align:middle}
+  .gemini-key-actions{display:flex;gap:6px;flex-shrink:0}
+  .gemini-key-actions .tool-btn{width:auto;padding:6px 10px;font-size:11px;margin:0}
   .tool-result{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin-top:12px;font-size:13px;line-height:1.7;display:none;white-space:pre-wrap;color:var(--text)}
   .tool-result.show{display:block}
   .tool-copy-btn{width:100%;padding:9px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-family:'Outfit',sans-serif;font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;margin-top:8px;transition:all 0.2s}
@@ -534,12 +543,14 @@
       </div>
 
     <div class="mcc-panel" id="mcc-gemini">
-      <div class="tool-title" style="font-size:16px">🧠 Gemini API Key</div>
-      <div class="tool-desc">Kaydedilen anahtar aşağıdaki sohbette gemini-3.6-flash modeline gider.</div>
-      <input class="tool-input" type="password" id="geminiInput" placeholder="AIzaSy... Gemini API key"/>
-      <button class="tool-btn" type="button" id="geminiSaveBtn" onclick="saveGeminiKey()">Kaydet</button>
+      <div class="tool-title" style="font-size:16px">🧠 Gemini API</div>
+      <div class="tool-desc">Birden fazla anahtar ekle. Sohbet ve Voice Enjektör yeşil rozetli olanı kullanır. Kota dolunca diğerine geç; sunucuyu yeniden başlatmana gerek yok.</div>
+      <input class="tool-input" id="geminiLabelInput" maxlength="40" placeholder="Etiket (Hesap 1, Yedek 2)" />
+      <input class="tool-input" type="password" id="geminiInput" placeholder="AIzaSy... Gemini API key" autocomplete="off" />
+      <button class="tool-btn" type="button" id="geminiSaveBtn" onclick="addGeminiKey()">Listeye Ekle / Kaydet</button>
+      <div id="geminiKeyList" class="gemini-key-list"></div>
       <div class="tool-result" id="geminiStatus" style="display:block;margin-top:10px;font-size:12px;color:var(--muted)"></div>
-      <div id="geminiChatMissing" class="tool-desc" style="margin-top:16px">Lütfen önce yukarıdaki alandan Gemini API Key'inizi kaydedin</div>
+      <div id="geminiChatMissing" class="tool-desc" style="margin-top:16px">Listeye bir anahtar ekle. Sohbet ve kanca üretimi aktif olanı kullanır.</div>
       <div id="geminiChat" class="gemini-chat" style="display:none">
         <div class="gemini-chat-log" id="geminiChatLog"></div>
         <div class="gemini-chat-notice" id="geminiChatNotice" style="display:none"></div>
@@ -2024,8 +2035,7 @@ async function crushVideo() {
   try {
     msg.style.display = "block";
     msg.textContent = "Telif Ezici hazırlanıyor…";
-    let gemini_api_key = "";
-    try { gemini_api_key = String(localStorage.getItem("gemini_api_key") || "").trim(); } catch(eKey) {}
+    let gemini_api_key = geminiKeySaved();
     // Force model per requirement (ignore localStorage override)
     const gemini_model = "gemini-2.0-flash";
     const localRes = await fetch("http://127.0.0.1:8787/crush", {
@@ -2146,19 +2156,7 @@ window.onload = function() {
     } else { setKeyStatus(false); }
   } catch(e) { setKeyStatus(false); }
 
-  try {
-    const g = localStorage.getItem("gemini_api_key");
-    const st = document.getElementById("geminiStatus");
-    if (g && g.length > 10) {
-      document.getElementById("geminiInput").value = g;
-      const b = document.getElementById("geminiSaveBtn");
-      b.textContent = "✓ Kaydedildi";
-      b.classList.add("saved");
-      if (st) st.textContent = "✅ Key kayıtlı. Sohbet gemini-3.6-flash kullanır.";
-    } else {
-      if (st) st.textContent = "";
-    }
-  } catch(e) {}
+  try { renderGeminiKeyList(); } catch(e) {}
   try { refreshGeminiChatGate(); } catch (eGem) {}
   try { wireCrushManualBlurUi(); } catch (e4) {}
   try { initCompilationMixerUi(); } catch (e6) {}
@@ -2711,7 +2709,7 @@ async function voiceRequestHook(slot, part) {
     .map(function (p) { return String(p.hook || "").trim(); })
     .filter(Boolean);
   const payload = { start: part.start, end: part.end, title: voiceSourceTitle(slot), avoid: avoid };
-  try { payload.gemini_api_key = String(localStorage.getItem("gemini_api_key") || "").trim(); } catch (eKey) {}
+  try { payload.gemini_api_key = geminiKeySaved(); } catch (eKey) {}
   if (s.mode === "file") {
     if (!s.file) throw new Error("Video dosyası yok.");
     const key = mixFileKey(s.file);
@@ -2916,7 +2914,7 @@ async function runVoiceCompilation() {
       }
     }
     let geminiKey = "";
-    try { geminiKey = String(localStorage.getItem("gemini_api_key") || "").trim(); } catch (eKey) {}
+    try { geminiKey = geminiKeySaved(); } catch (eKey) {}
     const res = await fetch("http://127.0.0.1:8787/voice-compilation", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2968,9 +2966,120 @@ let geminiChatVideoFile = null;
 let geminiChatVideoReady = null;
 let geminiVideoUiWired = false;
 
+function geminiMaskKey(key) {
+  const s = String(key || "");
+  if (s.length < 12) return "••••";
+  return s.slice(0, 7) + "..." + s.slice(-4);
+}
+function geminiEsc(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;");
+}
+function readGeminiPool() {
+  let pool = [];
+  try { pool = JSON.parse(localStorage.getItem("gemini_key_pool") || "[]"); } catch (e) { pool = []; }
+  if (!Array.isArray(pool)) pool = [];
+  pool = pool.filter(function (item) {
+    return item && item.id && String(item.key || "").trim().length > 10;
+  }).map(function (item) {
+    return { id: String(item.id), label: String(item.label || "").trim(), key: String(item.key).trim() };
+  });
+  let legacy = "";
+  try { legacy = String(localStorage.getItem("gemini_api_key") || "").trim(); } catch (e2) {}
+  if (legacy.length > 10 && !pool.some(function (item) { return item.key === legacy; })) {
+    pool.unshift({ id: "k" + Date.now(), label: pool.length ? "Eski anahtar" : "Hesap 1", key: legacy });
+  }
+  return pool;
+}
+function writeGeminiPool(pool, activeId) {
+  const list = pool || [];
+  const active = list.find(function (item) { return item.id === activeId; }) || list[0] || null;
+  try {
+    localStorage.setItem("gemini_key_pool", JSON.stringify(list));
+    if (active) {
+      localStorage.setItem("gemini_active_key_id", active.id);
+      localStorage.setItem("gemini_api_key", active.key);
+    } else {
+      localStorage.removeItem("gemini_active_key_id");
+      localStorage.removeItem("gemini_api_key");
+    }
+  } catch (e) {}
+  return active;
+}
+function renderGeminiKeyList() {
+  const host = document.getElementById("geminiKeyList");
+  if (!host) return;
+  const pool = readGeminiPool();
+  let activeId = "";
+  try { activeId = localStorage.getItem("gemini_active_key_id") || ""; } catch (e) {}
+  if (!pool.some(function (item) { return item.id === activeId; })) activeId = pool[0] ? pool[0].id : "";
+  writeGeminiPool(pool, activeId);
+  if (!pool.length) {
+    host.innerHTML = '<div class="tool-desc">Henüz anahtar yok.</div>';
+    return;
+  }
+  host.innerHTML = pool.map(function (item) {
+    const active = item.id === activeId;
+    const name = item.label || "Adsız hesap";
+    const useBtn = active ? "" : '<button type="button" class="tool-btn" onclick="activateGeminiKey(\'' + item.id + '\')">Aktif Yap / Kullan</button>';
+    return '<div class="gemini-key-row' + (active ? " active" : "") + '"><div class="gemini-key-meta"><div class="gemini-key-name">' +
+      geminiEsc(name) + (active ? '<span class="gemini-key-badge">Şu an bu API kullanılıyor</span>' : "") +
+      '</div><div class="gemini-key-mask">' + geminiEsc(geminiMaskKey(item.key)) + "</div></div><div class=\"gemini-key-actions\">" +
+      useBtn + '<button type="button" class="tool-btn" onclick="removeGeminiKey(\'' + item.id + '\')">Sil</button></div></div>';
+  }).join("");
+}
+function addGeminiKey() {
+  const input = document.getElementById("geminiInput");
+  const labelEl = document.getElementById("geminiLabelInput");
+  const st = document.getElementById("geminiStatus");
+  const key = String(input && input.value || "").trim();
+  if (key.length < 10) {
+    if (st) st.textContent = "Anahtar çok kısa.";
+    return;
+  }
+  const pool = readGeminiPool();
+  if (pool.some(function (item) { return item.key === key; })) {
+    if (st) st.textContent = "Bu anahtar zaten listede.";
+    return;
+  }
+  const label = String(labelEl && labelEl.value || "").trim() || ("Hesap " + (pool.length + 1));
+  const id = "k" + Date.now();
+  let activeId = "";
+  try { activeId = localStorage.getItem("gemini_active_key_id") || ""; } catch (e) {}
+  if (!pool.some(function (item) { return item.id === activeId; })) activeId = id;
+  pool.push({ id: id, label: label, key: key });
+  writeGeminiPool(pool, activeId);
+  if (input) input.value = "";
+  if (labelEl) labelEl.value = "";
+  renderGeminiKeyList();
+  if (st) st.textContent = activeId === id ? "Anahtar eklendi ve aktif edildi." : "Anahtar listeye eklendi.";
+  refreshGeminiChatGate();
+}
+function activateGeminiKey(id) {
+  const pool = readGeminiPool();
+  if (!pool.some(function (item) { return item.id === id; })) return;
+  writeGeminiPool(pool, id);
+  renderGeminiKeyList();
+  const st = document.getElementById("geminiStatus");
+  if (st) st.textContent = "Aktif anahtar değişti. Yeni istekler bunu kullanır.";
+  refreshGeminiChatGate();
+}
+function removeGeminiKey(id) {
+  const pool = readGeminiPool().filter(function (item) { return item.id !== id; });
+  let activeId = "";
+  try { activeId = localStorage.getItem("gemini_active_key_id") || ""; } catch (e) {}
+  if (activeId === id) activeId = pool[0] ? pool[0].id : "";
+  writeGeminiPool(pool, activeId);
+  renderGeminiKeyList();
+  const st = document.getElementById("geminiStatus");
+  if (st) st.textContent = pool.length ? "Anahtar silindi." : "Liste boş.";
+  refreshGeminiChatGate();
+}
 function geminiKeySaved() {
   try {
-    const g = String(localStorage.getItem("gemini_api_key") || "").trim();
+    const pool = readGeminiPool();
+    const activeId = localStorage.getItem("gemini_active_key_id") || "";
+    const active = pool.find(function (item) { return item.id === activeId; }) || pool[0];
+    const g = active ? active.key : "";
     return g.length > 10 ? g : "";
   } catch (e) {
     return "";
@@ -3388,23 +3497,7 @@ function sendGeminiBubble(idx) {
 }
 
 function saveGeminiKey() {
-  const v = (document.getElementById("geminiInput").value || "").trim();
-  const st = document.getElementById("geminiStatus");
-  if (!v || v.length < 10) {
-    try { localStorage.removeItem("gemini_api_key"); } catch(e) {}
-    const b = document.getElementById("geminiSaveBtn");
-    b.textContent = "Kaydet";
-    b.classList.remove("saved");
-    if (st) st.textContent = "Key temizlendi.";
-    refreshGeminiChatGate();
-    return;
-  }
-  try { localStorage.setItem("gemini_api_key", v); } catch(e) {}
-  const b = document.getElementById("geminiSaveBtn");
-  b.textContent = "✓ Kaydedildi";
-  b.classList.add("saved");
-  if (st) st.textContent = "✅ Key kaydedildi. Sohbet gemini-3.6-flash kullanır.";
-  refreshGeminiChatGate();
+  addGeminiKey();
 }
 
 function setKeyStatus(hasKey) {

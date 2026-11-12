@@ -431,6 +431,23 @@ function isTimeoutError(err) {
   return !!(err && (err.name === 'TimeoutError' || err.name === 'AbortError' || /aborted due to timeout|timed out/i.test(msg)));
 }
 
+function quotaReason(err) {
+  const msg = String((err && err.message) || '');
+  const limited = (err && err.statusCode === 429) || /quota|rate limit|free_tier|resource_exhausted/i.test(msg);
+  if (!limited) return '';
+  const wait = msg.match(/retry in\s+([0-9.]+)s/i);
+  const sec = wait ? Math.round(Number(wait[1])) : 0;
+  let when = '';
+  if (sec > 90) {
+    const hours = Math.floor(sec / 3600);
+    const mins = Math.round((sec % 3600) / 60);
+    when = hours > 0
+      ? ` Yaklaşık ${hours} saat ${mins} dakika sonra yeniden açılır.`
+      : ` Yaklaşık ${mins} dakika sonra yeniden açılır.`;
+  }
+  return `Gemini ücretsiz günlük hakkı doldu.${when}`;
+}
+
 async function askGeminiClip(key, media, avoid, retry) {
   const videoPart = media && media.inline
     ? { inlineData: { mimeType: 'video/mp4', data: media.inline }, videoMetadata: { fps: 2 } }
@@ -483,6 +500,8 @@ async function geminiHookFromClip(clipPath, apiKey, avoid) {
       try {
         raw = await askGeminiClip(key, media, avoid, retry);
       } catch (err) {
+        const quota = quotaReason(err);
+        if (quota) throw statusError(quota, 429);
         if (isTimeoutError(err)) {
           reason = 'Gemini yanıtı zaman aşımına uğradı.';
           continue;
