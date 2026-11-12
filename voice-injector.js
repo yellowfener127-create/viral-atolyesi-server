@@ -1,13 +1,14 @@
 /**
  * Voice Enjektör: her parçanın hemen önüne 5-6 kelimelik renkli kart koyar.
- * Kartın süresi ElevenLabs sesinin süresidir, 3 saniyeyi geçmez.
- * Ses bitince kart da biter ve parça başlar. Meme enjektörüne dokunmaz.
+ * Kartın süresi konuşmanın süresidir, 3 saniyeyi geçmez.
+ * İlk kelimeyle aynı anda açılır, kelime kelime gelir, ses bitince kart da biter.
+ * Meme enjektörüne dokunmaz.
  */
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { synthesizeHook, spokenHookText } = require('./elevenlabs-hook');
+const { synthesizeHookAligned, spokenHookText } = require('./elevenlabs-hook');
 
 const OUT_W = 1080;
 const OUT_H = 1920;
@@ -632,30 +633,73 @@ function splitHookLines(text) {
   return [words.slice(0, mid).join(' '), words.slice(mid).join(' ')];
 }
 
-function buildCardFilter(text, fg, fontFile) {
-  const lines = splitHookLines(text);
-  const size = lines.length > 1 ? 78 : 92;
-  const gap = Math.round(size * 0.28);
-  const block = lines.length * size + (lines.length - 1) * gap;
-  const top = Math.max(80, Math.round((OUT_H - block) / 2));
-  const font = fontFile
-    ? `:fontfile=${quoteDrawtext(fontFile.replace(/\\/g, '/'))}`
-    : ':font=Arial';
-  const draws = lines.map((line, i) => {
-    const y = top + i * (size + gap);
-    return (
-      `drawtext=${font}:text=${quoteDrawtext(line)}:fontsize=${size}` +
-      `:fontcolor=${fg}:borderw=12:bordercolor=0x000000` +
-      `:x=(w-text_w)/2:y=${y}:expansion=none`
-    );
+function evenWordCues(text, duration) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const dur = Math.max(0.2, Number(duration) || 1);
+  const slice = dur / Math.max(1, words.length);
+  return words.map((word, i) => ({
+    word,
+    start: Number((i * slice).toFixed(3)),
+    end: Number(Math.min(dur, (i + 1) * slice).toFixed(3))
+  }));
+}
+
+function displayCues(words, duration) {
+  const list = (words || []).filter((item) => item && item.word);
+  const dur = Math.max(0.2, Number(duration) || 0.2);
+  if (!list.length) return [];
+  return list.map((item, i) => {
+    const start = Math.max(0, Math.min(dur, Number(item.start) || 0));
+    const next = i < list.length - 1 ? Number(list[i + 1].start) : dur;
+    const end = Math.max(start + 0.04, Math.min(dur, Number.isFinite(next) ? next : dur));
+    return {
+      phrase: list.slice(0, i + 1).map((part) => part.word).join(' '),
+      start,
+      end: i === list.length - 1 ? dur : end
+    };
   });
-  const chain = draws.concat([
+}
+
+function buildKaraokeFilter(cues, duration, fontFile) {
+  const shown = displayCues(cues, duration);
+  const font = fontFile
+    ? `fontfile=${quoteDrawtext(fontFile.replace(/\\/g, '/'))}`
+    : 'font=Arial';
+  const draws = [];
+  for (const cue of shown) {
+    const lines = splitHookLines(cue.phrase);
+    const size = lines.length > 1 ? 72 : 88;
+    const gap = Math.round(size * 0.22);
+    const block = lines.length * size + (lines.length - 1) * gap;
+    const top = Math.max(80, Math.round((OUT_H - block) / 2));
+    const start = cue.start.toFixed(3);
+    const enable = `gte(t,${start})*lt(t,${cue.end.toFixed(3)})`;
+    const fade = `min(1,(t-${start})/0.045)`;
+    lines.forEach((line, i) => {
+      const base = top + i * (size + gap);
+      draws.push(
+        `drawtext=${font}:text=${quoteDrawtext(line.replace(/'/g, '\u2019'))}` +
+        `:fontsize=${size}` +
+        `:fontcolor=0xFFFFFF:borderw=5:bordercolor=0x000000` +
+        `:shadowx=2:shadowy=2:shadowcolor=0x000000` +
+        `:x=(w-text_w)/2:y='${base}-24*exp(-(t-${start})/0.07)'` +
+        `:alpha='${fade}'` +
+        `:expansion=none:enable='${enable}'`
+      );
+    });
+  }
+  return draws.concat([
     `fps=${OUT_FPS}:start_time=0:round=near`,
     'setpts=PTS-STARTPTS',
     'setsar=1',
     'format=yuv420p'
-  ]);
-  return chain.join(',');
+  ]).join(',');
+}
+
+function buildCardFilter(text, fg, fontFile, words, duration) {
+  const dur = Number(duration) > 0.2 ? Number(duration) : 2;
+  const cues = Array.isArray(words) && words.length ? words : evenWordCues(text, dur);
+  return buildKaraokeFilter(cues, dur, fontFile);
 }
 
 function vfNormalize() {
@@ -685,40 +729,60 @@ async function writeSegment({ ffmpegPath, inFile, outFile, start, duration, hasA
   await runFfmpeg(ffmpegPath, args);
 }
 
-async function fitVoiceAudio(ffmpegPath, ffprobePath, src, dest, rawDur) {
-  const plan = planCardDuration(rawDur);
-  if (plan.tempo === 1) {
-    await fs.promises.copyFile(src, dest);
-    return plan.duration;
-  }
+async function prepareSyncedVoice(ffmpegPath, ffprobePath, src, words, text, dest) {
+  const rawDur = await probeDurationSec(ffprobePath, src);
+  if (!(rawDur > 0.2)) throw statusError('Kanca sesinin süresi okunamadı.');
+  const spoken = (words && words.length) ? words : evenWordCues(text, rawDur);
+  const first = Math.max(0, Number(spoken[0].start) || 0);
+  const lead = Math.max(0, first - 0.02);
+  const lastEnd = Number(spoken[spoken.length - 1].end);
+  const tail = Math.min(rawDur, Math.max(lead + 0.2, (Number.isFinite(lastEnd) ? lastEnd : rawDur) + 0.04));
+  const span = Math.max(0.2, tail - lead);
+  const plan = planCardDuration(span);
+  const filters = [
+    `atrim=start=${lead.toFixed(3)}:end=${tail.toFixed(3)}`,
+    'asetpts=PTS-STARTPTS'
+  ];
+  if (plan.tempo !== 1) filters.push(atempoChain(plan.tempo));
+  filters.push('aresample=44100:first_pts=0');
   await runFfmpeg(ffmpegPath, [
     '-y', '-i', src,
-    '-af', atempoChain(plan.tempo),
+    '-af', filters.join(','),
     '-c:a', 'libmp3lame', '-b:a', '192k',
     dest
   ]);
   const fitted = await probeDurationSec(ffprobePath, dest);
-  if (!(fitted > 0.2)) return plan.duration;
-  return Math.min(MAX_CARD_SEC, fitted);
+  const duration = Math.min(MAX_CARD_SEC, fitted > 0.2 ? fitted : plan.duration);
+  const timeScale = plan.tempo === 1 ? 1 : (1 / plan.tempo);
+  const shifted = spoken.map((item) => ({
+    word: item.word,
+    start: Math.max(0, ((Number(item.start) || 0) - lead) * timeScale),
+    end: Math.max(0, ((Number(item.end) || 0) - lead) * timeScale)
+  }));
+  if (shifted.length) shifted[0].start = 0;
+  return { duration, words: shifted };
 }
 
-async function renderVoiceCard({ ffmpegPath, ffprobePath, audioFile, text, card, outFile }) {
+async function renderVoiceCard({ ffmpegPath, ffprobePath, audioFile, text, words, card, outFile }) {
   const font = pickFont();
   const dur = await probeDurationSec(ffprobePath, audioFile);
   if (!(dur > 0.2)) throw statusError('Renkli kartın sesi okunamadı.');
+  const cues = (words && words.length) ? words : evenWordCues(text, dur);
   const durText = dur.toFixed(3);
   await runFfmpeg(ffmpegPath, [
     '-y',
+    '-fflags', '+genpts',
     '-f', 'lavfi', '-t', durText, '-i', `color=c=${card.bg}:s=${OUT_W}x${OUT_H}:r=${OUT_FPS}`,
     '-i', audioFile,
-    '-vf', buildCardFilter(text, card.fg, font),
+    '-vf', buildKaraokeFilter(cues, dur, font),
     '-map', '0:v:0',
     '-map', '1:a:0',
-    '-af', `asetpts=PTS-STARTPTS,apad=whole_dur=${durText}`,
+    '-af', 'aresample=44100:first_pts=0,asetpts=PTS-STARTPTS',
     '-t', durText,
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', String(OUT_FPS),
     '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k',
     '-muxdelay', '0', '-muxpreload', '0', '-avoid_negative_ts', 'make_zero',
+    '-movflags', '+faststart',
     outFile
   ]);
   return dur;
@@ -771,15 +835,21 @@ async function mixVoiceCompilation({
       const clip = order[i];
       const len = Number(clip.end) - Number(clip.start);
       const text = lines[i];
-      let mp3 = '';
+      let voiced = null;
       try {
-        mp3 = await synthesizeHook({ text });
+        voiced = await synthesizeHookAligned({ text });
       } catch (err) {
         throw statusError(err && err.message ? err.message : 'ElevenLabs ses üretemedi.');
       }
-      const rawDur = await probeDurationSec(ffprobePath, mp3);
       const fitted = path.join(tmpDir, `voice_${String(i).padStart(2, '0')}.mp3`);
-      await fitVoiceAudio(ffmpegPath, ffprobePath, mp3, fitted, rawDur);
+      const synced = await prepareSyncedVoice(
+        ffmpegPath,
+        ffprobePath,
+        voiced.filePath,
+        voiced.words,
+        text,
+        fitted
+      );
       const cardPath = path.join(tmpDir, `card_${String(i).padStart(2, '0')}.mp4`);
       const cardStart = cursorSec;
       const cardDur = await renderVoiceCard({
@@ -787,11 +857,11 @@ async function mixVoiceCompilation({
         ffprobePath,
         audioFile: fitted,
         text,
+        words: synced.words,
         card: cardAt(i),
-        outFile: cardPath,
-        workDir: tmpDir
+        outFile: cardPath
       });
-      await fs.promises.unlink(mp3).catch(() => {});
+      await fs.promises.unlink(voiced.filePath).catch(() => {});
       const cardEnd = cursorSec + cardDur;
       segFiles.push(cardPath);
       voiceWindows.push({
@@ -859,7 +929,9 @@ module.exports = {
   atempoChain,
   buildCardFilter,
   renderVoiceCard,
-  fitVoiceAudio,
+  prepareSyncedVoice,
+  displayCues,
+  buildKaraokeFilter,
   HOOK_POOL,
   DEFAULT_LINES,
   VOICE_CARDS,

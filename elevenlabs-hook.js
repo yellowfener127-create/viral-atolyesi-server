@@ -119,11 +119,70 @@ async function readErrorBody(res) {
   return clipped || `HTTP ${res.status}`;
 }
 
+function wordsFromAlignment(text, alignment) {
+  const expected = spokenHookText(text).split(' ').filter(Boolean);
+  const chars = alignment && Array.isArray(alignment.characters) ? alignment.characters : [];
+  const starts = alignment && Array.isArray(alignment.character_start_times_seconds)
+    ? alignment.character_start_times_seconds
+    : [];
+  const ends = alignment && Array.isArray(alignment.character_end_times_seconds)
+    ? alignment.character_end_times_seconds
+    : [];
+  const timed = [];
+  let buf = '';
+  let wStart = null;
+  let wEnd = null;
+  for (let i = 0; i < chars.length; i++) {
+    const ch = String(chars[i] || '');
+    if (!ch || /\s/.test(ch)) {
+      if (buf) {
+        timed.push({ start: wStart, end: wEnd });
+        buf = '';
+        wStart = null;
+        wEnd = null;
+      }
+      continue;
+    }
+    const start = Number(starts[i]);
+    const end = Number(ends[i]);
+    if (wStart == null) wStart = Number.isFinite(start) ? start : 0;
+    wEnd = Number.isFinite(end) ? end : wStart;
+    buf += ch;
+  }
+  if (buf) timed.push({ start: wStart, end: wEnd });
+  if (!expected.length) return [];
+  if (timed.length === expected.length) {
+    return expected.map((word, i) => ({
+      word,
+      start: Math.max(0, Number(timed[i].start) || 0),
+      end: Math.max(0, Number(timed[i].end) || 0)
+    }));
+  }
+  if (!timed.length) return [];
+  const t0 = Math.max(0, Number(timed[0].start) || 0);
+  const t1 = Math.max(t0 + 0.2, Number(timed[timed.length - 1].end) || t0);
+  const span = t1 - t0;
+  return expected.map((word, i) => ({
+    word,
+    start: t0 + (span * i) / expected.length,
+    end: t0 + (span * (i + 1)) / expected.length
+  }));
+}
+
 /**
  * @param {string|{ text: string, voiceId?: string, outDir?: string, fileName?: string, modelId?: string }} input
  * @returns {Promise<string>} kaydedilen mp3'ün mutlak yolu
  */
 async function synthesizeHook(input) {
+  const aligned = await synthesizeHookAligned(input);
+  return aligned.filePath;
+}
+
+/**
+ * Sesle birlikte kelime zamanlarını döndürür. Zaman damgası gelmezse ses yine kaydedilir.
+ * @returns {Promise<{ filePath: string, words: { word: string, start: number, end: number }[] }>}
+ */
+async function synthesizeHookAligned(input) {
   const opts = typeof input === 'string' ? { text: input } : (input || {});
   try {
     const text = spokenHookText(opts.text);
@@ -140,14 +199,14 @@ async function synthesizeHook(input) {
     const outDir = resolveOutDir(opts.outDir);
     const fileName = opts.fileName ? safeFileName(opts.fileName) : uniqueFileName();
     const filePath = path.join(outDir, fileName);
-    const url = `${TTS_URL}/${encodeURIComponent(voiceId)}?output_format=${OUTPUT_FORMAT}`;
+    const url = `${TTS_URL}/${encodeURIComponent(voiceId)}/with-timestamps?output_format=${OUTPUT_FORMAT}`;
 
     const res = await fetch(url, {
       method: 'POST',
       headers: {
         'xi-api-key': apiKey,
         'Content-Type': 'application/json',
-        Accept: 'audio/mpeg'
+        Accept: 'application/json'
       },
       body: JSON.stringify({
         text,
@@ -162,14 +221,15 @@ async function synthesizeHook(input) {
       throw new ElevenLabsHookError(`ElevenLabs ${res.status}: ${detail}`, { status: res.status });
     }
 
-    const audio = Buffer.from(await res.arrayBuffer());
+    const data = await res.json();
+    const audio = Buffer.from(String(data.audio_base64 || ''), 'base64');
     if (audio.length < 64) {
       throw new ElevenLabsHookError('ElevenLabs boş bir ses dosyası döndürdü.');
     }
-
     await fs.promises.mkdir(outDir, { recursive: true });
     await fs.promises.writeFile(filePath, audio);
-    return filePath;
+    const alignment = data.normalized_alignment || data.alignment || null;
+    return { filePath, words: wordsFromAlignment(text, alignment) };
   } catch (err) {
     if (err instanceof ElevenLabsHookError) throw err;
     if (err && err.name === 'TimeoutError') {
@@ -181,6 +241,8 @@ async function synthesizeHook(input) {
 
 module.exports = {
   synthesizeHook,
+  synthesizeHookAligned,
+  wordsFromAlignment,
   spokenHookText,
   HOOK_VOICE_SETTINGS,
   ElevenLabsHookError
