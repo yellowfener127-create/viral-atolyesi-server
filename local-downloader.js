@@ -2185,17 +2185,22 @@ app.post('/voice-hook', async (req, res) => {
     await voiceInjector.extractAnalysisClip('ffmpeg', src, start, end, clip);
     let hook = '';
     let source = 'gemini';
+    let reason = '';
     try {
       hook = await voiceInjector.geminiHookFromClip(clip, key, avoid);
     } catch (err) {
-      const code = err && err.statusCode ? err.statusCode : 502;
-      return res.status(code).json({ error: (err && err.message) ? err.message : 'Gemini kesiti izleyemedi.' });
+      if (err && err.statusCode === 401) {
+        return res.status(401).json({ error: err.message || 'Gemini API anahtarı yok.' });
+      }
+      reason = (err && err.message) ? err.message : 'Gemini kesiti izleyemedi.';
+      hook = '';
     }
     if (!hook) {
       hook = voiceInjector.pickPoolHook(title || path.basename(src), new Set(avoid));
       source = 'pool';
+      console.warn('[voice-hook] ' + reason);
     }
-    return res.json({ ok: true, hook, source });
+    return res.json({ ok: true, hook, source, reason });
   } catch (e) {
     const code = e && e.statusCode ? e.statusCode : 500;
     return res.status(code).json({ error: (e && e.message) ? e.message : String(e) });

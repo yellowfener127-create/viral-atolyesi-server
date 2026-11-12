@@ -2769,7 +2769,7 @@ function voiceAddPart(slot) {
     current.hookLock = false;
     current.hookNote = data.source === "gemini"
       ? "Kesitten yazıldı. İstersen değiştir."
-      : "Gemini cümleyi kuramadı, havuzdan seçildi. İstersen değiştir.";
+      : ((data.reason ? data.reason + " " : "Gemini cümleyi kuramadı. ") + "Havuzdan seçildi. İstersen değiştir.");
     renderVoiceTimeline();
   }).catch(function (e) {
     voiceReadHooks();

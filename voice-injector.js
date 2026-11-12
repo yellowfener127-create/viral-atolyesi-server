@@ -314,8 +314,21 @@ function cleanModelHook(text) {
 function hookAsk(avoid, retry) {
   const banned = (avoid || []).map((line) => String(line || '').trim()).filter(Boolean).slice(0, 16);
   const skip = banned.length ? ` Şu cümleleri tekrarlama: ${banned.join(' | ')}.` : '';
-  if (retry) return `Önceki cevap 5 veya 6 kelime değildi. Tam 5 veya 6 kelime yaz. Sadece cümle.${skip}`;
-  return `Bu klibi analiz et.${skip}`;
+  if (retry) return `Önceki cevap 5 veya 6 kelime değildi. Tam 5 veya 6 kelime yaz. Daha kısa olmasın. Sadece cümle.${skip}`;
+  return `Bu klibi analiz et. Tam 5 veya 6 kelime yaz. Daha kısa olmasın. Sadece cümle.${skip}`;
+}
+
+function visibleGeminiText(data) {
+  const parts = data
+    && data.candidates
+    && data.candidates[0]
+    && data.candidates[0].content
+    && data.candidates[0].content.parts;
+  if (!Array.isArray(parts)) return '';
+  return parts
+    .filter((part) => part && part.text && !part.thought)
+    .map((part) => part.text)
+    .join('\n');
 }
 
 async function geminiUploadClip(key, filePath) {
@@ -404,7 +417,7 @@ async function askGeminiClip(key, file, avoid, retry) {
             { text: hookAsk(avoid, retry) }
           ]
         }],
-        generationConfig: { temperature: retry ? 1 : 0.95, maxOutputTokens: 48 }
+        generationConfig: { temperature: retry ? 1 : 0.95, maxOutputTokens: 1024 }
       }),
       signal: AbortSignal.timeout(45000)
     }
@@ -414,14 +427,7 @@ async function askGeminiClip(key, file, avoid, retry) {
     const msg = data && data.error && data.error.message;
     throw statusError(msg || 'Gemini kanca yazamadı.', res.status || 502);
   }
-  const text = data
-    && data.candidates
-    && data.candidates[0]
-    && data.candidates[0].content
-    && Array.isArray(data.candidates[0].content.parts)
-    ? data.candidates[0].content.parts.map((part) => part.text || '').join('\n')
-    : '';
-  return cleanModelHook(text);
+  return cleanModelHook(visibleGeminiText(data));
 }
 
 async function geminiHookFromClip(clipPath, apiKey, avoid) {
@@ -430,14 +436,36 @@ async function geminiHookFromClip(clipPath, apiKey, avoid) {
   if (!clipPath || !fs.existsSync(clipPath)) throw statusError('Analiz klibi yok.');
   const taken = new Set((avoid || []).map((line) => String(line || '').trim()).filter(Boolean));
   const uploaded = await geminiUploadClip(key, clipPath);
+  let reason = 'Gemini 5 veya 6 kelimelik cümle döndürmedi.';
   try {
-    let line = '';
-    try { line = normalizeHookLine(await askGeminiClip(key, uploaded, avoid, false)); } catch { line = ''; }
-    if (!line || taken.has(line)) {
-      try { line = normalizeHookLine(await askGeminiClip(key, uploaded, avoid, true)); } catch { line = ''; }
+    for (const retry of [false, true]) {
+      let raw = '';
+      try {
+        raw = await askGeminiClip(key, uploaded, avoid, retry);
+      } catch (err) {
+        throw err;
+      }
+      let line = '';
+      try {
+        line = normalizeHookLine(raw);
+      } catch (err) {
+        const heard = cleanModelHook(raw).slice(0, 80);
+        reason = heard
+          ? `Gemini'nin cümlesi 5 veya 6 kelime değildi: "${heard}"`
+          : 'Gemini boş cevap verdi.';
+        continue;
+      }
+      if (!line) {
+        reason = 'Gemini boş cevap verdi.';
+        continue;
+      }
+      if (taken.has(line)) {
+        reason = 'Gemini önceki cümleyi tekrar etti.';
+        continue;
+      }
+      return line;
     }
-    if (!line || taken.has(line)) return '';
-    return line;
+    throw statusError(reason);
   } finally {
     await geminiDeleteFile(key, uploaded.name);
   }
