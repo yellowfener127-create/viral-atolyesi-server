@@ -584,13 +584,14 @@ function atempoChain(ratio) {
   return parts.join(',');
 }
 
-function escapeDrawtext(text) {
-  return String(text || '')
+function quoteDrawtext(value) {
+  const body = String(value)
     .replace(/\\/g, '\\\\')
     .replace(/:/g, '\\:')
-    .replace(/'/g, "\\'")
     .replace(/%/g, '\\%')
-    .replace(/,/g, '\\,');
+    .replace(/,/g, '\\,')
+    .replace(/'/g, `'\\''`);
+  return `'${body}'`;
 }
 
 function pickFont() {
@@ -619,17 +620,23 @@ function buildCardFilter(text, fg, fontFile) {
   const block = lines.length * size + (lines.length - 1) * gap;
   const top = Math.max(80, Math.round((OUT_H - block) / 2));
   const font = fontFile
-    ? `:fontfile='${escapeDrawtext(fontFile.replace(/\\/g, '/'))}'`
+    ? `:fontfile=${quoteDrawtext(fontFile.replace(/\\/g, '/'))}`
     : ':font=Arial';
   const draws = lines.map((line, i) => {
     const y = top + i * (size + gap);
     return (
-      `drawtext=${font}:text='${escapeDrawtext(line)}':fontsize=${size}` +
+      `drawtext=${font}:text=${quoteDrawtext(line)}:fontsize=${size}` +
       `:fontcolor=${fg}:borderw=12:bordercolor=0x000000` +
       `:x=(w-text_w)/2:y=${y}:expansion=none`
     );
   });
-  return `${draws.join(',')},fps=${OUT_FPS}:start_time=0:round=near,setpts=PTS-STARTPTS,setsar=1,format=yuv420p`;
+  const chain = draws.concat([
+    `fps=${OUT_FPS}:start_time=0:round=near`,
+    'setpts=PTS-STARTPTS',
+    'setsar=1',
+    'format=yuv420p'
+  ]);
+  return chain.join(',');
 }
 
 function vfNormalize() {
@@ -676,10 +683,8 @@ async function fitVoiceAudio(ffmpegPath, ffprobePath, src, dest, rawDur) {
   return Math.min(MAX_CARD_SEC, fitted);
 }
 
-async function renderVoiceCard({ ffmpegPath, ffprobePath, audioFile, text, card, outFile, workDir }) {
+async function renderVoiceCard({ ffmpegPath, ffprobePath, audioFile, text, card, outFile }) {
   const font = pickFont();
-  const filterPath = path.join(workDir, `card_vf_${path.basename(outFile, '.mp4')}.txt`);
-  await fs.promises.writeFile(filterPath, buildCardFilter(text, card.fg, font), 'utf8');
   const dur = await probeDurationSec(ffprobePath, audioFile);
   if (!(dur > 0.2)) throw statusError('Renkli kartın sesi okunamadı.');
   const durText = dur.toFixed(3);
@@ -687,7 +692,7 @@ async function renderVoiceCard({ ffmpegPath, ffprobePath, audioFile, text, card,
     '-y',
     '-f', 'lavfi', '-t', durText, '-i', `color=c=${card.bg}:s=${OUT_W}x${OUT_H}:r=${OUT_FPS}`,
     '-i', audioFile,
-    '-filter_script:v', filterPath,
+    '-vf', buildCardFilter(text, card.fg, font),
     '-map', '0:v:0',
     '-map', '1:a:0',
     '-af', `asetpts=PTS-STARTPTS,apad=whole_dur=${durText}`,
