@@ -351,7 +351,7 @@ async function geminiUploadClip(key, filePath) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ file: { display_name: 'voice-hook-clip' } }),
-    signal: AbortSignal.timeout(20000)
+    signal: AbortSignal.timeout(45000)
   });
   const startData = await startRes.json().catch(() => ({}));
   if (!startRes.ok) {
@@ -369,7 +369,7 @@ async function geminiUploadClip(key, filePath) {
       'X-Goog-Upload-Command': 'upload, finalize'
     },
     body: bytes,
-    signal: AbortSignal.timeout(60000)
+    signal: AbortSignal.timeout(90000)
   });
   const uploaded = await put.json().catch(() => ({}));
   if (!put.ok) {
@@ -383,7 +383,7 @@ async function geminiUploadClip(key, filePath) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const poll = await fetch(`https://generativelanguage.googleapis.com/v1beta/${name}`, {
       headers: { 'x-goog-api-key': key },
-      signal: AbortSignal.timeout(15000)
+      signal: AbortSignal.timeout(30000)
     });
     const pdata = await poll.json().catch(() => ({}));
     if (!poll.ok) {
@@ -409,7 +409,15 @@ async function geminiDeleteFile(key, name) {
   } catch {}
 }
 
-async function askGeminiClip(key, file, avoid, retry) {
+function isTimeoutError(err) {
+  const msg = String((err && err.message) || '');
+  return !!(err && (err.name === 'TimeoutError' || err.name === 'AbortError' || /aborted due to timeout|timed out/i.test(msg)));
+}
+
+async function askGeminiClip(key, media, avoid, retry) {
+  const videoPart = media && media.inline
+    ? { inlineData: { mimeType: 'video/mp4', data: media.inline } }
+    : { fileData: { mimeType: media.mime, fileUri: media.uri } };
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(voiceGeminiModel())}:generateContent?key=${encodeURIComponent(key)}`,
     {
@@ -420,13 +428,13 @@ async function askGeminiClip(key, file, avoid, retry) {
         contents: [{
           role: 'user',
           parts: [
-            { fileData: { mimeType: file.mime, fileUri: file.uri } },
+            videoPart,
             { text: hookAsk(avoid, retry) }
           ]
         }],
-        generationConfig: { temperature: retry ? 1 : 0.95, maxOutputTokens: 1024 }
+        generationConfig: { temperature: retry ? 1 : 0.95, maxOutputTokens: 256 }
       }),
-      signal: AbortSignal.timeout(45000)
+      signal: AbortSignal.timeout(120000)
     }
   );
   const data = await res.json().catch(() => ({}));
@@ -442,14 +450,26 @@ async function geminiHookFromClip(clipPath, apiKey, avoid) {
   if (!key) throw statusError('Gemini API anahtarı yok.', 401);
   if (!clipPath || !fs.existsSync(clipPath)) throw statusError('Analiz klibi yok.');
   const taken = new Set((avoid || []).map((line) => String(line || '').trim()).filter(Boolean));
-  const uploaded = await geminiUploadClip(key, clipPath);
+  const clipSize = fs.statSync(clipPath).size;
+  let uploaded = null;
+  let media;
+  if (clipSize > 0 && clipSize <= 8 * 1024 * 1024) {
+    media = { inline: (await fs.promises.readFile(clipPath)).toString('base64') };
+  } else {
+    uploaded = await geminiUploadClip(key, clipPath);
+    media = uploaded;
+  }
   let reason = 'Gemini 5 veya 6 kelimelik cümle döndürmedi.';
   try {
     for (const retry of [false, true]) {
       let raw = '';
       try {
-        raw = await askGeminiClip(key, uploaded, avoid, retry);
+        raw = await askGeminiClip(key, media, avoid, retry);
       } catch (err) {
+        if (isTimeoutError(err)) {
+          reason = 'Gemini yanıtı zaman aşımına uğradı.';
+          continue;
+        }
         throw err;
       }
       let line = '';
@@ -478,7 +498,7 @@ async function geminiHookFromClip(clipPath, apiKey, avoid) {
     }
     throw statusError(reason);
   } finally {
-    await geminiDeleteFile(key, uploaded.name);
+    if (uploaded) await geminiDeleteFile(key, uploaded.name);
   }
 }
 
