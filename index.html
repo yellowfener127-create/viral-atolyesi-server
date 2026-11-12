@@ -663,7 +663,7 @@
     <div class="mcc-renderbar">
       <div class="tool-desc" style="margin-bottom:8px">
         Seçilen yerel dosyaya Telif Ezici uygulanır: 1080×1920, mikro kırpma, renk, grain, hız, metadata, hook, blur ve kaydırma. YouTube indirmez.
-      </div>
+  </div>
       <button class="tool-btn mcc-primary" type="button" id="crushBtn" onclick="crushVideo()">🚀 Tüm Ayarları Birleştir &amp; Render Al (9:16)</button>
       <div class="tool-result" id="crushMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted)"></div>
       <div class="tool-result" id="crushCaptionBox" style="display:none;margin-top:10px"></div>
@@ -4016,9 +4016,9 @@ function copyLink(btn, url) {
 
 async function startDownload(url, btn) {
   const prev = btn ? btn.textContent : "";
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "⏳ İndiriliyor...";
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "⏳ İndiriliyor...";
   }
   try {
     // Tercih: Kullanıcının kendi bilgisayarından indirme (localhost helper).
@@ -4345,15 +4345,15 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
   outer: for (const q of queries) {
     let pageToken = "";
     for (let page = 0; page < maxPagesPerQuery; page++) {
-      try {
+    try {
         const tokenPart = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "";
         const regionPart = "&relevanceLanguage=en&regionCode=US";
         const qSearch = q.includes("-türkçe") ? q : (q + " " + TR_QUERY_BAN);
-        const sRes = await fetch(
+      const sRes = await fetch(
           backendUrl(`/youtube/search?part=snippet&q=${encodeURIComponent(qSearch)}&type=video&videoDuration=short&order=${order}&maxResults=50&key=${encodeURIComponent(savedKey)}${regionPart}${afterParam}${tokenPart}`),
           { cache: "no-store" }
-        );
-        const sData = await sRes.json();
+      );
+      const sData = await sRes.json();
         if (sData.error) {
           showError(youtubeApiUserMessage(sData.error));
           return [];
@@ -4369,11 +4369,11 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
           continue;
         }
 
-        const vRes = await fetch(
+      const vRes = await fetch(
           backendUrl(`/youtube/videos?part=statistics,snippet,contentDetails&id=${encodeURIComponent(ids)}&key=${encodeURIComponent(savedKey)}`),
           { cache: "no-store" }
-        );
-        const vData = await vRes.json();
+      );
+      const vData = await vRes.json();
         if (vData.error) {
           showError(youtubeApiUserMessage(vData.error));
           return [];
@@ -4383,26 +4383,26 @@ async function fetchVideos(queries, afterParam, minDur, maxDur, seenType, variet
           if (isYoutubeAgeRestrictedItem(item)) continue;
           const views = parseInt(item.statistics.viewCount || 0);
           const likes = parseInt(item.statistics.likeCount || 0);
-          const title = item.snippet.title;
-          const channel = item.snippet.channelTitle;
-          const channelId = item.snippet.channelId;
+        const title = item.snippet.title;
+        const channel = item.snippet.channelTitle;
+        const channelId = item.snippet.channelId;
           const description = item.snippet.description || "";
-          const duration = parseDuration(item.contentDetails?.duration || "PT0S");
+        const duration = parseDuration(item.contentDetails?.duration || "PT0S");
 
-          if (views < 100000) continue;
-          if (duration < minDur || duration > maxDur) continue;
+        if (views < 100000) continue;
+        if (duration < minDur || duration > maxDur) continue;
           if (seenSet.has(String(item.id))) continue;
-          if (isBlocked(title, channel)) continue;
+        if (isBlocked(title, channel)) continue;
           if (isTurkishContent(title, channel, description, item)) continue;
           if (isBlockedRegionContent(title, channel, description)) continue;
           if (isBlockedReactionContent(title, channel, description)) continue;
           if (activeCat === "comedy" && isComedyAnimalHeavy(title, channel)) continue;
-          rawItems.push({
+        rawItems.push({
             id: item.id,
             title,
             channel,
             channelId,
-            thumb: item.snippet.thumbnails?.medium?.url || "",
+          thumb: item.snippet.thumbnails?.medium?.url || "",
             views,
             likes,
             duration,
@@ -4460,7 +4460,7 @@ async function doSearch() {
       setResults(fresh, { fromCache: true, seenType: "main" });
       btn0.textContent = "🔍 Videoları Getir";
       btn0.disabled = false;
-      return;
+    return;
     }
   }
 
@@ -4472,11 +4472,11 @@ async function doSearch() {
   try {
     searchQueryVersion++;
     const queries = getTodayQueries(activeCat, searchQueryVersion);
-    let afterParam = "";
-    if (activeCat === "comedy") {
-      const d = new Date();
-      d.setMonth(d.getMonth() - 6);
-      afterParam = "&publishedAfter=" + d.toISOString();
+  let afterParam = "";
+  if (activeCat === "comedy") {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 6);
+    afterParam = "&publishedAfter=" + d.toISOString();
     }
     // 15 sn ≤ süre < 60 sn (1 dk altı Short aralığı)
     const mainAll = await fetchVideos(queries, afterParam, 15, 59, "main", searchQueryVersion);
