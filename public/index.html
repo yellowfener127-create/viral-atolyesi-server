@@ -425,7 +425,7 @@
 <div class="wrap">
   <div style="margin-bottom:18px">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;margin-bottom:6px">Voice Enjektör</div>
-    <div style="font-size:13px;color:var(--muted)">Video A ve Video B. Parçayı sıraya ekle. Her geçişte 5-6 kelimelik kanca, renkli kartta sesle birlikte okunur. Ses bitince kart kaybolur ve video kaldığı yerden devam eder. Mix &amp; Derleme aynı şekilde meme kliplerini kullanmaya devam eder.</div>
+    <div style="font-size:13px;color:var(--muted)">Video A ve Video B. Parçayı sıraya ekle. Seçtiğin saniye aralığı Gemini'ye gider ve kanca cümlesi kutuya yazılır. İstersen kutuyu sonra değiştirirsin. Renkli kart o parçadan hemen önce sesle açılır, ses bitince parça başlar. Mix &amp; Derleme meme kliplerini kullanmaya devam eder.</div>
   </div>
   <div class="mix-grid">
     <section class="mix-slot">
@@ -433,6 +433,7 @@
       <input class="tool-input" type="file" id="voiceFileA" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.mkv,.m4v" onchange="voiceOnFile('A', this)" />
       <input class="tool-input" type="url" id="voiceUrlA" placeholder="veya YouTube linki" />
       <button type="button" class="tool-btn" onclick="voiceLoadLink('A')">Linki oynat</button>
+      <button type="button" class="tool-btn" onclick="voicePickMix('A')">Mix'ten rastgele</button>
       <div id="voiceSrcA" style="font-size:12px;color:var(--muted);margin:8px 0">Kaynak seçilmedi</div>
       <video id="voiceVideoA" class="mix-player" controls playsinline></video>
       <div id="voiceYtWrapA" class="mix-yt" hidden><div id="voiceYtA"></div></div>
@@ -464,6 +465,7 @@
       <input class="tool-input" type="file" id="voiceFileB" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.mkv,.m4v" onchange="voiceOnFile('B', this)" />
       <input class="tool-input" type="url" id="voiceUrlB" placeholder="veya YouTube linki" />
       <button type="button" class="tool-btn" onclick="voiceLoadLink('B')">Linki oynat</button>
+      <button type="button" class="tool-btn" onclick="voicePickMix('B')">Mix'ten rastgele</button>
       <div id="voiceSrcB" style="font-size:12px;color:var(--muted);margin:8px 0">Kaynak seçilmedi</div>
       <video id="voiceVideoB" class="mix-player" controls playsinline></video>
       <div id="voiceYtWrapB" class="mix-yt" hidden><div id="voiceYtB"></div></div>
@@ -2618,6 +2620,7 @@ function voiceOnFile(slot, input) {
   s.uploadedPath = "";
   s.uploadedKey = "";
   s.mode = "file";
+  s.title = file.name;
   s.stopAt = null;
   voiceHideYt(slot);
   const v = document.getElementById("voiceVideo" + slot);
@@ -2634,6 +2637,7 @@ async function voiceLoadLink(slot) {
   const s = voiceSlots[slot];
   s.mode = "link";
   s.url = url;
+  s.title = url;
   s.stopAt = null;
   const v = document.getElementById("voiceVideo" + slot);
   if (v) { try { v.pause(); } catch (e) {} v.hidden = true; v.removeAttribute("src"); try { v.load(); } catch (e2) {} }
@@ -2672,10 +2676,13 @@ function renderVoiceTimeline() {
   }
   host.innerHTML = voiceOrder.map((p, i) => {
     const len = (p.end - p.start).toFixed(2);
-    const hook = i < voiceOrder.length - 1
-      ? '<label style="display:block;margin-top:8px;font-size:11px;color:var(--muted)">Bu parçadan sonra okunacak cümle (5-6 kelime)' +
-        '<input class="tool-input" id="voiceHook' + i + '" value="' + voiceEsc(p.hook || "") + '" /></label>'
+    const note = p.hookNote
+      ? '<div style="font-size:11px;color:var(--muted);margin-top:4px">' + voiceEsc(p.hookNote) + "</div>"
       : "";
+    const hook = '<label style="display:block;margin-top:8px;font-size:11px;color:var(--muted)">Bu parçadan önce okunacak cümle (5-6 kelime)' +
+      '<input class="tool-input" id="voiceHook' + i + '" oninput="voiceHookTouched(' + i + ')" placeholder="' +
+      (p.hookLock ? "Kesit izleniyor…" : "İstersen bu cümleyi değiştir") +
+      '" value="' + voiceEsc(p.hook || "") + '" /></label>' + note;
     return '<div class="mix-part" style="flex-direction:column;align-items:stretch"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><span>' +
       (i + 1) + ". Video " + p.slot + " · " + p.start.toFixed(2) + "–" + p.end.toFixed(2) + " sn (" + len + "s)</span>" +
       '<span class="mcc-row" style="margin-top:0">' +
@@ -2686,10 +2693,54 @@ function renderVoiceTimeline() {
       "</span></div>" + hook + "</div>";
   }).join("");
 }
+function voiceHookTouched(i) {
+  const p = voiceOrder[i];
+  const el = document.getElementById("voiceHook" + i);
+  if (!p || !el) return;
+  p.hook = el.value;
+  p.hookLock = false;
+  if (p.hookNote) p.hookNote = "";
+}
+function voiceFindPart(id) {
+  return voiceOrder.find(function (p) { return p && p.id === id; }) || null;
+}
+async function voiceRequestHook(slot, part) {
+  const s = voiceSlots[slot];
+  const avoid = voiceOrder
+    .filter(function (p) { return p && p.id !== part.id; })
+    .map(function (p) { return String(p.hook || "").trim(); })
+    .filter(Boolean);
+  const payload = { start: part.start, end: part.end, title: voiceSourceTitle(slot), avoid: avoid };
+  try { payload.gemini_api_key = String(localStorage.getItem("gemini_api_key") || "").trim(); } catch (eKey) {}
+  if (s.mode === "file") {
+    if (!s.file) throw new Error("Video dosyası yok.");
+    const key = mixFileKey(s.file);
+    if (s.uploadedKey !== key || !s.uploadedPath) {
+      s.uploadedPath = await uploadMixSource(s.file);
+      s.uploadedKey = key;
+    }
+    payload.local_path = s.uploadedPath;
+  } else if (s.mode === "mix") {
+    if (!s.uploadedPath) throw new Error("Mix dosyası yok.");
+    payload.local_path = s.uploadedPath;
+  } else {
+    const url = String((document.getElementById("voiceUrl" + slot) || {}).value || s.url || "").trim();
+    if (!url) throw new Error("Link boş.");
+    payload.url = url;
+  }
+  const res = await fetch("http://127.0.0.1:8787/voice-hook", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json().catch(function () { return {}; });
+  if (!res.ok || !data.ok || !data.hook) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
+  return data;
+}
 function voiceAddPart(slot) {
   const s = voiceSlots[slot];
-  if (s.mode !== "file" && s.mode !== "link") {
-    alert("Önce Video " + slot + " için dosya seç veya linki oynat.");
+  if (s.mode !== "file" && s.mode !== "link" && s.mode !== "mix") {
+    alert("Önce Video " + slot + " için dosya seç, linki oynat veya mix klasöründen seç.");
     return;
   }
   const d = voiceDraft(slot);
@@ -2707,13 +2758,44 @@ function voiceAddPart(slot) {
     return;
   }
   voiceReadHooks();
-  voiceOrder.push({
+  const part = {
+    id: "vh" + Date.now() + Math.floor(Math.random() * 1000),
     slot: slot,
     start: Number(d.start.toFixed(3)),
     end: Number(d.end.toFixed(3)),
-    hook: VOICE_DEFAULTS[voiceOrder.length % VOICE_DEFAULTS.length]
-  });
+    hook: "",
+    hookLock: true,
+    hookNote: "Kesit kesiliyor, Gemini izliyor…"
+  };
+  voiceOrder.push(part);
   renderVoiceTimeline();
+  voiceRequestHook(slot, part).then(function (data) {
+    voiceReadHooks();
+    const current = voiceFindPart(part.id);
+    if (!current) return;
+    if (!current.hookLock) {
+      current.hookNote = "";
+      renderVoiceTimeline();
+      return;
+    }
+    current.hook = data.hook;
+    current.hookLock = false;
+    current.hookNote = data.source === "gemini"
+      ? "Kesitten yazıldı. İstersen değiştir."
+      : "Gemini cümleyi kuramadı, havuzdan seçildi. İstersen değiştir.";
+    renderVoiceTimeline();
+  }).catch(function (e) {
+    voiceReadHooks();
+    const current = voiceFindPart(part.id);
+    if (!current) return;
+    current.hookLock = false;
+    if (String(current.hook || "").trim()) {
+      current.hookNote = "";
+    } else {
+      current.hookNote = "Kanca yazılamadı: " + ((e && e.message) ? e.message : String(e));
+    }
+    renderVoiceTimeline();
+  });
 }
 function voiceRemove(i) {
   voiceReadHooks();
@@ -2743,6 +2825,49 @@ function initVoiceMixerUi() {
   renderVoiceTimeline();
   if (!window.__voiceTick) window.__voiceTick = setInterval(voiceTick, 200);
 }
+function voiceSourceTitle(slot) {
+  const s = voiceSlots[slot];
+  if (s.title) return s.title;
+  if (s.file && s.file.name) return s.file.name;
+  return s.url || "";
+}
+async function voicePickMix(slot) {
+  const badge = document.getElementById("voiceSrc" + slot);
+  if (badge) badge.textContent = "Mix klasörü okunuyor…";
+  try {
+    const res = await fetch("http://127.0.0.1:8787/mix-files");
+    const data = await res.json().catch(() => ({}));
+    const files = (data.files || []).filter((f) => f && f.file && f.absPath);
+    if (!files.length) {
+      if (badge) badge.textContent = "Kaynak seçilmedi";
+      alert("Mix klasöründe video yok.");
+      return;
+    }
+    const other = slot === "A" ? "B" : "A";
+    const otherPath = voiceSlots[other].uploadedPath || "";
+    const pool = files.filter((f) => f.absPath !== otherPath);
+    const bag = pool.length ? pool : files;
+    const pick = bag[Math.floor(Math.random() * bag.length)];
+    const s = voiceSlots[slot];
+    s.mode = "mix";
+    s.file = null;
+    s.uploadedPath = pick.absPath;
+    s.uploadedKey = "";
+    s.title = pick.file;
+    s.url = "";
+    s.stopAt = null;
+    voiceHideYt(slot);
+    const v = document.getElementById("voiceVideo" + slot);
+    if (v) {
+      v.hidden = false;
+      v.src = "http://127.0.0.1:8787/mix-file?name=" + encodeURIComponent(pick.file);
+      v.load();
+    }
+    if (badge) badge.textContent = "Mix: " + pick.file;
+  } catch (e) {
+    if (badge) badge.textContent = "Mix klasörü açılamadı";
+  }
+}
 async function runVoiceCompilation() {
   const btn = document.getElementById("voiceMixBtn");
   const msg = document.getElementById("voiceMsg");
@@ -2752,7 +2877,11 @@ async function runVoiceCompilation() {
     alert("Video A ve Video B'den en az birer parça ekle.");
     return;
   }
-  const hooks = voiceOrder.slice(0, -1).map((p) => String(p.hook || "").trim());
+  if (voiceOrder.some((p) => p.hookLock)) {
+    alert("Kanca cümleleri hâlâ yazılıyor. Birkaç saniye bekle.");
+    return;
+  }
+  const hooks = voiceOrder.map((p) => String(p.hook || "").trim());
   for (let i = 0; i < hooks.length; i++) {
     const n = voiceWordCount(hooks[i]);
     if (hooks[i] && (n < 5 || n > 6)) {
@@ -2761,13 +2890,17 @@ async function runVoiceCompilation() {
     }
   }
   if (btn) { btn.disabled = true; btn.textContent = "⏳ Ses kartları hazırlanıyor…"; }
-  if (msg) { msg.style.display = "block"; msg.textContent = "Parçalar birleşiyor, ElevenLabs kancaları okunuyor…"; }
+  if (msg) { msg.style.display = "block"; msg.textContent = "Kanca cümlesi seçiliyor, ElevenLabs okuyor…"; }
   try {
     const sources = [];
     for (const p of voiceOrder) {
       const s = voiceSlots[p.slot];
       const part = { start: p.start, end: p.end };
-      if (s.mode === "file") {
+      const title = voiceSourceTitle(p.slot);
+      if (s.mode === "mix") {
+        if (!s.uploadedPath) throw new Error("Video " + p.slot + " mix dosyası yok.");
+        sources.push({ local_path: s.uploadedPath, title: title, parts: [part] });
+      } else if (s.mode === "file") {
         if (!s.file) throw new Error("Video " + p.slot + " dosyası yok.");
         const key = mixFileKey(s.file);
         if (s.uploadedKey !== key || !s.uploadedPath) {
@@ -2775,19 +2908,22 @@ async function runVoiceCompilation() {
           s.uploadedPath = await uploadMixSource(s.file);
           s.uploadedKey = key;
         }
-        sources.push({ local_path: s.uploadedPath, parts: [part] });
+        sources.push({ local_path: s.uploadedPath, title: title, parts: [part] });
       } else {
         const url = String((document.getElementById("voiceUrl" + p.slot) || {}).value || s.url || "").trim();
         if (!url) throw new Error("Video " + p.slot + " linki boş.");
-        sources.push({ url: url, parts: [part] });
+        sources.push({ url: url, title: title, parts: [part] });
       }
     }
+    let geminiKey = "";
+    try { geminiKey = String(localStorage.getItem("gemini_api_key") || "").trim(); } catch (eKey) {}
     const res = await fetch("http://127.0.0.1:8787/voice-compilation", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sources: sources,
         hooks: hooks,
+        gemini_api_key: geminiKey,
         shuffle: !!(document.getElementById("voiceShuffle") && document.getElementById("voiceShuffle").checked),
         caption_text: (document.getElementById("crushCaptionManual") && String(document.getElementById("crushCaptionManual").value || "").trim()) || ""
       })
@@ -2795,12 +2931,14 @@ async function runVoiceCompilation() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
     const lines = (data.voice && data.voice.lines) ? data.voice.lines.join(" | ") : "";
+    const how = (data.voice && data.voice.lineSources) ? data.voice.lineSources.join(", ") : "";
     if (msg) {
       msg.style.display = "block";
       msg.textContent =
         "Kaydedildi: " + (data.absPath || ((data.savedTo || "") + "\\" + (data.file || ""))) +
         "\nSüre: " + (data.voice && data.voice.durationOut != null ? data.voice.durationOut + "s" : "?") +
-        (lines ? ("\nKancalar: " + lines) : "");
+        (lines ? ("\nKancalar: " + lines) : "") +
+        (how ? ("\nKaynak: " + how) : "");
     }
   } catch (e) {
     if (msg) { msg.style.display = "block"; msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e)); }

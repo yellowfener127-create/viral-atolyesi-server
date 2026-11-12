@@ -1,7 +1,7 @@
 /**
- * Voice Enjektör: sıralı parçaların arasına 5-6 kelimelik renkli kart koyar.
+ * Voice Enjektör: her parçanın hemen önüne 5-6 kelimelik renkli kart koyar.
  * Kartın süresi ElevenLabs sesinin süresidir, 3 saniyeyi geçmez.
- * Ses bitince kart da biter. Meme enjektörüne dokunmaz.
+ * Ses bitince kart da biter ve parça başlar. Meme enjektörüne dokunmaz.
  */
 const fs = require('fs');
 const os = require('os');
@@ -19,20 +19,96 @@ const MAX_CONTENT_SEC = 150;
 const MAX_CARD_SEC = 3;
 
 const DEFAULT_LINES = [
-  'Wait until you see this',
-  'Number three will shock you',
-  'Do not skip this one',
-  'The next one is worse',
-  'Watch what happens right now'
+  'Wait until the very end',
+  'Nobody expected this at all',
+  'This one changes everything now',
+  'Watch his reaction very closely',
+  'Do not skip this one'
+];
+
+const HOOK_POOL = {
+  general: [
+    'Wait until the very end',
+    'Nobody expected this at all',
+    'This one changes everything now',
+    'Watch his reaction very closely',
+    'You will not believe this',
+    'Do not skip this one',
+    'The last second is insane',
+    'This next clip is wild',
+    'Watch what happens right now',
+    'Nobody saw this coming today',
+    'Keep watching for the twist',
+    'This moment changes the video'
+  ],
+  shock: [
+    'The next second is pure shock',
+    'Nobody expected the next part',
+    'This twist hits way too hard',
+    'You are not ready for this',
+    'The payoff is genuinely insane'
+  ],
+  reaction: [
+    'Watch his reaction very closely',
+    'Look at his face right now',
+    'Their reaction says it all',
+    'Watch what she does next',
+    'That reaction is completely unreal'
+  ],
+  animal: [
+    'This puppy does the unthinkable',
+    'Wait until the dog reacts',
+    'The baby notices something wild',
+    'This cat ruins the whole plan',
+    'Watch the animal choose sides'
+  ],
+  prank: [
+    'The prank goes way too far',
+    'He had no idea at all',
+    'This prank should not exist',
+    'Watch the prank completely collapse',
+    'Nobody agreed to this prank'
+  ],
+  movie: [
+    'This movie scene goes insane',
+    'Wait for the film twist',
+    'The scene changes everything now',
+    'This show moment is unreal',
+    'Watch the movie scene flip'
+  ],
+  kindness: [
+    'This stranger changes everything here',
+    'Wait for the kind ending',
+    'One small act hits hard',
+    'The hero moment is unreal',
+    'Kindness comes out of nowhere'
+  ],
+  rank: [
+    'Number three will shock you',
+    'The next rank is way worse',
+    'The last place wins everything',
+    'Rank two changes the whole list',
+    'The top spot is not ready'
+  ]
+};
+
+const HOOK_KEYWORDS = [
+  { bucket: 'animal', re: /\b(dog|cat|puppy|kitten|baby|animal|pet|bird)\b/i },
+  { bucket: 'prank', re: /\b(prank|scare|troll|gotcha)\b/i },
+  { bucket: 'movie', re: /\b(movie|film|scene|cinema|sitcom|series|tv)\b/i },
+  { bucket: 'kindness', re: /\b(kind|hope|hero|rescue|help|wholesome|stranger)\b/i },
+  { bucket: 'reaction', re: /\b(react|reaction|face|scream)\b/i },
+  { bucket: 'shock', re: /\b(shock|unexpected|insane|crazy|unbelievable)\b/i },
+  { bucket: 'rank', re: /\b(rank|ranking|top|best|worst|number)\b/i }
 ];
 
 const VOICE_CARDS = [
-  { bg: '0xFF2D87', fg: '0xFFF200' },
-  { bg: '0xFFE500', fg: '0xFF148C' },
-  { bg: '0x00E5FF', fg: '0x2A0A4A' },
-  { bg: '0xB6FF00', fg: '0x240046' },
-  { bg: '0xFF5A1F', fg: '0xFFFFFF' },
-  { bg: '0x7B2CFF', fg: '0xFFE500' }
+  { bg: '0xFF1493', fg: '0xFFF200' },
+  { bg: '0xFFD700', fg: '0x1A0533' },
+  { bg: '0x7B2CFF', fg: '0xFFFFFF' },
+  { bg: '0x00F0FF', fg: '0x14002A' },
+  { bg: '0xFF4D00', fg: '0xFFFFFF' },
+  { bg: '0xC6FF00', fg: '0x1A0533' }
 ];
 
 function runFfmpeg(ffmpegPath, args, timeoutMs = 8 * 60 * 1000, cwd) {
@@ -104,14 +180,315 @@ function statusError(message, statusCode) {
   return err;
 }
 
-function normalizeHookLine(raw, index) {
+function normalizeHookLine(raw) {
   const spoken = spokenHookText(raw);
-  if (!spoken) return DEFAULT_LINES[(Number(index) || 0) % DEFAULT_LINES.length];
+  if (!spoken) return '';
   const words = spoken.split(' ').filter(Boolean);
   if (words.length < 5 || words.length > 6) {
     throw statusError(`Geçiş cümlesi 5 veya 6 kelime olmalı. Gelen: "${spoken}"`);
   }
   return words.join(' ');
+}
+
+function conceptFromName(name) {
+  return String(name || '')
+    .replace(/\.[a-z0-9]{2,5}$/i, '')
+    .replace(/[#_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 180);
+}
+
+function poolForName(name) {
+  const concept = conceptFromName(name);
+  const buckets = HOOK_KEYWORDS.filter((row) => row.re.test(concept)).map((row) => row.bucket);
+  const lines = [];
+  const seen = new Set();
+  for (const bucket of (buckets.length ? buckets : ['general'])) {
+    for (const line of HOOK_POOL[bucket] || []) {
+      if (!seen.has(line)) {
+        seen.add(line);
+        lines.push(line);
+      }
+    }
+  }
+  if (buckets.length) {
+    for (const line of HOOK_POOL.general) {
+      if (!seen.has(line)) lines.push(line);
+    }
+  }
+  return lines.length ? lines : HOOK_POOL.general.slice();
+}
+
+function pickPoolHook(name, used) {
+  const taken = used || new Set();
+  const fresh = poolForName(name).filter((line) => !taken.has(line));
+  const bag = fresh.length ? fresh : HOOK_POOL.general.filter((line) => !taken.has(line));
+  const list = bag.length ? bag : HOOK_POOL.general;
+  const line = list[Math.floor(Math.random() * list.length)];
+  taken.add(line);
+  return line;
+}
+
+const VOICE_HOOK_SYSTEM = [
+  'Sen kıdemli bir viral Shorts/Reels içerik üreticisisin ve izleyiciyi ilk 2 saniyede kilitleyen (hook) metinler yazıyorsun. Sana verilen bu kısa video klibini analiz et. Görevin, bu klip ekrana gelmeden HEMEN ÖNCE araya girecek renkli geçiş ekranında seslendirilecek bir kanca cümle üretmek.',
+  'KURALLAR:',
+  "- Kesinlikle geçmiş zaman kullanma ('şunu izlediniz' gibi asla olmasın). İzleyiciyi videoya çekecek şekilde merak uyandırıcı, 'şuna hazır ol', 'bak şimdi ne olacak', 'şunu gördün mü' tarzı geleceğe yönelik veya anlık tetikleyici bir dil kullan.",
+  '- Maksimum 6 kelime olsun.',
+  '- Asla aynı kalıpları veya kelimeleri tekrarlama; çok yaratıcı, şaşırtıcı ve dinamik ol.',
+  '- Sadece saf metni döndür, başka hiçbir açıklama ekleme.'
+].join('\n');
+
+function voiceGeminiModel() {
+  const explicit = String(process.env.GEMINI_VOICE_MODEL || '').trim();
+  if (explicit) return explicit;
+  const shared = String(process.env.GEMINI_MODEL || '').trim();
+  if (shared && shared !== 'gemini-2.0-flash') return shared;
+  return 'gemini-3.6-flash';
+}
+
+async function geminiHookFromName(name, apiKey, used) {
+  const key = String(apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+  const concept = conceptFromName(name);
+  if (!key || concept.length < 4) return '';
+  if (/^(src|import|in|voice|compilation)[_\s-]?\d*$/i.test(concept)) return '';
+  const prompt = [
+    'Write ONE English hook for a vertical Reel.',
+    `The video name is: "${concept}".`,
+    'Use the name as the subject. Exactly 5 or 6 words.',
+    'No emoji. No hashtags. No quotes. No numbering.',
+    'It must stop a stranger in the first 3 seconds.',
+    'Output the line only.'
+  ].join(' ');
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(voiceGeminiModel())}:generateContent?key=${encodeURIComponent(key)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.9, maxOutputTokens: 40 }
+        }),
+        signal: AbortSignal.timeout(12000)
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return '';
+    const text = data
+      && data.candidates
+      && data.candidates[0]
+      && data.candidates[0].content
+      && Array.isArray(data.candidates[0].content.parts)
+      ? data.candidates[0].content.parts.map((part) => part.text || '').join(' ')
+      : '';
+    const cleaned = String(text || '')
+      .replace(/\s+/g, ' ')
+      .replace(/^["'`]+|["'`]+$/g, '')
+      .replace(/[.!?]+$/g, '')
+      .trim();
+    const line = normalizeHookLine(cleaned);
+    if (!line || (used && used.has(line))) return '';
+    return line;
+  } catch (err) {
+    if (err && err.statusCode === 400) return '';
+    return '';
+  }
+}
+
+function cleanModelHook(text) {
+  const first = String(text || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)[0] || '';
+  return first
+    .replace(/^(hook|kanca)\s*:\s*/i, '')
+    .replace(/^[-*•\d.)\s]+/, '')
+    .replace(/^["'`“”]+|["'`“”]+$/g, '')
+    .replace(/[.!?…]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function hookAsk(avoid, retry) {
+  const banned = (avoid || []).map((line) => String(line || '').trim()).filter(Boolean).slice(0, 16);
+  const skip = banned.length ? ` Şu cümleleri tekrarlama: ${banned.join(' | ')}.` : '';
+  if (retry) return `Önceki cevap 5 veya 6 kelime değildi. Tam 5 veya 6 kelime yaz. Sadece cümle.${skip}`;
+  return `Bu klibi analiz et.${skip}`;
+}
+
+async function geminiUploadClip(key, filePath) {
+  const stat = await fs.promises.stat(filePath);
+  const startRes = await fetch('https://generativelanguage.googleapis.com/upload/v1beta/files', {
+    method: 'POST',
+    headers: {
+      'x-goog-api-key': key,
+      'X-Goog-Upload-Protocol': 'resumable',
+      'X-Goog-Upload-Command': 'start',
+      'X-Goog-Upload-Header-Content-Length': String(stat.size),
+      'X-Goog-Upload-Header-Content-Type': 'video/mp4',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ file: { display_name: 'voice-hook-clip' } }),
+    signal: AbortSignal.timeout(20000)
+  });
+  const startData = await startRes.json().catch(() => ({}));
+  if (!startRes.ok) {
+    const msg = startData && startData.error && startData.error.message;
+    throw statusError(msg || 'Gemini video yüklemesi reddedildi.', startRes.status || 502);
+  }
+  const uploadUrl = startRes.headers.get('x-goog-upload-url');
+  if (!uploadUrl) throw statusError('Gemini yükleme adresi gelmedi.', 502);
+  const bytes = await fs.promises.readFile(filePath);
+  const put = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Length': String(bytes.length),
+      'X-Goog-Upload-Offset': '0',
+      'X-Goog-Upload-Command': 'upload, finalize'
+    },
+    body: bytes,
+    signal: AbortSignal.timeout(60000)
+  });
+  const uploaded = await put.json().catch(() => ({}));
+  if (!put.ok) {
+    const msg = uploaded && uploaded.error && uploaded.error.message;
+    throw statusError(msg || 'Gemini klibi alamadı.', put.status || 502);
+  }
+  let info = uploaded.file || uploaded;
+  let state = String(info.state || 'ACTIVE');
+  const name = info.name;
+  for (let i = 0; i < 20 && state === 'PROCESSING' && name; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const poll = await fetch(`https://generativelanguage.googleapis.com/v1beta/${name}`, {
+      headers: { 'x-goog-api-key': key },
+      signal: AbortSignal.timeout(15000)
+    });
+    const pdata = await poll.json().catch(() => ({}));
+    if (!poll.ok) {
+      const msg = pdata && pdata.error && pdata.error.message;
+      throw statusError(msg || 'Klip işlenemedi.', poll.status || 502);
+    }
+    info = pdata;
+    state = String(pdata.state || 'ACTIVE');
+  }
+  if (state && state !== 'ACTIVE') throw statusError('Klip henüz hazır değil.', 502);
+  if (!info.uri) throw statusError('Klip adresi gelmedi.', 502);
+  return { uri: info.uri, name: info.name, mime: info.mimeType || 'video/mp4' };
+}
+
+async function geminiDeleteFile(key, name) {
+  if (!key || !name) return;
+  try {
+    await fetch(`https://generativelanguage.googleapis.com/v1beta/${name}`, {
+      method: 'DELETE',
+      headers: { 'x-goog-api-key': key },
+      signal: AbortSignal.timeout(10000)
+    });
+  } catch {}
+}
+
+async function askGeminiClip(key, file, avoid, retry) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(voiceGeminiModel())}:generateContent?key=${encodeURIComponent(key)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: VOICE_HOOK_SYSTEM }] },
+        contents: [{
+          role: 'user',
+          parts: [
+            { fileData: { mimeType: file.mime, fileUri: file.uri } },
+            { text: hookAsk(avoid, retry) }
+          ]
+        }],
+        generationConfig: { temperature: retry ? 1 : 0.95, maxOutputTokens: 48 }
+      }),
+      signal: AbortSignal.timeout(45000)
+    }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data && data.error && data.error.message;
+    throw statusError(msg || 'Gemini kanca yazamadı.', res.status || 502);
+  }
+  const text = data
+    && data.candidates
+    && data.candidates[0]
+    && data.candidates[0].content
+    && Array.isArray(data.candidates[0].content.parts)
+    ? data.candidates[0].content.parts.map((part) => part.text || '').join('\n')
+    : '';
+  return cleanModelHook(text);
+}
+
+async function geminiHookFromClip(clipPath, apiKey, avoid) {
+  const key = String(apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+  if (!key) throw statusError('Gemini API anahtarı yok.', 401);
+  if (!clipPath || !fs.existsSync(clipPath)) throw statusError('Analiz klibi yok.');
+  const taken = new Set((avoid || []).map((line) => String(line || '').trim()).filter(Boolean));
+  const uploaded = await geminiUploadClip(key, clipPath);
+  try {
+    let line = '';
+    try { line = normalizeHookLine(await askGeminiClip(key, uploaded, avoid, false)); } catch { line = ''; }
+    if (!line || taken.has(line)) {
+      try { line = normalizeHookLine(await askGeminiClip(key, uploaded, avoid, true)); } catch { line = ''; }
+    }
+    if (!line || taken.has(line)) return '';
+    return line;
+  } finally {
+    await geminiDeleteFile(key, uploaded.name);
+  }
+}
+
+async function extractAnalysisClip(ffmpegPath, src, start, end, dest) {
+  const startSec = Math.max(0, Number(start) || 0);
+  const dur = Number(end) - startSec;
+  if (!(dur >= 0.4) || dur > 30.05) throw statusError('Analiz kesiti 0.4 ile 30 saniye arasında olmalı.');
+  const hasAudio = await probeHasAudio(ffmpegPath, src);
+  const args = [
+    '-y',
+    '-ss', startSec.toFixed(3),
+    '-t', dur.toFixed(3),
+    '-i', src,
+    '-vf', 'scale=480:-2:flags=fast_bilinear,fps=8,format=yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '32', '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart'
+  ];
+  if (hasAudio) args.push('-c:a', 'aac', '-ac', '1', '-ar', '22050', '-b:a', '48k');
+  else args.push('-an');
+  args.push(dest);
+  await runFfmpeg(ffmpegPath, args, 120000);
+  if (!fs.existsSync(dest) || fs.statSync(dest).size < 1000) throw statusError('Analiz klibi oluşmadı.');
+  if (fs.statSync(dest).size > 16 * 1024 * 1024) {
+    const smaller = `${dest}.small.mp4`;
+    await runFfmpeg(ffmpegPath, [
+      '-y', '-i', dest,
+      '-vf', 'scale=320:-2,fps=6,format=yuv420p',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '34', '-an',
+      '-movflags', '+faststart',
+      smaller
+    ], 90000);
+    await fs.promises.rm(dest, { force: true });
+    await fs.promises.rename(smaller, dest);
+  }
+}
+
+async function resolveVoiceLine(clip, used, apiKey) {
+  const custom = normalizeHookLine(clip && clip.afterHook);
+  if (custom) {
+    used.add(custom);
+    return { text: custom, source: 'manual' };
+  }
+  const name = (clip && (clip.title || clip.label)) || path.basename((clip && clip.file) || '');
+  const generated = await geminiHookFromName(name, apiKey, used);
+  if (generated) {
+    used.add(generated);
+    return { text: generated, source: 'gemini' };
+  }
+  return { text: pickPoolHook(name, used), source: 'pool' };
 }
 
 function planCardDuration(rawSec) {
@@ -259,7 +636,8 @@ async function mixVoiceCompilation({
   clips,
   hooks,
   shuffle,
-  outFile
+  outFile,
+  geminiKey
 }) {
   const pieces = (clips || []).filter((c) => c && c.file && fs.existsSync(c.file));
   if (pieces.length < 2) throw statusError('En az 2 geçerli parça gerekli.');
@@ -268,7 +646,7 @@ async function mixVoiceCompilation({
   if (contentSec > MAX_CONTENT_SEC) throw statusError(`Parça toplamı ${MAX_CONTENT_SEC} saniyeyi aşamaz.`);
 
   const order = pieces.map((clip, i) => Object.assign({}, clip, {
-    afterHook: i < pieces.length - 1 ? (hooks && hooks[i]) : ''
+    afterHook: (hooks && hooks[i]) || ''
   }));
   if (shuffle) {
     for (let i = order.length - 1; i > 0; i--) {
@@ -279,9 +657,15 @@ async function mixVoiceCompilation({
     }
   }
   const lines = [];
-  for (let i = 0; i < order.length - 1; i++) {
-    lines.push(normalizeHookLine(order[i].afterHook, i));
+  const lineSources = [];
+  const usedLines = new Set();
+  for (let i = 0; i < order.length; i++) {
+    const resolved = await resolveVoiceLine(order[i], usedLines, geminiKey);
+    lines.push(resolved.text);
+    lineSources.push(resolved.source);
   }
+  const colorShift = Math.floor(Math.random() * VOICE_CARDS.length);
+  const cardAt = (i) => VOICE_CARDS[(i + colorShift) % VOICE_CARDS.length];
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-voice-'));
   const segFiles = [];
@@ -292,6 +676,43 @@ async function mixVoiceCompilation({
     for (let i = 0; i < order.length; i++) {
       const clip = order[i];
       const len = Number(clip.end) - Number(clip.start);
+      const text = lines[i];
+      let mp3 = '';
+      try {
+        mp3 = await synthesizeHook({ text });
+      } catch (err) {
+        throw statusError(err && err.message ? err.message : 'ElevenLabs ses üretemedi.');
+      }
+      const rawDur = await probeDurationSec(ffprobePath, mp3);
+      const fitted = path.join(tmpDir, `voice_${String(i).padStart(2, '0')}.mp3`);
+      await fitVoiceAudio(ffmpegPath, ffprobePath, mp3, fitted, rawDur);
+      const cardPath = path.join(tmpDir, `card_${String(i).padStart(2, '0')}.mp4`);
+      const cardStart = cursorSec;
+      const cardDur = await renderVoiceCard({
+        ffmpegPath,
+        ffprobePath,
+        audioFile: fitted,
+        text,
+        card: cardAt(i),
+        outFile: cardPath,
+        workDir: tmpDir
+      });
+      await fs.promises.unlink(mp3).catch(() => {});
+      const cardEnd = cursorSec + cardDur;
+      segFiles.push(cardPath);
+      voiceWindows.push({
+        start: Number(cardStart.toFixed(3)),
+        end: Number(cardEnd.toFixed(3)),
+        text
+      });
+      cursorSec = cardEnd;
+      timeline.push({
+        kind: 'voice',
+        text,
+        color: cardAt(i).bg,
+        duration: Number(cardDur.toFixed(3))
+      });
+
       const segPath = path.join(tmpDir, `part_${String(i).padStart(2, '0')}.mp4`);
       const hasAudio = await probeHasAudio(ffmpegPath, clip.file);
       await writeSegment({
@@ -305,45 +726,6 @@ async function mixVoiceCompilation({
       segFiles.push(segPath);
       timeline.push({ kind: 'part', label: clip.label || '', start: clip.start, end: clip.end });
       cursorSec += len;
-
-      if (i < order.length - 1) {
-        const text = lines[i];
-        let mp3 = '';
-        try {
-          mp3 = await synthesizeHook({ text });
-        } catch (err) {
-          throw statusError(err && err.message ? err.message : 'ElevenLabs ses üretemedi.');
-        }
-        const rawDur = await probeDurationSec(ffprobePath, mp3);
-        const fitted = path.join(tmpDir, `voice_${String(i).padStart(2, '0')}.mp3`);
-        await fitVoiceAudio(ffmpegPath, ffprobePath, mp3, fitted, rawDur);
-        const cardPath = path.join(tmpDir, `card_${String(i).padStart(2, '0')}.mp4`);
-        const cardStart = cursorSec;
-        const cardDur = await renderVoiceCard({
-          ffmpegPath,
-          ffprobePath,
-          audioFile: fitted,
-          text,
-          card: VOICE_CARDS[i % VOICE_CARDS.length],
-          outFile: cardPath,
-          workDir: tmpDir
-        });
-        await fs.promises.unlink(mp3).catch(() => {});
-        const cardEnd = cursorSec + cardDur;
-        segFiles.push(cardPath);
-        voiceWindows.push({
-          start: Number(cardStart.toFixed(3)),
-          end: Number(cardEnd.toFixed(3)),
-          text
-        });
-        cursorSec = cardEnd;
-        timeline.push({
-          kind: 'voice',
-          text,
-          color: VOICE_CARDS[i % VOICE_CARDS.length].bg,
-          duration: Number(cardDur.toFixed(3))
-        });
-      }
     }
 
     const listBody = segFiles.map((p) => `file '${path.basename(p).replace(/'/g, "'\\''")}'`).join('\n');
@@ -360,6 +742,7 @@ async function mixVoiceCompilation({
     timeline,
     voiceWindows,
     lines,
+    lineSources,
     contentSec: Number(contentSec.toFixed(3)),
     durationOut,
     shuffled: !!shuffle,
@@ -371,11 +754,19 @@ async function mixVoiceCompilation({
 module.exports = {
   mixVoiceCompilation,
   normalizeHookLine,
+  conceptFromName,
+  pickPoolHook,
+  resolveVoiceLine,
+  geminiHookFromClip,
+  extractAnalysisClip,
+  cleanModelHook,
+  VOICE_HOOK_SYSTEM,
   planCardDuration,
   atempoChain,
   buildCardFilter,
   renderVoiceCard,
   fitVoiceAudio,
+  HOOK_POOL,
   DEFAULT_LINES,
   VOICE_CARDS,
   OUT_FPS,

@@ -1899,6 +1899,18 @@ app.get('/publish/queue', (req, res) => {
   res.json(publishQueue.snapshot());
 });
 
+app.get('/mix-file', (req, res) => {
+  const name = path.basename(String(req.query.name || ''));
+  if (!name || !/\.(mp4|mov|webm|mkv|m4v)$/i.test(name)) {
+    return res.status(400).json({ error: 'Video adı gerekli.' });
+  }
+  const abs = path.join(getMixDir(), name);
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+    return res.status(404).json({ error: 'Mix videosu yok.' });
+  }
+  return res.sendFile(abs);
+});
+
 app.get('/download', async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: 'url gerekli' });
@@ -2101,6 +2113,98 @@ app.post('/crush-compilation', async (req, res) => {
   }
 });
 
+let __voiceHookJobs = 0;
+
+function voiceHookSourceAllowed(abs) {
+  const file = path.resolve(String(abs || ''));
+  const root = path.resolve(DOWNLOAD_DIR);
+  const rel = path.relative(root, file);
+  return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+app.post('/voice-hook', async (req, res) => {
+  if (__voiceHookJobs >= 2) {
+    return res.status(429).json({ error: 'İki kesit zaten izleniyor. Biraz bekle.' });
+  }
+  const start = Number(req.body?.start);
+  const end = Number(req.body?.end);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return res.status(400).json({ error: 'Başlangıç ve bitiş gerekli.' });
+  }
+  const len = end - start;
+  if (len < 0.4 || len > 30) {
+    return res.status(400).json({ error: 'Kesit 0.4 ile 30 saniye arasında olmalı.' });
+  }
+  const key = String(req.body?.gemini_api_key || req.body?.geminiApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+  if (!key) {
+    return res.status(401).json({ error: 'Gemini API anahtarı yok. Araçlar sayfasındaki Gemini kutusuna kaydet.' });
+  }
+  const avoid = Array.isArray(req.body?.avoid)
+    ? req.body.avoid.map((line) => String(line || '').trim()).filter(Boolean).slice(0, 16)
+    : [];
+  const title = String(req.body?.title || '').trim();
+  const localPath = String(req.body?.local_path || req.body?.localPath || '').trim();
+  const url = localPath ? '' : String(req.body?.url || '').trim();
+  if (!localPath && !url) return res.status(400).json({ error: 'Video gerekli.' });
+
+  __voiceHookJobs += 1;
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-hookclip-'));
+  try {
+    let src = '';
+    if (localPath) {
+      src = path.resolve(localPath);
+      if (!voiceHookSourceAllowed(src) || !fs.existsSync(src) || !fs.statSync(src).isFile()) {
+        return res.status(400).json({ error: 'Video dosyası bulunamadı.' });
+      }
+      const ext = path.extname(src).toLowerCase();
+      if (!['.mp4', '.mov', '.webm', '.mkv', '.m4v'].includes(ext)) {
+        return res.status(400).json({ error: 'Video dosyası seç (.mp4, .mov, .webm, .mkv).' });
+      }
+    } else {
+      const dur = await ytDlpGetDurationSec(url);
+      if (dur && dur > 180) {
+        return res.status(400).json({ error: `Kaynak çok uzun (${Math.round(dur)}s). Derleme için 3 dakikanın altını kullan.` });
+      }
+      const sub = path.join(tmpDir, 'src');
+      fs.mkdirSync(sub, { recursive: true });
+      await run(YTDLP_BIN, [
+        '--no-playlist', '--no-part', '--no-mtime',
+        ...YTDLP_NET_ARGS,
+        ...YTDLP_PLAYER_ARGS,
+        '--merge-output-format', 'mp4',
+        '-f', YTDLP_FAST_FORMAT,
+        '-o', path.join(sub, 'in.%(ext)s'),
+        ...ytdlpCookieCliArgs(),
+        url
+      ], { timeoutMs: 4 * 60 * 1000 });
+      src = pickNewestFile(sub);
+      if (!src) return res.status(500).json({ error: 'Kaynak indirilemedi.' });
+    }
+
+    const clip = path.join(tmpDir, 'clip.mp4');
+    await voiceInjector.extractAnalysisClip('ffmpeg', src, start, end, clip);
+    let hook = '';
+    let source = 'gemini';
+    try {
+      hook = await voiceInjector.geminiHookFromClip(clip, key, avoid);
+    } catch (err) {
+      const code = err && err.statusCode ? err.statusCode : 502;
+      return res.status(code).json({ error: (err && err.message) ? err.message : 'Gemini kesiti izleyemedi.' });
+    }
+    if (!hook) {
+      hook = voiceInjector.pickPoolHook(title || path.basename(src), new Set(avoid));
+      source = 'pool';
+    }
+    return res.json({ ok: true, hook, source });
+  } catch (e) {
+    const code = e && e.statusCode ? e.statusCode : 500;
+    return res.status(code).json({ error: (e && e.message) ? e.message : String(e) });
+  } finally {
+    __voiceHookJobs = Math.max(0, __voiceHookJobs - 1);
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  }
+});
+
 app.post('/voice-compilation', async (req, res) => {
   const sources = compilationMixer.parseCompilationSources(req.body?.sources);
   const sourceKeyOf = (s) => s.localPath
@@ -2187,17 +2291,23 @@ app.post('/voice-compilation', async (req, res) => {
     }
 
     const clips = [];
-    sources.forEach((s, si) => {
+    const rawSources = Array.isArray(req.body?.sources) ? req.body.sources : [];
+    for (let si = 0; si < sources.length; si++) {
+      const s = sources[si];
       const file = fileForSource[si];
+      let title = String((rawSources[si] && rawSources[si].title) || '').trim();
+      if (!title && s.url) title = await ytDlpGetTitle(s.url);
+      if (!title) title = path.basename(file, path.extname(file));
       s.parts.forEach((p) => {
         clips.push({
           file,
           start: p.start,
           end: p.end,
-          label: `${s.localPath ? 'Dosya' : 'Link'} ${si + 1} ${p.start}-${p.end}`
+          title,
+          label: title
         });
       });
-    });
+    }
 
     const mixed = path.join(tmpDir, 'voiced.mp4');
     const mixInfo = await voiceInjector.mixVoiceCompilation({
@@ -2206,6 +2316,7 @@ app.post('/voice-compilation', async (req, res) => {
       clips,
       hooks,
       shuffle,
+      geminiKey: String(req.body?.gemini_api_key || req.body?.geminiApiKey || '').trim(),
       outFile: mixed
     });
 
