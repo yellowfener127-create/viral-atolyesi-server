@@ -230,14 +230,14 @@ function pickPoolHook(name, used) {
   return line;
 }
 
-const VOICE_HOOK_SYSTEM = `You are an elite, viral TikTok/Shorts content creator. Your absolute only job is to watch the provided video clip and write a short, high-converting hook sentence that will be played IMMEDIATELY BEFORE this clip appears. 
-CRITICAL RULES:
-1. This text will be converted into AI voiceover (ElevenLabs) and displayed on a vibrant transition screen right before the clip starts.
-2. It MUST act as a teaser or hype builder for the upcoming clip (e.g., 'Wait until you see this', 'Bro really thought he could do that', 'Watch his reaction closely', 'Nobody expected what happens next'). 
-3. NEVER describe what already happened in the past. Always look forward to what is about to happen in the clip.
-4. Maximum 5 to 6 words. Keep it punchy, aggressive, and curiosity-driven.
-5. Be extremely creative and change wording every time. Never repeat generic templates.
-6. Return ONLY the raw text sentence. No quotes, no markdown, no explanations.`;
+const VOICE_HOOK_SYSTEM = `You are an expert viral Shorts/Reels editor. Analyze the provided video clip from start to finish.
+STEP 1 (Internal Analysis - Do not output): Watch the entire sequence carefully. Identify who is in the video, what objects they are holding, and what unexpected action happens from the beginning to the end of the clip.
+STEP 2 (Final Output): Based strictly on the exact action you just observed, write a punchy, curiosity-driven hook sentence (5-6 words max) that will be voiced by AI right BEFORE this clip plays.
+
+RULES:
+- The hook MUST directly reference the specific action or twist in the clip (e.g., if someone cuts hair while another eats cake, hint at the haircut or betrayal, NEVER use generic competition clichés).
+- Use future/present tense teasing what is about to happen (e.g., 'Watch what Ronaldo does to Haaland', 'He had no idea what's coming').
+- Return ONLY the final 5-6 word hook sentence. Do not include Step 1, quotes, or explanations.`;
 
 function voiceGeminiModel() {
   const explicit = String(process.env.GEMINI_VOICE_MODEL || '').trim();
@@ -309,13 +309,24 @@ function isHookCommentary(line) {
   return /->|\bwords?\s*\)|\b(good|bad),?\s+but\b|\bmarkdown\b|\bexplanation\b/i.test(String(line || ''));
 }
 
-function cleanModelHook(text) {
+function lastSpokenHook(text) {
   const lines = String(text || '')
-    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/```[\s\S]*?```/g, '\n')
     .split(/\r?\n/)
     .map((line) => polishHookLine(line))
     .filter(Boolean);
-  return lines.find((line) => !isHookCommentary(line)) || '';
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (isHookCommentary(lines[i]) || isTurkishHook(lines[i])) continue;
+    try {
+      const line = normalizeHookLine(lines[i]);
+      if (line) return line;
+    } catch {}
+  }
+  return '';
+}
+
+function cleanModelHook(text) {
+  return lastSpokenHook(text);
 }
 
 function isTurkishHook(line) {
@@ -327,8 +338,8 @@ function isTurkishHook(line) {
 function hookAsk(avoid, retry) {
   const banned = (avoid || []).map((line) => String(line || '').trim()).filter(Boolean).slice(0, 16);
   const skip = banned.length ? ` Do not repeat: ${banned.join(' | ')}.` : '';
-  if (retry) return `Return only the raw hook sentence.${skip}`;
-  return `Watch this clip.${skip}`;
+  if (retry) return `Output only the final hook sentence, nothing else.${skip}`;
+  return `Watch the whole clip from start to finish, then output only the final hook sentence.${skip}`;
 }
 
 function visibleGeminiText(data) {
@@ -422,8 +433,8 @@ function isTimeoutError(err) {
 
 async function askGeminiClip(key, media, avoid, retry) {
   const videoPart = media && media.inline
-    ? { inlineData: { mimeType: 'video/mp4', data: media.inline } }
-    : { fileData: { mimeType: media.mime, fileUri: media.uri } };
+    ? { inlineData: { mimeType: 'video/mp4', data: media.inline }, videoMetadata: { fps: 2 } }
+    : { fileData: { mimeType: media.mime || 'video/mp4', fileUri: media.uri }, videoMetadata: { fps: 2 } };
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(voiceGeminiModel())}:generateContent?key=${encodeURIComponent(key)}`,
     {
@@ -438,7 +449,7 @@ async function askGeminiClip(key, media, avoid, retry) {
             { text: hookAsk(avoid, retry) }
           ]
         }],
-        generationConfig: { temperature: retry ? 1 : 0.95, maxOutputTokens: 256 }
+        generationConfig: { temperature: retry ? 1 : 0.95, maxOutputTokens: 500 }
       }),
       signal: AbortSignal.timeout(120000)
     }
@@ -448,7 +459,7 @@ async function askGeminiClip(key, media, avoid, retry) {
     const msg = data && data.error && data.error.message;
     throw statusError(msg || 'Gemini kanca yazamadı.', res.status || 502);
   }
-  return cleanModelHook(visibleGeminiText(data));
+  return visibleGeminiText(data);
 }
 
 async function geminiHookFromClip(clipPath, apiKey, avoid) {
@@ -478,18 +489,12 @@ async function geminiHookFromClip(clipPath, apiKey, avoid) {
         }
         throw err;
       }
-      let line = '';
-      try {
-        line = normalizeHookLine(raw);
-      } catch (err) {
-        const heard = cleanModelHook(raw).slice(0, 80);
-        reason = heard
-          ? `Gemini'nin cümlesi 5 veya 6 kelime değildi: "${heard}"`
-          : 'Gemini boş cevap verdi.';
-        continue;
-      }
+      const line = lastSpokenHook(raw);
       if (!line) {
-        reason = 'Gemini boş cevap verdi.';
+        const heard = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+        reason = heard
+          ? `Gemini kanca cümlesi yazmadı: "${heard}"`
+          : 'Gemini boş cevap verdi.';
         continue;
       }
       if (isTurkishHook(line)) {
@@ -518,8 +523,8 @@ async function extractAnalysisClip(ffmpegPath, src, start, end, dest) {
     '-ss', startSec.toFixed(3),
     '-t', dur.toFixed(3),
     '-i', src,
-    '-vf', 'scale=480:-2:flags=fast_bilinear,fps=8,format=yuv420p',
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '32', '-pix_fmt', 'yuv420p',
+    '-vf', 'fps=2,scale=720:-2:flags=fast_bilinear,format=yuv420p',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', '-pix_fmt', 'yuv420p',
     '-movflags', '+faststart'
   ];
   if (hasAudio) args.push('-c:a', 'aac', '-ac', '1', '-ar', '22050', '-b:a', '48k');
@@ -531,7 +536,7 @@ async function extractAnalysisClip(ffmpegPath, src, start, end, dest) {
     const smaller = `${dest}.small.mp4`;
     await runFfmpeg(ffmpegPath, [
       '-y', '-i', dest,
-      '-vf', 'scale=320:-2,fps=6,format=yuv420p',
+      '-vf', 'fps=2,scale=480:-2,format=yuv420p',
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '34', '-an',
       '-movflags', '+faststart',
       smaller

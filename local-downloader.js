@@ -2142,7 +2142,6 @@ app.post('/voice-hook', async (req, res) => {
   const avoid = Array.isArray(req.body?.avoid)
     ? req.body.avoid.map((line) => String(line || '').trim()).filter(Boolean).slice(0, 16)
     : [];
-  const title = String(req.body?.title || '').trim();
   const localPath = String(req.body?.local_path || req.body?.localPath || '').trim();
   const url = localPath ? '' : String(req.body?.url || '').trim();
   if (!localPath && !url) return res.status(400).json({ error: 'Video gerekli.' });
@@ -2196,7 +2195,7 @@ app.post('/voice-hook', async (req, res) => {
       hook = '';
     }
     if (!hook) {
-      hook = voiceInjector.pickPoolHook(title || path.basename(src), new Set(avoid));
+      hook = voiceInjector.pickPoolHook('', new Set(avoid));
       source = 'pool';
       console.warn('[voice-hook] ' + reason);
     }
