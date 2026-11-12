@@ -230,15 +230,14 @@ function pickPoolHook(name, used) {
   return line;
 }
 
-const VOICE_HOOK_SYSTEM = [
-  'Sen kıdemli bir viral Shorts/Reels içerik üreticisisin ve izleyiciyi ilk 2 saniyede kilitleyen (hook) metinler yazıyorsun. Sana verilen bu kısa video klibini analiz et. Görevin, bu klip ekrana gelmeden HEMEN ÖNCE araya girecek renkli geçiş ekranında seslendirilecek bir kanca cümle üretmek.',
-  'KURALLAR:',
-  "- Kesinlikle geçmiş zaman kullanma ('you already watched this' gibi asla olmasın). İzleyiciyi videoya çekecek şekilde merak uyandırıcı, 'get ready for this', 'watch what happens next', 'wait until you see this' tarzı geleceğe yönelik veya anlık tetikleyici bir dil kullan.",
-  '- Maksimum 6 kelime olsun.',
-  '- Asla aynı kalıpları veya kelimeleri tekrarlama; çok yaratıcı, şaşırtıcı ve dinamik ol.',
-  '- Kancayı yalnızca İngilizce yaz. Türkçe kelime, ek veya cümle kullanma.',
-  '- Sadece saf İngilizce metni döndür, başka hiçbir açıklama ekleme.'
-].join('\n');
+const VOICE_HOOK_SYSTEM = `You are an elite, viral TikTok/Shorts content creator. Your absolute only job is to watch the provided video clip and write a short, high-converting hook sentence that will be played IMMEDIATELY BEFORE this clip appears. 
+CRITICAL RULES:
+1. This text will be converted into AI voiceover (ElevenLabs) and displayed on a vibrant transition screen right before the clip starts.
+2. It MUST act as a teaser or hype builder for the upcoming clip (e.g., 'Wait until you see this', 'Bro really thought he could do that', 'Watch his reaction closely', 'Nobody expected what happens next'). 
+3. NEVER describe what already happened in the past. Always look forward to what is about to happen in the clip.
+4. Maximum 5 to 6 words. Keep it punchy, aggressive, and curiosity-driven.
+5. Be extremely creative and change wording every time. Never repeat generic templates.
+6. Return ONLY the raw text sentence. No quotes, no markdown, no explanations.`;
 
 function voiceGeminiModel() {
   const explicit = String(process.env.GEMINI_VOICE_MODEL || '').trim();
@@ -297,19 +296,26 @@ async function geminiHookFromName(name, apiKey, used) {
   }
 }
 
-function cleanModelHook(text) {
-  const first = String(text || '')
-    .replace(/```[\s\S]*?```/g, ' ')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)[0] || '';
-  return first
+function polishHookLine(line) {
+  return String(line || '')
     .replace(/^(hook|kanca)\s*:\s*/i, '')
-    .replace(/^[-*•\d.)\s]+/, '')
     .replace(/^["'`“”]+|["'`“”]+$/g, '')
     .replace(/[.!?…]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function isHookCommentary(line) {
+  return /->|\bwords?\s*\)|\b(good|bad),?\s+but\b|\bmarkdown\b|\bexplanation\b/i.test(String(line || ''));
+}
+
+function cleanModelHook(text) {
+  const lines = String(text || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .split(/\r?\n/)
+    .map((line) => polishHookLine(line))
+    .filter(Boolean);
+  return lines.find((line) => !isHookCommentary(line)) || '';
 }
 
 function isTurkishHook(line) {
@@ -320,9 +326,9 @@ function isTurkishHook(line) {
 
 function hookAsk(avoid, retry) {
   const banned = (avoid || []).map((line) => String(line || '').trim()).filter(Boolean).slice(0, 16);
-  const skip = banned.length ? ` Do not repeat these lines: ${banned.join(' | ')}.` : '';
-  if (retry) return `The previous line was not English or was not 5 or 6 words. Write one English hook only. Exactly 5 or 6 words. No Turkish.${skip}`;
-  return `Watch this clip. Write one English hook only. Exactly 5 or 6 words. No Turkish. No explanation.${skip}`;
+  const skip = banned.length ? ` Do not repeat: ${banned.join(' | ')}.` : '';
+  if (retry) return `Return only the raw hook sentence.${skip}`;
+  return `Watch this clip.${skip}`;
 }
 
 function visibleGeminiText(data) {
