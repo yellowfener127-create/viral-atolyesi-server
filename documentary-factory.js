@@ -15,13 +15,46 @@ const {
 const OUT_W = 1080;
 const OUT_H = 1920;
 const OUT_FPS = 30;
-const DOC_VOICE_ID = 'pNInz6obpgDQGcFmaJgB';
+const DOC_VOICES = Object.freeze({
+  deep: 'SAxJUlDKRc79XAyeWyMu',
+  cinematic: 'iiidtqDt9FBdT1vfBluA',
+  resonant: 'LruHrtVF6PSyGItzMNHS'
+});
+const DOC_VOICE_LABELS = Object.freeze({
+  [DOC_VOICES.deep]: 'Ses 1 - Derin Belgesel',
+  [DOC_VOICES.cinematic]: 'Ses 2 - Sinematik Anlatıcı',
+  [DOC_VOICES.resonant]: 'Ses 3 - Derin Tok Ses'
+});
+const DOC_VOICE_KEYS = Object.freeze({
+  [DOC_VOICES.deep]: 'deep',
+  [DOC_VOICES.cinematic]: 'cinematic',
+  [DOC_VOICES.resonant]: 'resonant'
+});
 const DOC_VOICE_SETTINGS = Object.freeze({
   stability: 0.45,
   similarity_boost: 0.75,
   style: 0.35,
   use_speaker_boost: true
 });
+
+function resolveDocVoice(choice) {
+  const raw = String(choice || '').trim();
+  const key = raw.toLowerCase();
+  const pool = Object.values(DOC_VOICES);
+  let id = '';
+  if (!key || key === 'random' || key === 'rastgele') {
+    id = pool[Math.floor(Math.random() * pool.length)];
+  } else if (key === 'deep' || key === 'ses1' || key === '1' || raw === DOC_VOICES.deep) {
+    id = DOC_VOICES.deep;
+  } else if (key === 'cinematic' || key === 'ses2' || key === '2' || raw === DOC_VOICES.cinematic) {
+    id = DOC_VOICES.cinematic;
+  } else if (key === 'resonant' || key === 'tok' || key === 'ses3' || key === '3' || raw === DOC_VOICES.resonant) {
+    id = DOC_VOICES.resonant;
+  }
+  if (!id) throw new DocumentaryError('Belgesel için yalnızca Ses 1, Ses 2 veya Ses 3 seçilebilir.', 400);
+  const pickedAtRandom = !key || key === 'random' || key === 'rastgele';
+  return { id, label: DOC_VOICE_LABELS[id], choice: pickedAtRandom ? 'random' : DOC_VOICE_KEYS[id] };
+}
 
 function shapeNarration(narration, tone) {
   let text = String(narration || '').replace(/\s+/g, ' ').trim();
@@ -696,6 +729,7 @@ async function produceDocumentary({
   topic,
   lang,
   geminiKey,
+  narrator,
   ffmpegPath,
   ffprobePath,
   outFile
@@ -704,6 +738,7 @@ async function produceDocumentary({
   if (subject.length < 8) throw new DocumentaryError('Konu en az birkaç kelime olsun.', 400);
   if (subject.length > 240) throw new DocumentaryError('Konu 240 karakterden kısa olsun.', 400);
   const language = lang === 'tr' ? 'tr' : 'en';
+  const narratorVoice = resolveDocVoice(narrator);
   const pixabayKey = readEnvValue('PIXABAY_API_KEY');
   if (!pixabayKey) {
     throw new DocumentaryError('PIXABAY_API_KEY .env içinde yok. Pixabay anahtarını o satıra yaz.', 401);
@@ -724,7 +759,7 @@ async function produceDocumentary({
         text: spoken,
         outDir: tmpDir,
         fileName: `narration_${i}.mp3`,
-        voiceId: DOC_VOICE_ID,
+        voiceId: narratorVoice.id,
         voiceSettings: DOC_VOICE_SETTINGS
       });
       const fitted = path.join(tmpDir, `fit_${i}.mp3`);
@@ -765,6 +800,7 @@ async function produceDocumentary({
     const duration = await probeDurationSec(ffprobe, outFile);
     return {
       scenes: sceneInfo,
+      narrator: narratorVoice,
       words: plan.words,
       duration: Number(duration.toFixed(3)),
       lang: language
@@ -789,7 +825,8 @@ module.exports = {
   cleanVisualQuery,
   voiceSettingsForTone,
   shapeNarration,
-  DOC_VOICE_ID,
+  resolveDocVoice,
+  DOC_VOICES,
   DocumentaryError,
   OUT_FPS
 };

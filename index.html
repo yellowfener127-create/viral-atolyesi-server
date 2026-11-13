@@ -524,7 +524,7 @@
 <div class="wrap">
   <div style="margin-bottom:18px">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;margin-bottom:6px">Belgesel Fabrikası</div>
-    <div style="font-size:13px;color:var(--muted)">Konu bir dikey belgesele dönüşür. Senaryo Gemini, görüntü Pixabay dikey fotoğraf ve sinematik kaydırma, ses ElevenLabs Adam. Çıktı 9:16 ve kelime kelime beyaz altyazılıdır.</div>
+    <div style="font-size:13px;color:var(--muted)">Konu bir dikey belgesele dönüşür. Senaryo Gemini, görüntü Pixabay dikey fotoğraf ve sinematik kaydırma, ses seçilen belgesel anlatıcısı. Çıktı 9:16 ve kelime kelime beyaz altyazılıdır.</div>
   </div>
   <div class="tool-card" style="max-width:920px">
     <div class="tool-title">Konu</div>
@@ -535,6 +535,16 @@
         <select class="tool-input" id="docLang">
           <option value="en">İngilizce (Global / ABD)</option>
           <option value="tr">Türkçe</option>
+        </select>
+      </label>
+    </div>
+    <div class="mcc-row" style="margin-top:10px">
+      <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:6px;min-width:280px">Anlatıcı Sesi Seç
+        <select class="tool-input" id="docVoice">
+          <option value="deep">Ses 1 - Derin Belgesel</option>
+          <option value="cinematic">Ses 2 - Sinematik Anlatıcı</option>
+          <option value="resonant">Ses 3 - Derin Tok Ses</option>
+          <option value="random">Rastgele Seç</option>
         </select>
       </label>
     </div>
@@ -3004,6 +3014,9 @@ async function runDocumentary() {
   const msg = document.getElementById("docMsg");
   const topic = String((document.getElementById("docTopic") || {}).value || "").trim();
   const lang = (document.getElementById("docLang") && document.getElementById("docLang").value) === "tr" ? "tr" : "en";
+  const voiceEl = document.getElementById("docVoice");
+  const narratorChoices = ["deep", "cinematic", "resonant", "random"];
+  const narrator = voiceEl && narratorChoices.indexOf(voiceEl.value) >= 0 ? voiceEl.value : "random";
   if (topic.length < 8) {
     alert("Konuyu birkaç kelimeyle yaz.");
     return;
@@ -3023,7 +3036,7 @@ async function runDocumentary() {
     const res = await fetch("http://127.0.0.1:8787/documentary", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic: topic, lang: lang, gemini_api_key: geminiKey })
+      body: JSON.stringify({ topic: topic, lang: lang, narrator: narrator, gemini_api_key: geminiKey })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
@@ -3032,6 +3045,7 @@ async function runDocumentary() {
     if (msg) {
       msg.textContent =
         "Kaydedildi: " + (data.absPath || "") +
+        "\nAnlatıcı: " + ((data.documentary && data.documentary.narrator && data.documentary.narrator.label) || "") +
         "\nSüre: " + ((data.documentary && data.documentary.duration) || "?") + "s" +
         "\nKelime: " + ((data.documentary && data.documentary.words) || "?") +
         (lines ? ("\n" + lines) : "");
