@@ -64,6 +64,8 @@ loadEnvFile(path.join(__dirname, '.env'));
 
 function spokenHookText(raw) {
   return String(raw || '')
+    .replace(/<break\b[^>]*\/?>/gi, ' ')
+    .replace(/<\/?emphasis\b[^>]*>/gi, '')
     .replace(/\p{Extended_Pictographic}/gu, '')
     .replace(/\s+/g, ' ')
     .trim();

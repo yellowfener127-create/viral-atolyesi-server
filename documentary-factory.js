@@ -16,35 +16,26 @@ const OUT_W = 1080;
 const OUT_H = 1920;
 const OUT_FPS = 30;
 const DOC_VOICE_ID = 'pNInz6obpgDQGcFmaJgB';
+const DOC_VOICE_SETTINGS = Object.freeze({
+  stability: 0.45,
+  similarity_boost: 0.75,
+  style: 0.35,
+  use_speaker_boost: true
+});
 
-function voiceSettingsForTone(tone) {
-  const text = String(tone || '').toLowerCase();
-  let stability = 0.48;
-  let similarity_boost = 0.86;
-  let style = 0.2;
-  if (/calm|soothing|gentle|warm|soft|quiet/.test(text)) {
-    stability = 0.64;
-    similarity_boost = 0.84;
-    style = 0.1;
-  } else if (/urgent|intense|angry|panic|fast|excited|shocked/.test(text)) {
-    stability = 0.26;
-    similarity_boost = 0.78;
-    style = 0.52;
-  } else if (/whisper|mysterious|dark|ominous|dramatic|deep|pause|grave/.test(text)) {
-    stability = 0.36;
-    similarity_boost = 0.9;
-    style = 0.4;
-  } else if (/authoritative|serious|narrator|documentary|neutral|steady/.test(text)) {
-    stability = 0.58;
-    similarity_boost = 0.88;
-    style = 0.16;
-  }
-  return {
-    stability,
-    similarity_boost,
-    style,
-    use_speaker_boost: true
-  };
+function shapeNarration(narration, tone) {
+  let text = String(narration || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  const hint = String(tone || '').toLowerCase();
+  const wantsPause = /pause|duraks|breath|beat|dramatic|emphasis|emphas|vurg/.test(hint);
+  const atStart = /beginning|start|opening|baş/.test(hint);
+  if (wantsPause && atStart) text = `<break time="0.8s" /> ${text}`;
+  if (wantsPause) text = text.replace(/([.!?])(\s+)/g, '$1 <break time="0.4s" />$2');
+  return text;
+}
+
+function voiceSettingsForTone() {
+  return DOC_VOICE_SETTINGS;
 }
 
 class DocumentaryError extends Error {
@@ -560,12 +551,13 @@ async function downloadStock(keyword, apiKey, dest, usedIds) {
   throw new DocumentaryError(`Pixabay "${keyword}" için dikey video vermedi.`);
 }
 
-async function fitNarration(ffmpegPath, ffprobePath, src, words, text, dest) {
+async function fitNarration(ffmpegPath, ffprobePath, src, words, text, dest, options) {
   const rawDur = await probeDurationSec(ffprobePath, src);
   if (!(rawDur > 0.3)) throw new DocumentaryError('Sahne sesinin süresi okunamadı.');
   const spoken = (words && words.length) ? words : evenWordCues(text, rawDur);
   const first = Math.max(0, Number(spoken[0].start) || 0);
-  const lead = Math.max(0, first - 0.02);
+  const keepOpeningPause = !!(options && options.keepOpeningPause);
+  const lead = keepOpeningPause ? 0 : Math.max(0, first - 0.02);
   const lastEnd = Number(spoken[spoken.length - 1].end);
   const tail = Math.min(rawDur, Math.max(lead + 0.4, (Number.isFinite(lastEnd) ? lastEnd : rawDur) + 0.06));
   await runFfmpeg(ffmpegPath, [
@@ -581,7 +573,7 @@ async function fitNarration(ffmpegPath, ffprobePath, src, words, text, dest) {
     start: Math.max(0, (Number(item.start) || 0) - lead),
     end: Math.max(0, (Number(item.end) || 0) - lead)
   }));
-  if (shifted.length) shifted[0].start = 0;
+  if (shifted.length && !keepOpeningPause) shifted[0].start = 0;
   return { duration, words: shifted };
 }
 
@@ -664,15 +656,25 @@ async function produceDocumentary({
     const sceneInfo = [];
     for (let i = 0; i < plan.scenes.length; i++) {
       const scene = plan.scenes[i];
+      const spoken = shapeNarration(scene.narration, scene.voice_tone);
+      const openingPause = spoken.startsWith('<break');
       const speech = await synthesizeSpeechAligned({
-        text: scene.narration,
+        text: spoken,
         outDir: tmpDir,
         fileName: `narration_${i}.mp3`,
         voiceId: DOC_VOICE_ID,
-        voiceSettings: voiceSettingsForTone(scene.voice_tone)
+        voiceSettings: DOC_VOICE_SETTINGS
       });
       const fitted = path.join(tmpDir, `fit_${i}.mp3`);
-      const synced = await fitNarration(ffmpeg, ffprobe, speech.filePath, speech.words, scene.narration, fitted);
+      const synced = await fitNarration(
+        ffmpeg,
+        ffprobe,
+        speech.filePath,
+        speech.words,
+        scene.narration,
+        fitted,
+        { keepOpeningPause: openingPause }
+      );
       const stock = path.join(tmpDir, `stock_${i}.mp4`);
       await downloadStock(scene.visual_search_query, pixabayKey, stock, usedIds);
       if (!(await hasVideoStream(ffprobe, stock))) {
@@ -723,6 +725,7 @@ module.exports = {
   renderScene,
   cleanVisualQuery,
   voiceSettingsForTone,
+  shapeNarration,
   DOC_VOICE_ID,
   DocumentaryError,
   OUT_FPS
