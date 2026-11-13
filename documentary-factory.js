@@ -493,7 +493,7 @@ async function buildPlan(topic, lang, apiKey) {
   throw lastError || new DocumentaryError('Senaryo kurulamadı.');
 }
 
-function pickPixabayFile(hit) {
+function pickPixabayFile(hit, allowLandscape) {
   const videos = hit && hit.videos && typeof hit.videos === 'object' ? hit.videos : {};
   const usable = Object.keys(videos).map((name) => {
     const file = videos[name] || {};
@@ -505,17 +505,30 @@ function pickPixabayFile(hit) {
       size: Number(file.size) || 0
     };
   }).filter((file) => file.url && file.height > 0 && (!file.size || file.size <= 80 * 1024 * 1024));
-  const pool = usable.filter((file) => file.height > file.width && file.height >= 720);
+  const pool = allowLandscape
+    ? usable.filter((file) => Math.max(file.width, file.height) >= 720)
+    : usable.filter((file) => file.height > file.width && file.height >= 720);
   pool.sort((a, b) => {
     const score = (file) => {
-      const portraitBonus = file.height >= file.width ? 0 : 4000;
-      const hdBonus = file.height >= 1280 && file.height <= 2160 ? 0 : Math.abs(file.height - 1920);
+      const portrait = file.height > file.width ? 0 : 5000;
+      const edge = file.height > file.width ? file.height : file.width;
+      const hdBonus = edge >= 1280 && edge <= 2160 ? 0 : Math.abs(edge - 1920);
       const heavy = file.size > 40 * 1024 * 1024 ? 800 : 0;
-      return portraitBonus + hdBonus + heavy;
+      return portrait + hdBonus + heavy;
     };
     return score(a) - score(b);
   });
   return pool[0] || null;
+}
+
+function stockQueries(keyword) {
+  const words = String(keyword || '').trim().split(/\s+/).filter(Boolean);
+  const variants = [];
+  if (words.length) variants.push(words.join(' '));
+  if (words.length > 4) variants.push(words.slice(0, 4).join(' '));
+  if (words.length > 3) variants.push(words.slice(0, 3).join(' '));
+  if (words.length > 2) variants.push(words.slice(0, 2).join(' '));
+  return [...new Set(variants.map((item) => item.slice(0, 100)).filter(Boolean))];
 }
 
 async function searchPixabay(keyword, apiKey, page) {
@@ -549,32 +562,42 @@ async function downloadFile(url, dest) {
   await fs.promises.writeFile(dest, audio);
 }
 
+async function takeStockFile(video, file, dest, usedIds, query) {
+  await downloadFile(file.url, dest);
+  usedIds.add(video.id);
+  return { id: video.id, keyword: query, width: file.width, height: file.height };
+}
+
 async function downloadStock(keyword, apiKey, dest, usedIds) {
-  const exact = String(keyword || '').trim();
-  const withVertical = exact.toLowerCase().includes('vertical')
-    ? ''
-    : `${exact} vertical`.slice(0, 100);
-  const queries = [exact, withVertical];
+  const queries = stockQueries(keyword);
+  let landscape = null;
   for (const query of queries) {
-    if (!query) continue;
-    for (let page = 1; page <= 2; page++) {
-      const videos = await searchPixabay(query, apiKey, page);
-      if (!videos.length) break;
-      for (const video of videos) {
-        if (!video || usedIds.has(video.id)) continue;
-        const file = pickPixabayFile(video);
-        if (!file) continue;
+    const videos = await searchPixabay(query, apiKey, 1);
+    for (const video of videos) {
+      if (!video || usedIds.has(video.id)) continue;
+      const portrait = pickPixabayFile(video, false);
+      if (portrait) {
         try {
-          await downloadFile(file.url, dest);
-          usedIds.add(video.id);
-          return { id: video.id, keyword: query, width: file.width, height: file.height };
+          return await takeStockFile(video, portrait, dest, usedIds, query);
         } catch {
           try { fs.unlinkSync(dest); } catch {}
+          continue;
         }
+      }
+      if (!landscape) {
+        const any = pickPixabayFile(video, true);
+        if (any) landscape = { video, file: any, query };
       }
     }
   }
-  throw new DocumentaryError(`Pixabay "${keyword}" için dikey video vermedi.`);
+  if (landscape) {
+    try {
+      return await takeStockFile(landscape.video, landscape.file, dest, usedIds, landscape.query);
+    } catch {
+      try { fs.unlinkSync(dest); } catch {}
+    }
+  }
+  throw new DocumentaryError(`Pixabay "${keyword}" için video vermedi.`);
 }
 
 async function fitNarration(ffmpegPath, ffprobePath, src, words, text, dest, options) {
@@ -746,6 +769,7 @@ module.exports = {
   produceDocumentary,
   parseScenePlan,
   pickPixabayFile,
+  stockQueries,
   buildCaptionFilter,
   captionPhrases,
   renderScene,
