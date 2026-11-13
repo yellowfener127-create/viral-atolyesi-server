@@ -428,14 +428,40 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote) {
     const data = await res.json().catch(() => ({}));
     return { res, data };
   };
-  let { res, data } = await ask(true, true);
-  if (res.status === 400) {
-    ({ res, data } = await ask(false, false));
+  let jsonMode = true;
+  let thinking = true;
+  let res;
+  let data;
+  for (let tryNo = 0; tryNo < 4; tryNo++) {
+    try {
+      ({ res, data } = await ask(jsonMode, thinking));
+    } catch (err) {
+      if (tryNo < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 1500 * (tryNo + 1)));
+        continue;
+      }
+      throw new DocumentaryError('Gemini şu an yanıt vermiyor. Birkaç saniye sonra tekrar dene.', 503);
+    }
+    if (res.status === 400 && jsonMode) {
+      jsonMode = false;
+      thinking = false;
+      continue;
+    }
+    if ((res.status === 502 || res.status === 503 || res.status === 504) && tryNo < 3) {
+      jsonMode = false;
+      thinking = false;
+      await new Promise((resolve) => setTimeout(resolve, 1500 * (tryNo + 1)));
+      continue;
+    }
+    break;
   }
   if (!res.ok) {
     const detail = JSON.stringify(data).slice(0, 500);
     if (res.status === 429 || /quota/i.test(detail)) {
       throw new DocumentaryError(quotaMessage(detail), 429);
+    }
+    if (res.status === 502 || res.status === 503 || res.status === 504) {
+      throw new DocumentaryError('Gemini şu an meşgul. Birkaç saniye bekleyip yeniden üret.', 503);
     }
     throw new DocumentaryError(`Gemini senaryoyu yazamadı (${res.status}).`);
   }
@@ -459,7 +485,7 @@ async function buildPlan(topic, lang, apiKey) {
       }
       return { scenes, words: total };
     } catch (err) {
-      if (err && (err.statusCode === 401 || err.statusCode === 429)) throw err;
+      if (err && (err.statusCode === 401 || err.statusCode === 429 || err.statusCode === 503)) throw err;
       lastError = err;
       note = err && err.message ? err.message : 'Return valid JSON with 5 or 6 scenes.';
     }
