@@ -215,26 +215,71 @@ function cleanKeyword(raw) {
   return words.join(' ');
 }
 
-function parseScenePlan(raw) {
-  const text = String(raw || '').trim();
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const body = fenced ? fenced[1] : text;
-  const start = body.indexOf('{');
-  const end = body.lastIndexOf('}');
-  let parsed;
-  try {
-    if (start < 0 || end <= start) {
-      const arrStart = body.indexOf('[');
-      const arrEnd = body.lastIndexOf(']');
-      if (arrStart < 0 || arrEnd <= arrStart) throw new Error('no json');
-      parsed = JSON.parse(body.slice(arrStart, arrEnd + 1));
-      parsed = { scenes: parsed };
-    } else {
-      parsed = JSON.parse(body.slice(start, end + 1));
+function repairTruncatedJson(input) {
+  let out = '';
+  const stack = [];
+  let inStr = false;
+  let esc = false;
+  for (const ch of String(input || '')) {
+    out += ch;
+    if (inStr) {
+      if (esc) {
+        esc = false;
+        continue;
+      }
+      if (ch === '\\') {
+        esc = true;
+        continue;
+      }
+      if (ch === '"') inStr = false;
+      continue;
     }
-  } catch {
-    throw new DocumentaryError('Gemini sahne planı JSON döndürmedi.');
+    if (ch === '"') {
+      inStr = true;
+      continue;
+    }
+    if (ch === '{' || ch === '[') stack.push(ch === '{' ? '}' : ']');
+    else if ((ch === '}' || ch === ']') && stack.length) stack.pop();
   }
+  if (inStr) {
+    out = out.replace(/\\+$/, (slashes) => (slashes.length % 2 ? slashes.slice(0, -1) : slashes));
+    out += '"';
+  }
+  out = out.replace(/,\s*$/, '');
+  while (stack.length) out += stack.pop();
+  return out;
+}
+
+function parseJsonLoose(text) {
+  const cleaned = String(text || '')
+    .replace(/^\uFEFF/, '')
+    .replace(/```(?:json)?/gi, '')
+    .replace(/```/g, '')
+    .trim();
+  const objAt = cleaned.indexOf('{');
+  const arrAt = cleaned.indexOf('[');
+  let start = objAt;
+  if (arrAt >= 0 && (objAt < 0 || arrAt < objAt)) start = arrAt;
+  if (start < 0) return null;
+  let slice = cleaned.slice(start).replace(/,\s*([}\]])/g, '$1');
+  for (let cut = 0; cut < 8; cut++) {
+    const attempts = [slice, repairTruncatedJson(slice)];
+    for (const attempt of attempts) {
+      try {
+        return JSON.parse(attempt);
+      } catch {}
+    }
+    const prev = slice.lastIndexOf('}');
+    if (prev <= 0) break;
+    slice = slice.slice(0, prev).replace(/,\s*$/, '');
+  }
+  return null;
+}
+
+function parseScenePlan(raw) {
+  const parsed = parseJsonLoose(raw);
+  if (!parsed) throw new DocumentaryError('Gemini sahne planı JSON döndürmedi.');
+  if (Array.isArray(parsed)) return normalizeScenes({ scenes: parsed });
   return normalizeScenes(parsed);
 }
 
@@ -254,12 +299,18 @@ function normalizeScenes(data) {
   return scenes.slice(0, 6);
 }
 
-function visibleGeminiText(data) {
+function geminiParts(data) {
   const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content
     ? data.candidates[0].content.parts
     : null;
-  if (!Array.isArray(parts)) return '';
-  return parts.filter((part) => part && !part.thought && part.text).map((part) => part.text).join('\n').trim();
+  return Array.isArray(parts) ? parts : [];
+}
+
+function visibleGeminiText(data) {
+  const parts = geminiParts(data);
+  const visible = parts.filter((part) => part && part.text && !part.thought).map((part) => part.text).join('\n').trim();
+  if (visible) return visible;
+  return parts.filter((part) => part && part.text).map((part) => part.text).join('\n').trim();
 }
 
 function quotaMessage(detail) {
@@ -291,21 +342,55 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote) {
     retryNote ? `Fix: ${retryNote}` : '',
     'Return only this JSON shape: {"scenes":[{"narration":"...","search_keyword":"..."}]}'
   ].filter(Boolean).join('\n');
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel())}:generateContent?key=${encodeURIComponent(key)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: retryNote ? 0.6 : 0.85, maxOutputTokens: 2048 }
-      }),
-      signal: AbortSignal.timeout(60000)
+  const temperature = retryNote ? 0.5 : 0.8;
+  const schema = {
+    type: 'OBJECT',
+    properties: {
+      scenes: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            narration: { type: 'STRING' },
+            search_keyword: { type: 'STRING' }
+          },
+          required: ['narration', 'search_keyword']
+        }
+      }
+    },
+    required: ['scenes']
+  };
+  const ask = async (jsonMode, thinking) => {
+    const generationConfig = {
+      temperature,
+      maxOutputTokens: 8192
+    };
+    if (thinking) generationConfig.thinkingConfig = { thinkingBudget: 256 };
+    if (jsonMode) {
+      generationConfig.responseMimeType = 'application/json';
+      generationConfig.responseSchema = schema;
     }
-  );
-  const data = await res.json().catch(() => ({}));
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel())}:generateContent?key=${encodeURIComponent(key)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig
+        }),
+        signal: AbortSignal.timeout(90000)
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    return { res, data };
+  };
+  let { res, data } = await ask(true, true);
+  if (res.status === 400) {
+    ({ res, data } = await ask(false, false));
+  }
   if (!res.ok) {
-    const detail = JSON.stringify(data).slice(0, 400);
+    const detail = JSON.stringify(data).slice(0, 500);
     if (res.status === 429 || /quota/i.test(detail)) {
       throw new DocumentaryError(quotaMessage(detail), 429);
     }
