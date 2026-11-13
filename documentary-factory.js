@@ -1,5 +1,5 @@
 /**
- * Belgesel Fabrikası: Gemini senaryosu, Pixabay dikey stok, ElevenLabs, FFmpeg.
+ * Belgesel Fabrikası: Gemini yönetmen planı, Pixabay, ElevenLabs, FFmpeg.
  * Meme ve Voice Enjektör dosyalarına bağlı değildir.
  */
 const fs = require('fs');
@@ -15,12 +15,37 @@ const {
 const OUT_W = 1080;
 const OUT_H = 1920;
 const OUT_FPS = 30;
-const DOC_VOICE_SETTINGS = Object.freeze({
-  stability: 0.46,
-  similarity_boost: 0.82,
-  style: 0.22,
-  use_speaker_boost: true
-});
+const DOC_VOICE_ID = 'pNInz6obpgDQGcFmaJgB';
+
+function voiceSettingsForTone(tone) {
+  const text = String(tone || '').toLowerCase();
+  let stability = 0.48;
+  let similarity_boost = 0.86;
+  let style = 0.2;
+  if (/calm|soothing|gentle|warm|soft|quiet/.test(text)) {
+    stability = 0.64;
+    similarity_boost = 0.84;
+    style = 0.1;
+  } else if (/urgent|intense|angry|panic|fast|excited|shocked/.test(text)) {
+    stability = 0.26;
+    similarity_boost = 0.78;
+    style = 0.52;
+  } else if (/whisper|mysterious|dark|ominous|dramatic|deep|pause|grave/.test(text)) {
+    stability = 0.36;
+    similarity_boost = 0.9;
+    style = 0.4;
+  } else if (/authoritative|serious|narrator|documentary|neutral|steady/.test(text)) {
+    stability = 0.58;
+    similarity_boost = 0.88;
+    style = 0.16;
+  }
+  return {
+    stability,
+    similarity_boost,
+    style,
+    use_speaker_boost: true
+  };
+}
 
 class DocumentaryError extends Error {
   constructor(message, statusCode) {
@@ -204,15 +229,36 @@ function buildCaptionFilter(words, duration, fontFile) {
   ]).join(',');
 }
 
-function cleanKeyword(raw) {
+function cleanVisualQuery(raw) {
   const words = String(raw || '')
-    .toLowerCase()
-    .replace(/[^a-z\s]/g, ' ')
-    .split(/\s+/)
-    .filter((w) => w.length > 1)
-    .slice(0, 3);
+    .replace(/["']/g, '')
+    .replace(/[^\w\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter((word) => word.length > 1);
   if (words.length < 2) return '';
-  return words.join(' ');
+  let query = '';
+  for (const word of words) {
+    const next = query ? `${query} ${word}` : word;
+    if (next.length > 100) break;
+    query = next;
+  }
+  return query;
+}
+
+function cleanTimestamp(raw) {
+  const text = String(raw || '').trim();
+  const match = text.match(/(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)/);
+  if (!match) return '';
+  return `${match[1]}-${match[2]}`;
+}
+
+function cleanVoiceTone(raw) {
+  return String(raw || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160);
 }
 
 function repairTruncatedJson(input) {
@@ -289,14 +335,21 @@ function normalizeScenes(data) {
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
     const narration = spokenHookText(item.narration || item.text || '');
-    const search_keyword = cleanKeyword(item.search_keyword || item.keyword || '');
-    if (!narration || wordCount(narration) < 4 || !search_keyword) continue;
-    scenes.push({ narration, search_keyword });
+    const visual_search_query = cleanVisualQuery(
+      item.visual_search_query || item.search_keyword || item.keyword || ''
+    );
+    if (!narration || wordCount(narration) < 4 || !visual_search_query) continue;
+    scenes.push({
+      timestamp_sec: cleanTimestamp(item.timestamp_sec || item.timestamp || ''),
+      narration,
+      visual_search_query,
+      voice_tone: cleanVoiceTone(item.voice_tone || item.tone || '') || 'deep documentary'
+    });
   }
   if (scenes.length < 5) {
     throw new DocumentaryError('Sahne planı 5 sahneden kısa kaldı. Konuyu biraz daha açıp yeniden dene.');
   }
-  return scenes.slice(0, 6);
+  return scenes.slice(0, 8);
 }
 
 function geminiParts(data) {
@@ -329,36 +382,35 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote) {
     ? 'Turkish'
     : 'English';
   const prompt = [
-    'You write a vertical documentary short.',
+    'You are the director of a vertical documentary.',
+    'Write one plan that the editor, stock search, and voice actor must follow together.',
     `Topic: ${topic}`,
     `Narration language: ${language}.`,
-    'Length: 110 to 130 spoken words, about 45 to 55 seconds.',
-    'Use 5 or 6 scenes.',
-    'Scene 1 is the hook. Its narration must be one punchy sentence of 8 to 14 words that can be heard in the first 3 seconds.',
-    'Every later scene continues the story without repeating the hook.',
-    'search_keyword is always 2 or 3 concrete English words for a Pixabay stock video search, visual and filmable, such as "ancient roman ruins".',
+    'Cover about 45 to 55 seconds, 110 to 130 spoken words, in 5 to 7 scenes.',
+    'timestamp_sec values are contiguous, start at 0, and look like "0-7".',
+    'Scene 1 is a strong hook that lands inside the first 3 seconds.',
+    'narration is only the words to be spoken. No stage directions inside it.',
+    'visual_search_query is a concrete English Pixabay video search for that exact sentence, visual and filmable.',
+    'Example: "heavy winter blizzard storm over ancient medieval city walls cinematic".',
+    'voice_tone is a short English direction for the narrator, such as "mysterious, deep, dramatic pause at the beginning".',
     'Do not ask for famous living people, logos, or copyrighted film clips.',
-    'No stage directions, no markdown, no commentary.',
+    'No markdown and no commentary.',
     retryNote ? `Fix: ${retryNote}` : '',
-    'Return only this JSON shape: {"scenes":[{"narration":"...","search_keyword":"..."}]}'
+    'Return only a JSON array of scene objects with timestamp_sec, narration, visual_search_query, and voice_tone.'
   ].filter(Boolean).join('\n');
-  const temperature = retryNote ? 0.5 : 0.8;
+  const temperature = retryNote ? 0.4 : 0.7;
   const schema = {
-    type: 'OBJECT',
-    properties: {
-      scenes: {
-        type: 'ARRAY',
-        items: {
-          type: 'OBJECT',
-          properties: {
-            narration: { type: 'STRING' },
-            search_keyword: { type: 'STRING' }
-          },
-          required: ['narration', 'search_keyword']
-        }
-      }
-    },
-    required: ['scenes']
+    type: 'ARRAY',
+    items: {
+      type: 'OBJECT',
+      properties: {
+        timestamp_sec: { type: 'STRING' },
+        narration: { type: 'STRING' },
+        visual_search_query: { type: 'STRING' },
+        voice_tone: { type: 'STRING' }
+      },
+      required: ['timestamp_sec', 'narration', 'visual_search_query', 'voice_tone']
+    }
   };
   const ask = async (jsonMode, thinking) => {
     const generationConfig = {
@@ -409,8 +461,8 @@ async function buildPlan(topic, lang, apiKey) {
       const raw = await askGeminiPlan(topic, lang, apiKey, note);
       const scenes = parseScenePlan(raw);
       const total = scenes.reduce((sum, scene) => sum + wordCount(scene.narration), 0);
-      if (total < 100 || total > 150) {
-        note = `The narration is ${total} words. Rewrite it between 110 and 130 words, still 5 or 6 scenes.`;
+      if (total < 90 || total > 160) {
+        note = `The narration is ${total} words. Return the same JSON array with 110 to 130 spoken words and contiguous timestamp_sec values.`;
         lastError = new DocumentaryError(`Senaryo ${total} kelime çıktı. 110-130 kelime bekleniyor.`);
         continue;
       }
@@ -481,8 +533,11 @@ async function downloadFile(url, dest) {
 }
 
 async function downloadStock(keyword, apiKey, dest, usedIds) {
-  const short = keyword.split(' ').slice(0, 2).join(' ');
-  const queries = [keyword, `${keyword} vertical`, short === keyword ? '' : `${short} vertical`, 'vertical cinematic'];
+  const exact = String(keyword || '').trim();
+  const withVertical = exact.toLowerCase().includes('vertical')
+    ? ''
+    : `${exact} vertical`.slice(0, 100);
+  const queries = [exact, withVertical];
   for (const query of queries) {
     if (!query) continue;
     for (let page = 1; page <= 2; page++) {
@@ -613,14 +668,15 @@ async function produceDocumentary({
         text: scene.narration,
         outDir: tmpDir,
         fileName: `narration_${i}.mp3`,
-        voiceSettings: DOC_VOICE_SETTINGS
+        voiceId: DOC_VOICE_ID,
+        voiceSettings: voiceSettingsForTone(scene.voice_tone)
       });
       const fitted = path.join(tmpDir, `fit_${i}.mp3`);
       const synced = await fitNarration(ffmpeg, ffprobe, speech.filePath, speech.words, scene.narration, fitted);
       const stock = path.join(tmpDir, `stock_${i}.mp4`);
-      await downloadStock(scene.search_keyword, pixabayKey, stock, usedIds);
+      await downloadStock(scene.visual_search_query, pixabayKey, stock, usedIds);
       if (!(await hasVideoStream(ffprobe, stock))) {
-        throw new DocumentaryError(`İndirilen stok videoda görüntü yok (${scene.search_keyword}).`);
+        throw new DocumentaryError(`İndirilen stok videoda görüntü yok (${scene.visual_search_query}).`);
       }
       const segment = path.join(tmpDir, `scene_${i}.mp4`);
       await renderScene({
@@ -634,8 +690,10 @@ async function produceDocumentary({
       });
       segments.push(segment);
       sceneInfo.push({
+        timestamp_sec: scene.timestamp_sec,
         narration: scene.narration,
-        search_keyword: scene.search_keyword,
+        visual_search_query: scene.visual_search_query,
+        voice_tone: scene.voice_tone,
         duration: Number(synced.duration.toFixed(3))
       });
     }
@@ -663,7 +721,9 @@ module.exports = {
   buildCaptionFilter,
   captionPhrases,
   renderScene,
-  cleanKeyword,
+  cleanVisualQuery,
+  voiceSettingsForTone,
+  DOC_VOICE_ID,
   DocumentaryError,
   OUT_FPS
 };
