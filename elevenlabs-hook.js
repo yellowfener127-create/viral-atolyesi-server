@@ -256,7 +256,10 @@ async function synthesizeSpeechAligned(input) {
       throw new ElevenLabsHookError(`Sahne metni ${MAX_SPEECH_CHARS} karakterden uzun.`);
     }
     const apiKey = readApiKey();
-    const voiceId = resolveVoiceId(opts.voiceId);
+    const voiceId = String(opts.voiceId || '').trim();
+    if (!/^[A-Za-z0-9]{10,40}$/.test(voiceId)) {
+      throw new ElevenLabsHookError('Belgesel ses ID gelmedi. İstek .env sesine düşmez.');
+    }
     const modelId = String(opts.modelId || process.env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL_ID).trim();
     const outDir = resolveOutDir(opts.outDir);
     const fileName = opts.fileName ? safeFileName(opts.fileName) : uniqueFileName();

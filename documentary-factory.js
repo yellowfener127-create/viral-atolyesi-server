@@ -17,18 +17,22 @@ const OUT_H = 1920;
 const OUT_FPS = 30;
 const DOC_VOICES = Object.freeze({
   adam: 'pNInz6obpgDQGcFmaJgB',
-  antony: 'ErXwobaYiN019PkySvjV',
-  arnold: 'VR6AewLTigWG4xSOukaG'
+  george: 'JBFqnCBsd6RMkjVDRZzb',
+  brian: 'nPczCjzI2devNBz1zQrb'
 });
 const DOC_VOICE_LABELS = Object.freeze({
   [DOC_VOICES.adam]: 'Ses 1 - Adam (Tok & Derin)',
-  [DOC_VOICES.antony]: 'Ses 2 - Antony (Sinematik Anlatıcı)',
-  [DOC_VOICES.arnold]: 'Ses 3 - Arnold (Güçlü/Tok)'
+  [DOC_VOICES.george]: 'Ses 2 - George (Sinematik Anlatıcı)',
+  [DOC_VOICES.brian]: 'Ses 3 - Brian (Derin & Tok)'
 });
 const DOC_VOICE_KEYS = Object.freeze({
   [DOC_VOICES.adam]: 'adam',
-  [DOC_VOICES.antony]: 'antony',
-  [DOC_VOICES.arnold]: 'arnold'
+  [DOC_VOICES.george]: 'george',
+  [DOC_VOICES.brian]: 'brian'
+});
+const DOC_VOICE_ALIASES = Object.freeze({
+  ErXwobaYiN019PkySvjV: DOC_VOICES.george,
+  VR6AewLTigWG4xSOukaG: DOC_VOICES.brian
 });
 const DOC_VOICE_SETTINGS = Object.freeze({
   stability: 0.45,
@@ -42,18 +46,36 @@ function resolveDocVoice(choice) {
   const key = raw.toLowerCase();
   const pool = Object.values(DOC_VOICES);
   let id = '';
-  if (!key || key === 'random' || key === 'rastgele') {
-    id = pool[Math.floor(Math.random() * pool.length)];
-  } else if (key === 'adam' || key === 'deep' || key === 'ses1' || key === '1' || raw === DOC_VOICES.adam) {
+  let pickedAtRandom = false;
+  if (!key) {
     id = DOC_VOICES.adam;
-  } else if (key === 'antony' || key === 'cinematic' || key === 'ses2' || key === '2' || raw === DOC_VOICES.antony) {
-    id = DOC_VOICES.antony;
-  } else if (key === 'arnold' || key === 'resonant' || key === 'tok' || key === 'ses3' || key === '3' || raw === DOC_VOICES.arnold) {
-    id = DOC_VOICES.arnold;
+  } else if (key === 'random' || key === 'rastgele') {
+    id = pool[Math.floor(Math.random() * pool.length)];
+    pickedAtRandom = true;
+  } else if (DOC_VOICE_ALIASES[raw]) {
+    id = DOC_VOICE_ALIASES[raw];
+  } else if (pool.indexOf(raw) >= 0) {
+    id = raw;
+  } else if (key === 'adam' || key === 'deep' || key === 'ses1' || key === '1') {
+    id = DOC_VOICES.adam;
+  } else if (key === 'george' || key === 'antony' || key === 'cinematic' || key === 'ses2' || key === '2') {
+    id = DOC_VOICES.george;
+  } else if (key === 'brian' || key === 'arnold' || key === 'resonant' || key === 'tok' || key === 'ses3' || key === '3') {
+    id = DOC_VOICES.brian;
   }
-  if (!id) throw new DocumentaryError('Belgesel için yalnızca Adam, Antony veya Arnold seçilebilir.', 400);
-  const pickedAtRandom = !key || key === 'random' || key === 'rastgele';
+  if (!id || !DOC_VOICE_LABELS[id]) {
+    throw new DocumentaryError('Belgesel için yalnızca Adam, George veya Brian seçilebilir.', 400);
+  }
   return { id, label: DOC_VOICE_LABELS[id], choice: pickedAtRandom ? 'random' : DOC_VOICE_KEYS[id] };
+}
+
+function documentaryVoiceFromRequest(body) {
+  const requested = String(
+    (body && (body.voice_id || body.voiceId || body.narrator || body.voice)) || ''
+  ).trim();
+  const voice = resolveDocVoice(requested);
+  console.log(`[belgesel] gelen voice_id=${requested || '(yok, Adam)'} -> ElevenLabs voice_id=${voice.id}`);
+  return voice;
 }
 
 function shapeNarration(narration, tone) {
@@ -77,13 +99,6 @@ function isVoiceRestricted(err) {
   const msg = String(err.message || '');
   if (status === 402) return true;
   return /library voice|free users|cannot use|can not use|voice restriction|not available for|paid plan/i.test(msg);
-}
-
-function voiceRestrictionError() {
-  return new DocumentaryError(
-    'Seçilen ses ve Adam varsayılan sesi bu hesapta API ile kullanılamıyor. Ücretsiz planda kütüphane sesleri kapalı; resmi varsayılan seslerden birini seç.',
-    402
-  );
 }
 
 class DocumentaryError extends Error {
@@ -771,20 +786,15 @@ async function produceDocumentary({
       voiceId: narratorVoice.id,
       voiceSettings: DOC_VOICE_SETTINGS
     };
+    console.log(`[belgesel] ElevenLabs voice_id=${request.voiceId}`);
     try {
       return await synthesizeSpeechAligned(request);
     } catch (err) {
       if (!isVoiceRestricted(err)) throw err;
-      if (narratorVoice.id === DOC_VOICES.adam) throw voiceRestrictionError();
-      const blocked = narratorVoice.label;
-      narratorVoice = resolveDocVoice('adam');
-      voiceWarning = `Seçilen ses (${blocked}) bu hesapta kısıtlı. Adam (varsayılan) ile devam edildi.`;
-      try {
-        return await synthesizeSpeechAligned({ ...request, voiceId: narratorVoice.id });
-      } catch (fallbackErr) {
-        if (isVoiceRestricted(fallbackErr)) throw voiceRestrictionError();
-        throw fallbackErr;
-      }
+      throw new DocumentaryError(
+        `${narratorVoice.label} (${narratorVoice.id}) bu hesapta API ile kullanılamadı. Voice Enjektör sesine dönülmedi.`,
+        402
+      );
     }
   }
   try {
@@ -865,6 +875,7 @@ module.exports = {
   voiceSettingsForTone,
   shapeNarration,
   resolveDocVoice,
+  documentaryVoiceFromRequest,
   isVoiceRestricted,
   DOC_VOICES,
   DocumentaryError,

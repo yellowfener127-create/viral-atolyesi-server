@@ -541,9 +541,9 @@
     <div class="mcc-row" style="margin-top:10px">
       <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:6px;min-width:280px">Anlatıcı Sesi Seç
         <select class="tool-input" id="docVoice">
-          <option value="adam">Ses 1 - Adam (Tok & Derin)</option>
-          <option value="antony">Ses 2 - Antony (Sinematik Anlatıcı)</option>
-          <option value="arnold">Ses 3 - Arnold (Güçlü/Tok)</option>
+          <option value="pNInz6obpgDQGcFmaJgB" selected>Ses 1 - Adam (Tok & Derin)</option>
+          <option value="JBFqnCBsd6RMkjVDRZzb">Ses 2 - George (Sinematik Anlatıcı)</option>
+          <option value="nPczCjzI2devNBz1zQrb">Ses 3 - Brian (Derin & Tok)</option>
           <option value="random">Rastgele Seç</option>
         </select>
       </label>
@@ -3028,8 +3028,9 @@ async function runDocumentary() {
   const topic = String((document.getElementById("docTopic") || {}).value || "").trim();
   const lang = (document.getElementById("docLang") && document.getElementById("docLang").value) === "tr" ? "tr" : "en";
   const voiceEl = document.getElementById("docVoice");
-  const narratorChoices = ["adam", "antony", "arnold", "random"];
-  const narrator = voiceEl && narratorChoices.indexOf(voiceEl.value) >= 0 ? voiceEl.value : "random";
+  const docVoiceIds = ["pNInz6obpgDQGcFmaJgB", "JBFqnCBsd6RMkjVDRZzb", "nPczCjzI2devNBz1zQrb"];
+  const pickedVoice = voiceEl ? String(voiceEl.value || "").trim() : "";
+  const voiceId = pickedVoice === "random" || docVoiceIds.indexOf(pickedVoice) >= 0 ? pickedVoice : "pNInz6obpgDQGcFmaJgB";
   if (topic.length < 8) {
     alert("Konuyu birkaç kelimeyle yaz.");
     return;
@@ -3049,7 +3050,7 @@ async function runDocumentary() {
     const res = await fetch("http://127.0.0.1:8787/documentary", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic: topic, lang: lang, narrator: narrator, gemini_api_key: geminiKey })
+      body: JSON.stringify({ topic: topic, lang: lang, voice_id: voiceId, gemini_api_key: geminiKey })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));

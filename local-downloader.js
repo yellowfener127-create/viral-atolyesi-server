@@ -2424,7 +2424,7 @@ app.post('/documentary', async (req, res) => {
       topic,
       lang,
       geminiKey: String(req.body?.gemini_api_key || req.body?.geminiApiKey || '').trim(),
-      narrator: String(req.body?.narrator ?? req.body?.voice ?? '').trim(),
+      narrator: documentaryFactory.documentaryVoiceFromRequest(req.body).id,
       ffmpegPath: 'ffmpeg',
       ffprobePath: 'ffprobe',
       outFile
