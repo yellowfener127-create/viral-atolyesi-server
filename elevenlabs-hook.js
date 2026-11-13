@@ -239,9 +239,66 @@ async function synthesizeHookAligned(input) {
   }
 }
 
+const MAX_SPEECH_CHARS = 900;
+
+/**
+ * Belgesel sahnesi gibi daha uzun metin. Kanca limiti burada uygulanmaz.
+ * @returns {Promise<{ filePath: string, words: { word: string, start: number, end: number }[] }>}
+ */
+async function synthesizeSpeechAligned(input) {
+  const opts = typeof input === 'string' ? { text: input } : (input || {});
+  try {
+    const text = spokenHookText(opts.text);
+    if (!text) throw new ElevenLabsHookError('Seslendirilecek metin boş.');
+    if (text.length > MAX_SPEECH_CHARS) {
+      throw new ElevenLabsHookError(`Sahne metni ${MAX_SPEECH_CHARS} karakterden uzun.`);
+    }
+    const apiKey = readApiKey();
+    const voiceId = resolveVoiceId(opts.voiceId);
+    const modelId = String(opts.modelId || process.env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL_ID).trim();
+    const outDir = resolveOutDir(opts.outDir);
+    const fileName = opts.fileName ? safeFileName(opts.fileName) : uniqueFileName();
+    const filePath = path.join(outDir, fileName);
+    const settings = opts.voiceSettings || HOOK_VOICE_SETTINGS;
+    const url = `${TTS_URL}/${encodeURIComponent(voiceId)}/with-timestamps?output_format=${OUTPUT_FORMAT}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      },
+      body: JSON.stringify({
+        text,
+        model_id: modelId,
+        voice_settings: settings
+      }),
+      signal: AbortSignal.timeout(90000)
+    });
+    if (!res.ok) {
+      const detail = await readErrorBody(res);
+      throw new ElevenLabsHookError(`ElevenLabs ${res.status}: ${detail}`, { status: res.status });
+    }
+    const data = await res.json();
+    const audio = Buffer.from(String(data.audio_base64 || ''), 'base64');
+    if (audio.length < 64) throw new ElevenLabsHookError('ElevenLabs boş bir ses dosyası döndürdü.');
+    await fs.promises.mkdir(outDir, { recursive: true });
+    await fs.promises.writeFile(filePath, audio);
+    const alignment = data.normalized_alignment || data.alignment || null;
+    return { filePath, words: wordsFromAlignment(text, alignment) };
+  } catch (err) {
+    if (err instanceof ElevenLabsHookError) throw err;
+    if (err && err.name === 'TimeoutError') {
+      throw new ElevenLabsHookError('ElevenLabs 90 saniye içinde yanıt vermedi.');
+    }
+    throw new ElevenLabsHookError(err && err.message ? err.message : 'Ses üretilemedi.');
+  }
+}
+
 module.exports = {
   synthesizeHook,
   synthesizeHookAligned,
+  synthesizeSpeechAligned,
   wordsFromAlignment,
   spokenHookText,
   HOOK_VOICE_SETTINGS,

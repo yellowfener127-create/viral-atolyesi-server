@@ -23,9 +23,9 @@
 
   /* HEADER */
   .header{
-    height:68px;border-bottom:1px solid var(--border);
+    min-height:68px;border-bottom:1px solid var(--border);
     background:rgba(10,12,22,0.78);backdrop-filter:saturate(1.4) blur(16px);
-    padding:0 24px;display:flex;align-items:center;
+    padding:8px 24px;display:flex;align-items:center;flex-wrap:wrap;
     justify-content:space-between;position:sticky;top:0;z-index:50;gap:12px;
   }
   .logo-wrap{display:flex;align-items:center;gap:10px;flex-shrink:0;min-width:0}
@@ -35,7 +35,7 @@
   }
   .logo{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px}
   .logo span{color:var(--accent)}
-  .nav{display:flex;gap:6px}
+  .nav{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
   .nav-btn{
     padding:7px 16px;border-radius:20px;border:1px solid var(--border);
     background:var(--surface);font-family:'Outfit',sans-serif;font-size:12px;
@@ -294,6 +294,7 @@
     <button class="nav-btn active" data-page="main" onclick="showPage('main')">🏠 Ana Sayfa</button>
     <button class="nav-btn" data-page="mix" onclick="showPage('mix')">🎬 Mix &amp; Derleme</button>
     <button class="nav-btn" data-page="voice" onclick="showPage('voice')">🎙️ Voice Enjektör</button>
+    <button class="nav-btn" data-page="doc" onclick="showPage('doc')">🎞️ Belgesel Fabrikası</button>
     <button class="nav-btn" data-page="tools" onclick="showPage('tools')">🛠️ Araçlar</button>
   </div>
   <div class="day-badge" id="dayBadge">📅 <strong>—</strong></div>
@@ -519,6 +520,31 @@
 </div>
 </div>
 
+<div class="page" id="page-doc">
+<div class="wrap">
+  <div style="margin-bottom:18px">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;margin-bottom:6px">Belgesel Fabrikası</div>
+    <div style="font-size:13px;color:var(--muted)">Konu bir dikey belgesele dönüşür. Senaryo Gemini, görüntü Pixabay telifsiz stok, ses ElevenLabs. Çıktı 9:16 ve kelime kelime beyaz altyazılıdır. Mix ve Voice Enjektör aynı kalır.</div>
+  </div>
+  <div class="tool-card" style="max-width:920px">
+    <div class="tool-title">Konu</div>
+    <textarea class="tool-input" id="docTopic" rows="3" maxlength="240" placeholder="What if Rome never fell?"></textarea>
+    <div class="mcc-row" style="margin-top:10px">
+      <button type="button" class="tool-btn" style="width:auto" onclick="docRandomTopic()">Rastgele Viral Konu Üret</button>
+      <label style="font-size:12px;color:var(--muted)">Dil
+        <select class="tool-input" id="docLang">
+          <option value="en">İngilizce (Global / ABD)</option>
+          <option value="tr">Türkçe</option>
+        </select>
+      </label>
+    </div>
+    <button class="tool-btn" type="button" id="docBuildBtn" onclick="runDocumentary()" style="margin-top:12px">Belgeseli Üret ve Kaydet</button>
+    <div class="tool-desc" style="margin-top:10px">Aktif Gemini anahtarı Araçlar → Gemini listesinden gelir. Pixabay anahtarı <code>.env</code> içindeki <code>PIXABAY_API_KEY</code> satırıdır. Çıktı: <code>C:\Users\DELL\Videos\Viral Atölyesi İndirilenler\belgesel\</code></div>
+    <div class="tool-result" id="docMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
+  </div>
+</div>
+</div>
+
 <!-- ARAÇLAR SAYFASI -->
 <div class="page" id="page-tools">
 <div class="wrap">
@@ -544,7 +570,7 @@
 
     <div class="mcc-panel" id="mcc-gemini">
       <div class="tool-title" style="font-size:16px">🧠 Gemini API</div>
-      <div class="tool-desc">Birden fazla anahtar ekle. Sohbet ve Voice Enjektör yeşil rozetli olanı kullanır. Kota dolunca diğerine geç; sunucuyu yeniden başlatmana gerek yok.</div>
+      <div class="tool-desc">Birden fazla anahtar ekle. Sohbet, Voice Enjektör ve Belgesel Fabrikası yeşil rozetli olanı kullanır. Kota dolunca diğerine geç; sunucuyu yeniden başlatmana gerek yok.</div>
       <input class="tool-input" id="geminiLabelInput" maxlength="40" placeholder="Etiket (Hesap 1, Yedek 2)" />
       <input class="tool-input" type="password" id="geminiInput" placeholder="AIzaSy... Gemini API key" autocomplete="off" />
       <button class="tool-btn" type="button" id="geminiSaveBtn" onclick="addGeminiKey()">Listeye Ekle / Kaydet</button>
@@ -2942,6 +2968,91 @@ async function runVoiceCompilation() {
     if (msg) { msg.style.display = "block"; msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e)); }
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "Voice derlemeyi kaydet"; }
+  }
+}
+
+const DOC_TOPICS = {
+  en: [
+    "What if Rome never fell?",
+    "The darkest secret of Sparta",
+    "Why the Library of Alexandria vanished",
+    "What if Napoleon reached Moscow?",
+    "The lost city under the Sahara",
+    "How Venice was built on water",
+    "The emperor who erased his own brother",
+    "What if the Silk Road never existed?",
+    "The storm that saved Constantinople",
+    "Why the Maya left their cities",
+    "What if Cleopatra won at Actium?",
+    "The volcano that cooled the world"
+  ],
+  tr: [
+    "Roma hiç düşmeseydi ne olurdu?",
+    "Sparta'nın en karanlık sırrı",
+    "İskenderiye kütüphanesi neden yok oldu?",
+    "Napolyon Moskova'ya varabilseydi",
+    "Sahra'nın altında kayıp şehir",
+    "Venedik suyun üstüne nasıl kuruldu?",
+    "Kardeşini tarihten silen imparator",
+    "İpek Yolu hiç olmasaydı",
+    "Konstantinopolis'i kurtaran fırtına",
+    "Maya şehirlerini neden terk etti?",
+    "Kleopatra Actium'da kazansaydı",
+    "Dünyayı bir yıl soğutan yanardağ"
+  ]
+};
+
+function docRandomTopic() {
+  const lang = (document.getElementById("docLang") && document.getElementById("docLang").value) === "tr" ? "tr" : "en";
+  const box = document.getElementById("docTopic");
+  const pool = DOC_TOPICS[lang];
+  const current = box ? String(box.value || "").trim() : "";
+  let pick = pool[Math.floor(Math.random() * pool.length)];
+  if (pool.length > 1 && pick === current) pick = pool[(pool.indexOf(pick) + 1) % pool.length];
+  if (box) box.value = pick;
+}
+
+async function runDocumentary() {
+  const btn = document.getElementById("docBuildBtn");
+  const msg = document.getElementById("docMsg");
+  const topic = String((document.getElementById("docTopic") || {}).value || "").trim();
+  const lang = (document.getElementById("docLang") && document.getElementById("docLang").value) === "tr" ? "tr" : "en";
+  if (topic.length < 8) {
+    alert("Konuyu birkaç kelimeyle yaz.");
+    return;
+  }
+  let geminiKey = "";
+  try { geminiKey = geminiKeySaved(); } catch (eKey) {}
+  if (!geminiKey) {
+    alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Belgesel üretiliyor…"; }
+  if (msg) {
+    msg.style.display = "block";
+    msg.textContent = "Senaryo, Pixabay görüntüleri, ElevenLabs sesi ve montaj sırayla çalışıyor. Bu birkaç dakika sürebilir.";
+  }
+  try {
+    const res = await fetch("http://127.0.0.1:8787/documentary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic: topic, lang: lang, gemini_api_key: geminiKey })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
+    const scenes = (data.documentary && data.documentary.scenes) ? data.documentary.scenes : [];
+    const lines = scenes.map((scene, i) => (i + 1) + ". " + scene.search_keyword + " — " + scene.narration).join("\n");
+    if (msg) {
+      msg.textContent =
+        "Kaydedildi: " + (data.absPath || "") +
+        "\nSüre: " + ((data.documentary && data.documentary.duration) || "?") + "s" +
+        "\nKelime: " + ((data.documentary && data.documentary.words) || "?") +
+        (lines ? ("\n" + lines) : "");
+    }
+  } catch (e) {
+    if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Belgeseli Üret ve Kaydet"; }
   }
 }
 

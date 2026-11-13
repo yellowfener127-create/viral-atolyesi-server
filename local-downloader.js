@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const crush = require('./crush-pipeline');
 const compilationMixer = require('./compilation-mixer');
 const voiceInjector = require('./voice-injector');
+const documentaryFactory = require('./documentary-factory');
 const publishQueue = require('./publish-queue');
 
 const app = express();
@@ -25,6 +26,11 @@ function getMixDir() {
 }
 function getVoiceDir() {
   const dir = process.env.VA_VOICE_DIR || path.join(DOWNLOAD_DIR, 'voice');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+function getDocumentaryDir() {
+  const dir = process.env.VA_DOC_DIR || path.join(DOWNLOAD_DIR, 'belgesel');
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -2397,6 +2403,47 @@ async function normalizeLocalCrushSource(inFile, outFile) {
   }
 }
 
+let __docInProgress = false;
+
+app.post('/documentary', async (req, res) => {
+  res.setTimeout(12 * 60 * 1000);
+  const topic = String(req.body?.topic || '').replace(/\s+/g, ' ').trim();
+  const lang = String(req.body?.lang || 'en').toLowerCase() === 'tr' ? 'tr' : 'en';
+  if (topic.length < 8) return res.status(400).json({ error: 'Konu en az birkaç kelime olsun.' });
+  if (__docInProgress) return res.status(409).json({ error: 'Bir belgesel zaten üretiliyor.' });
+  const hasFfmpeg = await existsOnPath('ffmpeg');
+  const hasFfprobe = await existsOnPath('ffprobe');
+  if (!hasFfmpeg || !hasFfprobe) return res.status(500).json({ error: 'ffmpeg/ffprobe bulunamadı.' });
+  __docInProgress = true;
+  const docDir = getDocumentaryDir();
+  const stamp = Date.now();
+  const slug = safeName(topic).replace(/[. ]+$/g, '').slice(0, 80) || 'belgesel';
+  const outFile = path.join(docDir, `${slug}_${stamp}.mp4`);
+  try {
+    const info = await documentaryFactory.produceDocumentary({
+      topic,
+      lang,
+      geminiKey: String(req.body?.gemini_api_key || req.body?.geminiApiKey || '').trim(),
+      ffmpegPath: 'ffmpeg',
+      ffprobePath: 'ffprobe',
+      outFile
+    });
+    return res.json({
+      ok: true,
+      savedTo: docDir,
+      file: path.basename(outFile),
+      absPath: outFile,
+      documentary: info
+    });
+  } catch (e) {
+    try { if (fs.existsSync(outFile)) fs.unlinkSync(outFile); } catch {}
+    const code = e && e.statusCode ? e.statusCode : 500;
+    return res.status(code).json({ error: (e && e.message) ? e.message : String(e) });
+  } finally {
+    __docInProgress = false;
+  }
+});
+
 app.post('/crush', async (req, res) => {
   const url = req.body?.url || req.query?.url;
   const brand = normBrand(req.body?.brand || req.query?.brand || 'terapi');
@@ -3027,12 +3074,14 @@ app.post('/crush', async (req, res) => {
 });
 
 if (require.main === module) {
-  app.listen(PORT, '127.0.0.1', () => {
+  const server = app.listen(PORT, '127.0.0.1', () => {
     console.log(`Local Downloader running on http://127.0.0.1:${PORT}`);
     console.log('Download dir:', DOWNLOAD_DIR);
     console.log('yt-dlp:', YTDLP_BIN);
     publishQueue.startScheduler();
   });
+  server.requestTimeout = 15 * 60 * 1000;
+  server.headersTimeout = 16 * 60 * 1000;
 }
 
 module.exports = {
