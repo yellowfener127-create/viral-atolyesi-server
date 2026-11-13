@@ -1,8 +1,8 @@
 /**
- * Kanca MP3'ünü ham videonun 0. saniyesine oturtur.
- * Görüntü kopyalanır: en-boy, fps ve kare değişmez.
+ * Kanca sesi videodan önce, tek başına çalar.
+ * İlk kare o süre boyunca donar; belgesel görüntüsü ve sesi Adam bitince başlar.
+ * Kanca sesine altyazı basılmaz. Üstteki hook yazısı ezilmiş karede durur.
  * 60 fps ve üzeri 59'a iner. Yatay çevirme ve settb yok.
- * hookText verilirse kanca süresince tek satır altyazı basılır; ayrı açıklama dosyası yazılmaz.
  *
  *   const { composeHookVideo } = require('./hook-compose');
  *   const outputPath = await composeHookVideo({ videoPath, hookMp3Path, outputPath, hookText });
@@ -197,28 +197,21 @@ function buildVideoChain({ hookText, hookDur, height, fontFile, limitFps, copyab
   return caption;
 }
 
-function buildHookFilterGraph({ hasVideoAudio, hookDur, videoDur, videoFilter }) {
-  const dur = Math.max(0.05, Number(videoDur) || 0).toFixed(3);
-  const hookChain =
+function buildHookFilterGraph({ hasVideoAudio, hookDur, videoDur, limitFps }) {
+  const hook = Math.max(0.05, Number(hookDur) || 0).toFixed(3);
+  const video = Math.max(0.05, Number(videoDur) || 0).toFixed(3);
+  const fps = limitFps ? `,fps=${MAX_FPS}` : '';
+  const videoChain =
+    `[0:v]setpts=PTS-STARTPTS${fps},tpad=start_duration=${hook}:start_mode=clone,format=yuv420p,setsar=1[vout]`;
+  const hookAudio =
     `[1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,` +
-    `asetpts=PTS-STARTPTS,atrim=duration=${dur},apad=whole_dur=${dur},volume=1.0[hk]`;
-  const parts = [];
-  if (videoFilter) parts.push(videoFilter);
-  if (hasVideoAudio) {
-    parts.push(
-      `[0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,` +
-      `asetpts=PTS-STARTPTS,apad=whole_dur=${dur},volume='${bedVolumeExpr(hookDur)}':eval=frame[bg]`
-    );
-    parts.push(hookChain);
-    parts.push(
-      `[bg][hk]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[aout]`
-    );
-  } else {
-    parts.push(hookChain.replace('[hk]', '[aout]'));
-  }
-  const graph = parts.join(';');
-  if (/\bhflip\b|\bsettb=/.test(graph)) {
-    throw new HookComposeError('Kurgu filtresi görüntüyü çeviremez veya settb kullanamaz.');
+    `asetpts=PTS-STARTPTS,atrim=duration=${hook},apad=whole_dur=${hook}[hk]`;
+  const bed = hasVideoAudio
+    ? `[0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS,apad=whole_dur=${video},atrim=duration=${video}[bg]`
+    : `anullsrc=channel_layout=stereo:sample_rate=44100,atrim=duration=${video},asetpts=PTS-STARTPTS[bg]`;
+  const graph = [videoChain, hookAudio, bed, '[hk][bg]concat=n=2:v=0:a=1[aout]'].join(';');
+  if (/\bhflip\b|\bsettb=|\bdrawtext\b/.test(graph)) {
+    throw new HookComposeError('Kanca sekansında altyazı, çevirme veya settb yok.');
   }
   return graph;
 }
@@ -316,25 +309,15 @@ async function composeHookVideo(input) {
       throw new HookComposeError('Kanca sesinin süresi okunamadı.');
     }
 
-    const hookDur = Math.min(hookFacts.duration, videoFacts.duration);
-    const fontFile = pickDrawtextFont();
+    const hookDur = Math.min(hookFacts.duration, 8);
     const limitFps = !!(videoFacts.fps && videoFacts.fps >= 60);
-    const copyable = /^(h264|hevc|mpeg4)$/i.test(videoFacts.codec);
-    const videoFilter = buildVideoChain({
-      hookText: opts.hookText,
-      hookDur,
-      height: videoFacts.height,
-      fontFile,
-      limitFps,
-      copyable
-    });
     const graph = buildHookFilterGraph({
       hasVideoAudio: videoFacts.hasAudio,
       hookDur,
       videoDur: videoFacts.duration,
-      videoFilter
+      limitFps
     });
-    const copyVideo = !videoFilter;
+    const copyVideo = false;
     scriptPath = path.join(os.tmpdir(), `va_hook_fc_${Date.now()}_${crypto.randomBytes(3).toString('hex')}.txt`);
     await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
     await fs.promises.writeFile(scriptPath, graph, 'utf8');
@@ -376,6 +359,11 @@ async function composeHookVideo(input) {
     if (outFacts.width !== videoFacts.width || outFacts.height !== videoFacts.height) {
       await fs.promises.unlink(outputPath).catch(() => {});
       throw new HookComposeError('Çıkış en-boy oranı ham video ile aynı değil.');
+    }
+    const expected = videoFacts.duration + hookDur;
+    if (Math.abs(outFacts.duration - expected) > 0.45) {
+      await fs.promises.unlink(outputPath).catch(() => {});
+      throw new HookComposeError('Kanca sesi videoyla üst üste bindi. Video, ses bitince başlamalı.');
     }
     if (outFacts.fps && outFacts.fps >= 60) {
       await fs.promises.unlink(outputPath).catch(() => {});
