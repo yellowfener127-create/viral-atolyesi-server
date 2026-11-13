@@ -524,7 +524,7 @@
 <div class="wrap">
   <div style="margin-bottom:18px">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;margin-bottom:6px">Belgesel Fabrikası</div>
-    <div style="font-size:13px;color:var(--muted)">Konu bir dikey belgesele dönüşür. Senaryo Gemini, görüntü Pixabay telifsiz stok, ses ElevenLabs. Çıktı 9:16 ve kelime kelime beyaz altyazılıdır. Mix ve Voice Enjektör aynı kalır.</div>
+    <div style="font-size:13px;color:var(--muted)">Konu bir dikey belgesele dönüşür. Senaryo Gemini, görüntü Pixabay dikey fotoğraf ve sinematik kaydırma, ses ElevenLabs Adam. Çıktı 9:16 ve kelime kelime beyaz altyazılıdır.</div>
   </div>
   <div class="tool-card" style="max-width:920px">
     <div class="tool-title">Konu</div>
@@ -3041,7 +3041,7 @@ async function runDocumentary() {
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
     const scenes = (data.documentary && data.documentary.scenes) ? data.documentary.scenes : [];
-    const lines = scenes.map((scene, i) => (i + 1) + ". " + (scene.timestamp_sec || "") + " " + (scene.visual_search_query || scene.search_keyword || "") + " [" + (scene.voice_tone || "") + "] — " + scene.narration).join("\n");
+    const lines = scenes.map((scene, i) => (i + 1) + ". " + (scene.timestamp_sec || "") + " " + (scene.image_search_query || scene.visual_search_query || "") + " [" + (scene.voice_tone || "") + "] — " + scene.narration).join("\n");
     if (msg) {
       msg.textContent =
         "Kaydedildi: " + (data.absPath || "") +

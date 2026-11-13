@@ -1,5 +1,5 @@
 /**
- * Belgesel Fabrikası: Gemini yönetmen planı, Pixabay, ElevenLabs, FFmpeg.
+ * Belgesel Fabrikası: Gemini yönetmen planı, Pixabay fotoğraf, pan, ElevenLabs, FFmpeg.
  * Meme ve Voice Enjektör dosyalarına bağlı değildir.
  */
 const fs = require('fs');
@@ -113,22 +113,6 @@ function probeDurationSec(ffprobePath, filePath) {
       resolve(Number.isFinite(n) ? n : 0);
     });
     child.on('error', () => resolve(0));
-  });
-}
-
-function hasVideoStream(ffprobePath, filePath) {
-  return new Promise((resolve) => {
-    const child = spawn(ffprobePath || 'ffprobe', [
-      '-v', 'error',
-      '-select_streams', 'v:0',
-      '-show_entries', 'stream=codec_type',
-      '-of', 'csv=p=0',
-      filePath
-    ], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
-    let out = '';
-    child.stdout.on('data', (d) => { out += d.toString(); });
-    child.on('close', () => resolve(/video/i.test(out)));
-    child.on('error', () => resolve(false));
   });
 }
 
@@ -326,14 +310,14 @@ function normalizeScenes(data) {
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
     const narration = spokenHookText(item.narration || item.text || '');
-    const visual_search_query = cleanVisualQuery(
-      item.visual_search_query || item.search_keyword || item.keyword || ''
+    const image_search_query = cleanVisualQuery(
+      item.image_search_query || item.visual_search_query || item.search_keyword || item.keyword || ''
     );
-    if (!narration || wordCount(narration) < 4 || !visual_search_query) continue;
+    if (!narration || wordCount(narration) < 4 || !image_search_query) continue;
     scenes.push({
       timestamp_sec: cleanTimestamp(item.timestamp_sec || item.timestamp || ''),
       narration,
-      visual_search_query,
+      image_search_query,
       voice_tone: cleanVoiceTone(item.voice_tone || item.tone || '') || 'deep documentary'
     });
   }
@@ -381,13 +365,13 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote) {
     'timestamp_sec values are contiguous, start at 0, and look like "0-7".',
     'Scene 1 is a strong hook that lands inside the first 3 seconds.',
     'narration is only the words to be spoken. No stage directions inside it.',
-    'visual_search_query is a concrete English Pixabay video search for that exact sentence, visual and filmable.',
-    'Example: "heavy winter blizzard storm over ancient medieval city walls cinematic".',
+    'image_search_query is a concrete English Pixabay photo search for a vertical historical or mythological still that matches that sentence.',
+    'Example: "ancient roman marble ruins in winter rain".',
     'voice_tone is a short English direction for the narrator, such as "mysterious, deep, dramatic pause at the beginning".',
-    'Do not ask for famous living people, logos, or copyrighted film clips.',
+    'Do not ask for famous living people, logos, or copyrighted film stills.',
     'No markdown and no commentary.',
     retryNote ? `Fix: ${retryNote}` : '',
-    'Return only a JSON array of scene objects with timestamp_sec, narration, visual_search_query, and voice_tone.'
+    'Return only a JSON array of scene objects with timestamp_sec, narration, image_search_query, and voice_tone.'
   ].filter(Boolean).join('\n');
   const temperature = retryNote ? 0.4 : 0.7;
   const schema = {
@@ -397,10 +381,10 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote) {
       properties: {
         timestamp_sec: { type: 'STRING' },
         narration: { type: 'STRING' },
-        visual_search_query: { type: 'STRING' },
+        image_search_query: { type: 'STRING' },
         voice_tone: { type: 'STRING' }
       },
-      required: ['timestamp_sec', 'narration', 'visual_search_query', 'voice_tone']
+      required: ['timestamp_sec', 'narration', 'image_search_query', 'voice_tone']
     }
   };
   const ask = async (jsonMode, thinking) => {
@@ -493,32 +477,13 @@ async function buildPlan(topic, lang, apiKey) {
   throw lastError || new DocumentaryError('Senaryo kurulamadı.');
 }
 
-function pickPixabayFile(hit, allowLandscape) {
-  const videos = hit && hit.videos && typeof hit.videos === 'object' ? hit.videos : {};
-  const usable = Object.keys(videos).map((name) => {
-    const file = videos[name] || {};
-    return {
-      name,
-      url: String(file.url || ''),
-      width: Number(file.width) || 0,
-      height: Number(file.height) || 0,
-      size: Number(file.size) || 0
-    };
-  }).filter((file) => file.url && file.height > 0 && (!file.size || file.size <= 80 * 1024 * 1024));
-  const pool = allowLandscape
-    ? usable.filter((file) => Math.max(file.width, file.height) >= 720)
-    : usable.filter((file) => file.height > file.width && file.height >= 720);
-  pool.sort((a, b) => {
-    const score = (file) => {
-      const portrait = file.height > file.width ? 0 : 5000;
-      const edge = file.height > file.width ? file.height : file.width;
-      const hdBonus = edge >= 1280 && edge <= 2160 ? 0 : Math.abs(edge - 1920);
-      const heavy = file.size > 40 * 1024 * 1024 ? 800 : 0;
-      return portrait + hdBonus + heavy;
-    };
-    return score(a) - score(b);
-  });
-  return pool[0] || null;
+function pickPixabayPhoto(hit) {
+  if (!hit) return null;
+  const url = String(hit.largeImageURL || hit.webformatURL || '').trim();
+  const width = Number(hit.imageWidth) || 0;
+  const height = Number(hit.imageHeight) || 0;
+  if (!url || height < 400) return null;
+  return { url, width, height, id: hit.id };
 }
 
 function stockQueries(keyword) {
@@ -535,13 +500,13 @@ async function searchPixabay(keyword, apiKey, page) {
   const params = new URLSearchParams({
     key: apiKey,
     q: keyword,
+    image_type: 'photo',
     orientation: 'vertical',
-    video_type: 'film',
     safesearch: 'true',
-    per_page: '40',
+    per_page: '20',
     page: String(page || 1)
   });
-  const res = await fetch(`https://pixabay.com/api/videos/?${params.toString()}`, {
+  const res = await fetch(`https://pixabay.com/api/?${params.toString()}`, {
     signal: AbortSignal.timeout(30000)
   });
   if (res.status === 400 || res.status === 401 || res.status === 403) {
@@ -554,50 +519,96 @@ async function searchPixabay(keyword, apiKey, page) {
 
 async function downloadFile(url, dest) {
   const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(120000) });
-  if (!res.ok) throw new DocumentaryError(`Stok video indirilemedi (${res.status}).`);
+  if (!res.ok) throw new DocumentaryError(`Fotoğraf indirilemedi (${res.status}).`);
   const audio = Buffer.from(await res.arrayBuffer());
   if (audio.length < 2048 || audio.length > 80 * 1024 * 1024) {
-    throw new DocumentaryError('Stok video boyutu uygun değil.');
+    throw new DocumentaryError('Fotoğraf boyutu uygun değil.');
   }
   await fs.promises.writeFile(dest, audio);
 }
 
-async function takeStockFile(video, file, dest, usedIds, query) {
-  await downloadFile(file.url, dest);
-  usedIds.add(video.id);
-  return { id: video.id, keyword: query, width: file.width, height: file.height };
+async function downloadPhoto(keyword, apiKey, dest, usedIds) {
+  const queries = stockQueries(keyword);
+  for (const query of queries) {
+    let hits = [];
+    try {
+      hits = await searchPixabay(query, apiKey, 1);
+    } catch (err) {
+      if (err && err.statusCode === 401) throw err;
+      continue;
+    }
+    const ranked = hits
+      .map((hit) => pickPixabayPhoto(hit))
+      .filter((photo) => photo && !usedIds.has(photo.id))
+      .sort((a, b) => (b.width * b.height) - (a.width * a.height));
+    for (const photo of ranked) {
+      try {
+        await downloadFile(photo.url, dest);
+        usedIds.add(photo.id);
+        return { id: photo.id, keyword: query, width: photo.width, height: photo.height };
+      } catch {
+        try { fs.unlinkSync(dest); } catch {}
+      }
+    }
+  }
+  throw new DocumentaryError(`Pixabay "${keyword}" için dikey fotoğraf vermedi.`);
 }
 
-async function downloadStock(keyword, apiKey, dest, usedIds) {
-  const queries = stockQueries(keyword);
-  let landscape = null;
-  for (const query of queries) {
-    const videos = await searchPixabay(query, apiKey, 1);
-    for (const video of videos) {
-      if (!video || usedIds.has(video.id)) continue;
-      const portrait = pickPixabayFile(video, false);
-      if (portrait) {
-        try {
-          return await takeStockFile(video, portrait, dest, usedIds, query);
-        } catch {
-          try { fs.unlinkSync(dest); } catch {}
-          continue;
-        }
+function probeImageSize(ffprobePath, filePath) {
+  return new Promise((resolve) => {
+    const child = spawn(ffprobePath || 'ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height',
+      '-of', 'json',
+      filePath
+    ], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d.toString(); });
+    child.on('close', () => {
+      try {
+        const stream = (JSON.parse(out).streams || [])[0] || {};
+        resolve({ width: Number(stream.width) || 0, height: Number(stream.height) || 0 });
+      } catch {
+        resolve({ width: 0, height: 0 });
       }
-      if (!landscape) {
-        const any = pickPixabayFile(video, true);
-        if (any) landscape = { video, file: any, query };
-      }
-    }
+    });
+    child.on('error', () => resolve({ width: 0, height: 0 }));
+  });
+}
+
+function evenSize(value) {
+  const n = Math.max(2, Math.round(value));
+  return n + (n % 2);
+}
+
+function buildPanFilter(width, height, duration, sceneIndex) {
+  const dur = Math.max(0.4, Number(duration) || 1);
+  const durText = dur.toFixed(3);
+  const aspect = width / Math.max(1, height);
+  const frameAspect = OUT_W / OUT_H;
+  const grow = 1.32;
+  let scaledW;
+  let scaledH;
+  if (aspect >= frameAspect) {
+    scaledH = evenSize(OUT_H * grow);
+    scaledW = evenSize(scaledH * aspect);
+    if (scaledW < OUT_W + 80) scaledW = evenSize(OUT_W + 240);
+  } else {
+    scaledW = evenSize(OUT_W * grow);
+    scaledH = evenSize(scaledW / aspect);
+    if (scaledH < OUT_H + 80) scaledH = evenSize(OUT_H + 360);
   }
-  if (landscape) {
-    try {
-      return await takeStockFile(landscape.video, landscape.file, dest, usedIds, landscape.query);
-    } catch {
-      try { fs.unlinkSync(dest); } catch {}
-    }
-  }
-  throw new DocumentaryError(`Pixabay "${keyword}" için video vermedi.`);
+  const maxX = Math.max(0, scaledW - OUT_W);
+  const maxY = Math.max(0, scaledH - OUT_H);
+  const forward = sceneIndex % 2 === 0;
+  const progress = `(t/${durText})*(t/${durText})*(3-2*(t/${durText}))`;
+  const slide = (span, goForward) => (
+    goForward ? `(${span})*${progress}` : `(${span})*(1-${progress})`
+  );
+  const x = maxX >= maxY ? slide(maxX, forward) : String(Math.round(maxX / 2));
+  const y = maxX >= maxY ? String(Math.round(maxY / 2)) : slide(maxY, forward);
+  return `scale=${scaledW}:${scaledH}:flags=lanczos,crop=${OUT_W}:${OUT_H}:x='${x}':y='${y}'`;
 }
 
 async function fitNarration(ffmpegPath, ffprobePath, src, words, text, dest, options) {
@@ -626,19 +637,21 @@ async function fitNarration(ffmpegPath, ffprobePath, src, words, text, dest, opt
   return { duration, words: shifted };
 }
 
-async function renderScene({ ffmpegPath, videoFile, audioFile, words, text, duration, outFile }) {
+async function renderScene({ ffmpegPath, ffprobePath, imageFile, audioFile, words, text, duration, sceneIndex, outFile }) {
   const font = pickFont();
+  const size = await probeImageSize(ffprobePath, imageFile);
+  if (!(size.width > 0 && size.height > 0)) throw new DocumentaryError('Fotoğraf boyutu okunamadı.');
   const cues = (words && words.length) ? words : evenWordCues(text, duration);
   const durText = Number(duration).toFixed(3);
   const vf = [
-    `scale=${OUT_W}:${OUT_H}:force_original_aspect_ratio=increase`,
-    `crop=${OUT_W}:${OUT_H}`,
+    buildPanFilter(size.width, size.height, duration, sceneIndex || 0),
     buildCaptionFilter(cues, duration, font)
   ].join(',');
   await runFfmpeg(ffmpegPath, [
     '-y',
-    '-stream_loop', '-1',
-    '-i', videoFile,
+    '-loop', '1',
+    '-framerate', String(OUT_FPS),
+    '-i', imageFile,
     '-i', audioFile,
     '-vf', vf,
     '-map', '0:v:0',
@@ -724,26 +737,25 @@ async function produceDocumentary({
         fitted,
         { keepOpeningPause: openingPause }
       );
-      const stock = path.join(tmpDir, `stock_${i}.mp4`);
-      await downloadStock(scene.visual_search_query, pixabayKey, stock, usedIds);
-      if (!(await hasVideoStream(ffprobe, stock))) {
-        throw new DocumentaryError(`İndirilen stok videoda görüntü yok (${scene.visual_search_query}).`);
-      }
+      const photo = path.join(tmpDir, `photo_${i}.jpg`);
+      await downloadPhoto(scene.image_search_query, pixabayKey, photo, usedIds);
       const segment = path.join(tmpDir, `scene_${i}.mp4`);
       await renderScene({
         ffmpegPath: ffmpeg,
-        videoFile: stock,
+        ffprobePath: ffprobe,
+        imageFile: photo,
         audioFile: fitted,
         words: synced.words,
         text: scene.narration,
         duration: synced.duration,
+        sceneIndex: i,
         outFile: segment
       });
       segments.push(segment);
       sceneInfo.push({
         timestamp_sec: scene.timestamp_sec,
         narration: scene.narration,
-        visual_search_query: scene.visual_search_query,
+        image_search_query: scene.image_search_query,
         voice_tone: scene.voice_tone,
         duration: Number(synced.duration.toFixed(3))
       });
@@ -768,7 +780,8 @@ async function produceDocumentary({
 module.exports = {
   produceDocumentary,
   parseScenePlan,
-  pickPixabayFile,
+  pickPixabayPhoto,
+  buildPanFilter,
   stockQueries,
   buildCaptionFilter,
   captionPhrases,
