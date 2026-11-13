@@ -541,9 +541,9 @@
     <div class="mcc-row" style="margin-top:10px">
       <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:6px;min-width:280px">Anlatıcı Sesi Seç
         <select class="tool-input" id="docVoice">
-          <option value="deep">Ses 1 - Derin Belgesel</option>
-          <option value="cinematic">Ses 2 - Sinematik Anlatıcı</option>
-          <option value="resonant">Ses 3 - Derin Tok Ses</option>
+          <option value="adam">Ses 1 - Adam (Tok & Derin)</option>
+          <option value="antony">Ses 2 - Antony (Sinematik Anlatıcı)</option>
+          <option value="arnold">Ses 3 - Arnold (Güçlü/Tok)</option>
           <option value="random">Rastgele Seç</option>
         </select>
       </label>
@@ -3028,7 +3028,7 @@ async function runDocumentary() {
   const topic = String((document.getElementById("docTopic") || {}).value || "").trim();
   const lang = (document.getElementById("docLang") && document.getElementById("docLang").value) === "tr" ? "tr" : "en";
   const voiceEl = document.getElementById("docVoice");
-  const narratorChoices = ["deep", "cinematic", "resonant", "random"];
+  const narratorChoices = ["adam", "antony", "arnold", "random"];
   const narrator = voiceEl && narratorChoices.indexOf(voiceEl.value) >= 0 ? voiceEl.value : "random";
   if (topic.length < 8) {
     alert("Konuyu birkaç kelimeyle yaz.");
@@ -3058,6 +3058,7 @@ async function runDocumentary() {
     if (msg) {
       msg.textContent =
         "Kaydedildi: " + (data.absPath || "") +
+        ((data.documentary && data.documentary.warning) ? ("\nUyarı: " + data.documentary.warning) : "") +
         "\nAnlatıcı: " + ((data.documentary && data.documentary.narrator && data.documentary.narrator.label) || "") +
         "\nSüre: " + ((data.documentary && data.documentary.duration) || "?") + "s" +
         "\nKelime: " + ((data.documentary && data.documentary.words) || "?") +
