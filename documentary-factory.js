@@ -360,11 +360,38 @@ function parseJsonLoose(text) {
   return null;
 }
 
+const MUSIC_MOODS = Object.freeze(['mystery', 'epic', 'sad', 'science']);
+const MUSIC_VOLUME = 0.07;
+
+function cleanMusicMood(value, narrationBlob) {
+  const key = String(value || '').toLowerCase();
+  if (/epic|war|battle|savaş|kırıl/.test(key)) return 'epic';
+  if (/sad|grief|collapse|çök|felaket|famine|kıtlık/.test(key)) return 'sad';
+  if (/science|bilim|kanıt|evidence|discover/.test(key)) return 'science';
+  if (/mystery|gizem|secret|tarih/.test(key)) return 'mystery';
+  const blob = String(narrationBlob || '').toLowerCase();
+  if (/war|battle|empire fell|invasion|revolution|conquest|army/.test(blob)) return 'epic';
+  if (/famine|plague|death|collapse|ruin|disaster|starv|grief|extinct/.test(blob)) return 'sad';
+  if (/science|experiment|discover|evidence|atom|orbit|vaccine|laboratory/.test(blob)) return 'science';
+  return 'mystery';
+}
+
+function musicFileForMood(mood) {
+  const name = MUSIC_MOODS.indexOf(mood) >= 0 ? mood : 'mystery';
+  const file = path.join(__dirname, 'assets', 'music', `${name}.mp3`);
+  if (!fs.existsSync(file)) {
+    throw new DocumentaryError(`Müzik dosyası yok: assets/music/${name}.mp3`);
+  }
+  return { mood: name, file };
+}
+
 function parseScenePlan(raw) {
   const parsed = parseJsonLoose(raw);
   if (!parsed) throw new DocumentaryError('Gemini sahne planı JSON döndürmedi.');
-  if (Array.isArray(parsed)) return normalizeScenes({ scenes: parsed });
-  return normalizeScenes(parsed);
+  const scenes = normalizeScenes(parsed);
+  const blob = scenes.map((scene) => scene.narration).join(' ');
+  const hinted = Array.isArray(parsed) ? '' : (parsed.music_mood || parsed.mood || '');
+  return { scenes, music_mood: cleanMusicMood(hinted, blob) };
 }
 
 function normalizeScenes(data) {
@@ -431,24 +458,33 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote) {
     'image_search_query is a concrete English Pixabay photo search for a vertical historical or mythological still that matches that sentence.',
     'Example: "ancient roman marble ruins in winter rain".',
     'voice_tone is a short English direction for the narrator, such as "mysterious, deep, dramatic pause at the beginning".',
+    'music_mood is exactly one of mystery, epic, sad, science, chosen from the tone of the whole film.',
+    'mystery is secrets and old history. epic is war and rupture. sad is collapse, famine, and disaster. science is evidence and explanation.',
     'Do not ask for famous living people, logos, or copyrighted film stills.',
     'No markdown and no commentary.',
     retryNote ? `Fix: ${retryNote}` : '',
-    'Return only a JSON array of scene objects with timestamp_sec, narration, image_search_query, and voice_tone.'
+    'Return only a JSON object with music_mood and a scenes array. Each scene has timestamp_sec, narration, image_search_query, and voice_tone.'
   ].filter(Boolean).join('\n');
   const temperature = retryNote ? 0.4 : 0.7;
   const schema = {
-    type: 'ARRAY',
-    items: {
-      type: 'OBJECT',
-      properties: {
-        timestamp_sec: { type: 'STRING' },
-        narration: { type: 'STRING' },
-        image_search_query: { type: 'STRING' },
-        voice_tone: { type: 'STRING' }
-      },
-      required: ['timestamp_sec', 'narration', 'image_search_query', 'voice_tone']
-    }
+    type: 'OBJECT',
+    properties: {
+      music_mood: { type: 'STRING', enum: MUSIC_MOODS },
+      scenes: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            timestamp_sec: { type: 'STRING' },
+            narration: { type: 'STRING' },
+            image_search_query: { type: 'STRING' },
+            voice_tone: { type: 'STRING' }
+          },
+          required: ['timestamp_sec', 'narration', 'image_search_query', 'voice_tone']
+        }
+      }
+    },
+    required: ['music_mood', 'scenes']
   };
   const ask = async (jsonMode, thinking) => {
     const generationConfig = {
@@ -523,14 +559,15 @@ async function buildPlan(topic, lang, apiKey) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const raw = await askGeminiPlan(topic, lang, apiKey, note);
-      const scenes = parseScenePlan(raw);
+      const plan = parseScenePlan(raw);
+      const scenes = plan.scenes;
       const total = scenes.reduce((sum, scene) => sum + wordCount(scene.narration), 0);
       if (total < 90 || total > 160) {
-        note = `The narration is ${total} words. Return the same JSON array with 110 to 130 spoken words and contiguous timestamp_sec values.`;
+        note = `The narration is ${total} words. Return one JSON object with music_mood and 110 to 130 spoken words.`;
         lastError = new DocumentaryError(`Senaryo ${total} kelime çıktı. 110-130 kelime bekleniyor.`);
         continue;
       }
-      return { scenes, words: total };
+      return { scenes, words: total, music_mood: plan.music_mood };
     } catch (err) {
       if (err && (err.statusCode === 401 || err.statusCode === 429 || err.statusCode === 503)) throw err;
       lastError = err;
@@ -700,6 +737,101 @@ async function fitNarration(ffmpegPath, ffprobePath, src, words, text, dest, opt
   return { duration, words: shifted };
 }
 
+function breathSeconds(tone, sceneBoundary) {
+  const hint = String(tone || '').toLowerCase();
+  const dramatic = sceneBoundary || /dramatic|pause|emphasis|tragic|solemn|collapse|grief/.test(hint);
+  return dramatic ? 1.5 : 1.15;
+}
+
+function sentenceSpans(words, narration) {
+  const parts = String(narration || '').match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
+  const spans = [];
+  let index = 0;
+  for (const part of parts) {
+    const count = part.trim().split(/\s+/).filter(Boolean).length;
+    const slice = words.slice(index, index + count);
+    index += count;
+    if (!slice.length) continue;
+    spans.push({
+      end: Number(slice[slice.length - 1].end) || 0,
+      fromWord: index - slice.length,
+      toWord: index
+    });
+  }
+  if (!spans.length || index !== words.length) {
+    const end = Number(words[words.length - 1] && words[words.length - 1].end) || 0;
+    return [{ end, fromWord: 0, toWord: words.length }];
+  }
+  return spans;
+}
+
+async function breatheSentences(ffmpegPath, ffprobePath, src, words, narration, tone, dest, sceneBoundary) {
+  const spoken = (words && words.length) ? words : [];
+  if (spoken.length < 2) {
+    await fs.promises.copyFile(src, dest);
+    const duration = await probeDurationSec(ffprobePath, dest);
+    return { duration, words: spoken };
+  }
+  const spans = sentenceSpans(spoken, narration).filter((span) => span.end > 0.05);
+  if (!spans.length) {
+    await fs.promises.copyFile(src, dest);
+    const duration = await probeDurationSec(ffprobePath, dest);
+    return { duration, words: spoken };
+  }
+  const nextWords = spoken.map((item) => ({ word: item.word, start: item.start, end: item.end }));
+  const filters = [`[0:a]asplit=${spans.length}${spans.map((_, i) => `[s${i}]`).join('')}`];
+  let from = 0;
+  let shift = 0;
+  spans.forEach((span, i) => {
+    const pause = breathSeconds(tone, sceneBoundary && i === spans.length - 1);
+    const end = Math.max(from + 0.05, span.end);
+    filters.push(
+      `[s${i}]atrim=start=${from.toFixed(3)}:end=${end.toFixed(3)},asetpts=PTS-STARTPTS,apad=pad_dur=${pause.toFixed(3)}[p${i}]`
+    );
+    for (let w = span.fromWord; w < span.toWord; w++) {
+      nextWords[w].start = Math.max(0, (Number(nextWords[w].start) || 0) + shift);
+      nextWords[w].end = Math.max(0, (Number(nextWords[w].end) || 0) + shift);
+    }
+    shift += pause;
+    from = end;
+  });
+  filters.push(`${spans.map((_, i) => `[p${i}]`).join('')}concat=n=${spans.length}:v=0:a=1[out]`);
+  await runFfmpeg(ffmpegPath, [
+    '-y', '-i', src,
+    '-filter_complex', filters.join(';'),
+    '-map', '[out]',
+    '-c:a', 'libmp3lame', '-b:a', '192k',
+    dest
+  ]);
+  const duration = await probeDurationSec(ffprobePath, dest);
+  if (!(duration > 0.3)) throw new DocumentaryError('Cümle arası nefes eklenemedi.');
+  return { duration, words: nextWords };
+}
+
+async function mixMusicBed(ffmpegPath, ffprobePath, videoFile, musicFile, dest) {
+  const duration = await probeDurationSec(ffprobePath, videoFile);
+  if (!(duration > 0.5)) throw new DocumentaryError('Müzik bindirilecek video süresi yok.');
+  const vol = MUSIC_VOLUME.toFixed(2);
+  const graph = [
+    `[1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${vol},atrim=duration=${duration.toFixed(3)},asetpts=PTS-STARTPTS[bg]`,
+    '[0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS[vo]',
+    '[vo][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a]'
+  ].join(';');
+  await runFfmpeg(ffmpegPath, [
+    '-y',
+    '-i', videoFile,
+    '-stream_loop', '-1',
+    '-i', musicFile,
+    '-filter_complex', graph,
+    '-map', '0:v:0',
+    '-map', '[a]',
+    '-c:v', 'copy',
+    '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k',
+    '-movflags', '+faststart',
+    dest
+  ]);
+}
+
 async function renderScene({ ffmpegPath, ffprobePath, imageFile, audioFile, words, text, duration, sceneIndex, outFile }) {
   const font = pickFont();
   const size = await probeImageSize(ffprobePath, imageFile);
@@ -820,6 +952,17 @@ async function produceDocumentary({
         fitted,
         { keepOpeningPause: openingPause }
       );
+      const breathedFile = path.join(tmpDir, `breath_${i}.mp3`);
+      const breathed = await breatheSentences(
+        ffmpeg,
+        ffprobe,
+        fitted,
+        synced.words,
+        scene.narration,
+        scene.voice_tone,
+        breathedFile,
+        i < plan.scenes.length - 1
+      );
       const photo = path.join(tmpDir, `photo_${i}.jpg`);
       await downloadPhoto(scene.image_search_query, pixabayKey, photo, usedIds);
       const segment = path.join(tmpDir, `scene_${i}.mp4`);
@@ -827,10 +970,10 @@ async function produceDocumentary({
         ffmpegPath: ffmpeg,
         ffprobePath: ffprobe,
         imageFile: photo,
-        audioFile: fitted,
-        words: synced.words,
+        audioFile: breathedFile,
+        words: breathed.words,
         text: scene.narration,
-        duration: synced.duration,
+        duration: breathed.duration,
         sceneIndex: i,
         outFile: segment
       });
@@ -840,15 +983,20 @@ async function produceDocumentary({
         narration: scene.narration,
         image_search_query: scene.image_search_query,
         voice_tone: scene.voice_tone,
-        duration: Number(synced.duration.toFixed(3))
+        duration: Number(breathed.duration.toFixed(3))
       });
     }
     await fs.promises.mkdir(path.dirname(outFile), { recursive: true });
-    await concatScenes(ffmpeg, segments, outFile, path.join(tmpDir, 'list.txt'));
+    const joined = path.join(tmpDir, 'joined.mp4');
+    await concatScenes(ffmpeg, segments, joined, path.join(tmpDir, 'list.txt'));
+    const music = musicFileForMood(plan.music_mood);
+    console.log(`[belgesel] müzik=${music.mood} volume=${MUSIC_VOLUME}`);
+    await mixMusicBed(ffmpeg, ffprobe, joined, music.file, outFile);
     const duration = await probeDurationSec(ffprobe, outFile);
     return {
       scenes: sceneInfo,
       narrator: narratorVoice,
+      music_mood: music.mood,
       warning: voiceWarning,
       words: plan.words,
       duration: Number(duration.toFixed(3)),
@@ -874,6 +1022,11 @@ module.exports = {
   cleanVisualQuery,
   voiceSettingsForTone,
   shapeNarration,
+  cleanMusicMood,
+  musicFileForMood,
+  breatheSentences,
+  mixMusicBed,
+  MUSIC_VOLUME,
   resolveDocVoice,
   documentaryVoiceFromRequest,
   isVoiceRestricted,

@@ -3049,6 +3049,7 @@ async function runDocumentary() {
         ((data.documentary && data.documentary.warning) ? ("\nUyarı: " + data.documentary.warning) : "") +
         "\nAnlatıcı: " + ((data.documentary && data.documentary.narrator && data.documentary.narrator.label) || "") +
         "\nSüre: " + ((data.documentary && data.documentary.duration) || "?") + "s" +
+        "\nMüzik: " + ((data.documentary && data.documentary.music_mood) || "") +
         "\nKelime: " + ((data.documentary && data.documentary.words) || "?") +
         (lines ? ("\n" + lines) : "");
     }
