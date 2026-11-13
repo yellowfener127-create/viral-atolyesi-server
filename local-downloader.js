@@ -29,11 +29,6 @@ function getVoiceDir() {
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
-function getDocumentaryDir() {
-  const dir = process.env.VA_DOC_DIR || path.join(DOWNLOAD_DIR, 'belgesel');
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
 const PUBLIC_DIR = path.join(__dirname, 'public');
 /** Önizleme kare çıkarımı: sabit 1000×1000 letterbox (analiz / hizalama). */
 const GEMINI_ANALYSIS_PX = 1000;
@@ -2415,7 +2410,7 @@ app.post('/documentary', async (req, res) => {
   const hasFfprobe = await existsOnPath('ffprobe');
   if (!hasFfmpeg || !hasFfprobe) return res.status(500).json({ error: 'ffmpeg/ffprobe bulunamadı.' });
   __docInProgress = true;
-  const docDir = getDocumentaryDir();
+  const docDir = getMixDir();
   const stamp = Date.now();
   const slug = safeName(topic).replace(/[. ]+$/g, '').slice(0, 80) || 'belgesel';
   const outFile = path.join(docDir, `${slug}_${stamp}.mp4`);
