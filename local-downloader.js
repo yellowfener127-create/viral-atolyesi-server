@@ -80,6 +80,8 @@ const YTDLP_FAST_FORMAT =
 
 const YTDLP_BIN = resolveYtDlpBin();
 const YTDLP_PLAYER_ARGS = ['--extractor-args', 'youtube:player_client=default,-android_vr'];
+const YTDLP_JS_ARGS = ['--js-runtimes', 'node', '--remote-components', 'ejs:github'];
+const YTDLP_PROGRESSIVE_FORMAT = 'b[ext=mp4][acodec!=none][vcodec!=none]/best[ext=mp4]/best';
 
 function isYoutubeAgeSignInError(msg) {
   const m = String(msg || '').toLowerCase();
@@ -1561,6 +1563,60 @@ function run(bin, args, { timeoutMs } = {}) {
   });
 }
 
+function ytDlpMediaForbidden(msg) {
+  return /did not get any data blocks|unable to download video data|http error 403|http error 416|po token|403 forbidden/i.test(String(msg || ''));
+}
+
+function clearDirFiles(dir) {
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return; }
+  for (const name of names) {
+    try { fs.rmSync(path.join(dir, name), { force: true }); } catch {}
+  }
+}
+
+async function downloadYoutubeToDir(url, outDir, timeoutMs) {
+  fs.mkdirSync(outDir, { recursive: true });
+  const tpl = path.join(outDir, 'in.%(ext)s');
+  const attempts = [
+    { client: 'default,-android_vr', format: YTDLP_FAST_FORMAT },
+    { client: 'tv,web_safari,mweb', format: YTDLP_FAST_FORMAT },
+    { client: 'ios', format: YTDLP_FAST_FORMAT },
+    { client: 'tv,web_safari,mweb', format: YTDLP_PROGRESSIVE_FORMAT }
+  ];
+  let lastErr = null;
+  for (const attempt of attempts) {
+    clearDirFiles(outDir);
+    const args = [
+      '--no-playlist', '--no-part', '--no-mtime',
+      ...YTDLP_NET_ARGS,
+      ...YTDLP_JS_ARGS,
+      '--extractor-args', `youtube:player_client=${attempt.client}`,
+      '--merge-output-format', 'mp4',
+      '-f', attempt.format,
+      '-o', tpl,
+      ...ytdlpCookieCliArgs(),
+      url
+    ];
+    try {
+      console.log(`[yt-dlp] voice indirme client=${attempt.client}`);
+      await run(YTDLP_BIN, args, { timeoutMs });
+      const file = pickNewestFile(outDir);
+      if (file) return file;
+      lastErr = new Error('İndirilen dosya bulunamadı.');
+    } catch (err) {
+      lastErr = err;
+      const msg = String(err && err.message ? err.message : err);
+      if (/video unavailable|removed by the uploader|private video|does not exist/i.test(msg)) throw err;
+      if (isYoutubeAgeSignInError(msg)) throw err;
+      if (/http error 429|too many requests/i.test(msg)) throw err;
+      if (!ytDlpMediaForbidden(msg)) throw err;
+      console.log(`[yt-dlp] voice ${attempt.client} reddedildi, sonraki deneme`);
+    }
+  }
+  throw lastErr || new Error('Video indirilemedi.');
+}
+
 function pickNewestFile(dir, exts) {
   const files = fs.readdirSync(dir)
     .map((f) => path.join(dir, f))
@@ -2166,18 +2222,7 @@ app.post('/voice-hook', async (req, res) => {
         return res.status(400).json({ error: `Kaynak çok uzun (${Math.round(dur)}s). Derleme için 3 dakikanın altını kullan.` });
       }
       const sub = path.join(tmpDir, 'src');
-      fs.mkdirSync(sub, { recursive: true });
-      await run(YTDLP_BIN, [
-        '--no-playlist', '--no-part', '--no-mtime',
-        ...YTDLP_NET_ARGS,
-        ...YTDLP_PLAYER_ARGS,
-        '--merge-output-format', 'mp4',
-        '-f', YTDLP_FAST_FORMAT,
-        '-o', path.join(sub, 'in.%(ext)s'),
-        ...ytdlpCookieCliArgs(),
-        url
-      ], { timeoutMs: 4 * 60 * 1000 });
-      src = pickNewestFile(sub);
+      src = await downloadYoutubeToDir(url, sub, 4 * 60 * 1000);
       if (!src) return res.status(500).json({ error: 'Kaynak indirilemedi.' });
     }
 
@@ -2276,20 +2321,7 @@ app.post('/voice-compilation', async (req, res) => {
         return res.status(400).json({ error: `Kaynak çok uzun (${Math.round(dur)}s). Derleme için 3 dakikanın altını kullan.` });
       }
       const sub = path.join(tmpDir, `src_${i}`);
-      fs.mkdirSync(sub, { recursive: true });
-      const tpl = path.join(sub, 'in.%(ext)s');
-      const dlArgs = [
-        '--no-playlist', '--no-part', '--no-mtime',
-        ...YTDLP_NET_ARGS,
-        ...YTDLP_PLAYER_ARGS,
-        '--merge-output-format', 'mp4',
-        '-f', YTDLP_FAST_FORMAT,
-        '-o', tpl,
-        ...ytdlpCookieCliArgs(),
-        src.url
-      ];
-      await run(YTDLP_BIN, dlArgs, { timeoutMs: 4 * 60 * 1000 });
-      const file = pickNewestFile(sub);
+      const file = await downloadYoutubeToDir(src.url, sub, 4 * 60 * 1000);
       if (!file) return res.status(500).json({ error: 'Bir kaynak indirilemedi.' });
       fileByUrl.set(src.url, file);
       fileForSource[i] = file;
