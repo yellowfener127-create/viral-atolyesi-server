@@ -372,6 +372,14 @@ function parseJsonLoose(text) {
 
 const MUSIC_MOODS = Object.freeze(['mystery', 'epic', 'sad', 'science']);
 const MUSIC_VOLUME = 0.07;
+const MUSIC_DIR = path.join(__dirname, 'assets', 'music');
+const MUSIC_EXTS = new Set(['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac']);
+const MOOD_HINTS = Object.freeze({
+  mystery: ['mystery', 'suspense', 'thriller', 'mysterious', 'dark', 'tension'],
+  epic: ['epic', 'intense', 'cinematic', 'battle'],
+  sad: ['sad', 'anxiety', 'grief', 'tense'],
+  science: ['science', 'investigation', 'crime']
+});
 
 function cleanMusicMood(value, narrationBlob) {
   const key = String(value || '').toLowerCase();
@@ -386,13 +394,43 @@ function cleanMusicMood(value, narrationBlob) {
   return 'mystery';
 }
 
+function musicTokens(file) {
+  return path.basename(file, path.extname(file))
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+function listMusicFiles() {
+  let names = [];
+  try {
+    names = fs.readdirSync(MUSIC_DIR);
+  } catch {
+    throw new DocumentaryError('Müzik klasörü yok: assets/music');
+  }
+  const files = names
+    .filter((name) => MUSIC_EXTS.has(path.extname(name).toLowerCase()))
+    .map((name) => path.join(MUSIC_DIR, name))
+    .filter((file) => {
+      try { return fs.statSync(file).isFile(); } catch { return false; }
+    });
+  if (!files.length) throw new DocumentaryError('assets/music içinde müzik dosyası yok.');
+  return files;
+}
+
 function musicFileForMood(mood) {
   const name = MUSIC_MOODS.indexOf(mood) >= 0 ? mood : 'mystery';
-  const file = path.join(__dirname, 'assets', 'music', `${name}.mp3`);
-  if (!fs.existsSync(file)) {
-    throw new DocumentaryError(`Müzik dosyası yok: assets/music/${name}.mp3`);
-  }
-  return { mood: name, file };
+  const files = listMusicFiles();
+  const hints = MOOD_HINTS[name] || MOOD_HINTS.mystery;
+  const ranked = files.map((file) => {
+    const tokens = musicTokens(file);
+    const score = hints.reduce((n, hint) => n + (tokens.indexOf(hint) >= 0 ? 1 : 0), 0);
+    return { file, score };
+  });
+  const matched = ranked.filter((row) => row.score > 0);
+  const pool = matched.length ? matched : ranked;
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  return { mood: name, file: pick.file, title: path.basename(pick.file) };
 }
 
 function parseScenePlan(raw) {
@@ -470,6 +508,7 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote) {
     'voice_tone is a short English direction for the narrator, such as "mysterious, deep, dramatic pause at the beginning".',
     'music_mood is exactly one of mystery, epic, sad, science, chosen from the tone of the whole film.',
     'mystery is secrets and old history. epic is war and rupture. sad is collapse, famine, and disaster. science is evidence and explanation.',
+    'The music bed is chosen from the local suspense library: tension, mystery, dark investigation, intense thriller, and cinematic anxiety. Pick the closest mood.',
     'Do not ask for famous living people, logos, or copyrighted film stills.',
     'No markdown and no commentary.',
     retryNote ? `Fix: ${retryNote}` : '',
@@ -1003,13 +1042,14 @@ async function produceDocumentary({
     const joined = path.join(tmpDir, 'joined.mp4');
     await concatScenes(ffmpeg, segments, joined, path.join(tmpDir, 'list.txt'));
     const music = musicFileForMood(plan.music_mood);
-    console.log(`[belgesel] müzik=${music.mood} volume=${MUSIC_VOLUME}`);
+    console.log(`[belgesel] müzik=${music.mood} dosya=${music.title} volume=${MUSIC_VOLUME}`);
     await mixMusicBed(ffmpeg, ffprobe, joined, music.file, outFile);
     const duration = await probeDurationSec(ffprobe, outFile);
     return {
       scenes: sceneInfo,
       narrator: narratorVoice,
       music_mood: music.mood,
+      music_file: music.title,
       warning: voiceWarning,
       words: plan.words,
       duration: Number(duration.toFixed(3)),
