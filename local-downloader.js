@@ -1487,7 +1487,7 @@ async function fetchVertexHookEnglish({ saPath, location, model, title, brand, e
 function getBrandFolderName(brand) {
   const n = normBrand(brand);
   if (n === 'kaos') return 'Chaos Lab';
-  if (n === 'umut') return 'Hope Lab';
+  if (n === 'umut') return 'Epoch Lab';
   return 'Therapy Lab';
 }
 

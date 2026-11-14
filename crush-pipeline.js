@@ -277,7 +277,7 @@ function pickExistingFontForDrawtext() {
 /** Terapi/Umut Reels üst yazısı: renkli emoji + Latin (Windows’ta Segoe UI Emoji). */
 function brandSocialHandle(brandNorm) {
   if (brandNorm === 'kaos') return '@chaosllab';
-  if (brandNorm === 'umut') return '@hopellab';
+  if (brandNorm === 'umut') return '@epochllab';
   return '@therappylab';
 }
 
