@@ -550,6 +550,16 @@
         </select>
       </label>
     </div>
+    <div style="margin-top:14px">
+      <div class="tool-title" style="font-size:14px">ElevenLabs API</div>
+      <div class="tool-desc">Bu anahtar yalnız belgesel anlatımında kullanılır. Voice Enjektör <code>.env</code> anahtarında kalır. Boş bırakıp kaydedersen belgesel yine <code>.env</code> anahtarına döner.</div>
+      <input class="tool-input" type="password" id="docElevenKey" placeholder="sk_... ElevenLabs API key" autocomplete="off" spellcheck="false" />
+      <div class="mcc-row" style="margin-top:8px">
+        <button class="tool-btn" type="button" style="width:auto" id="docElevenSaveBtn" onclick="saveDocElevenKey()">Kaydet</button>
+        <button class="tool-btn" type="button" style="width:auto" onclick="clearDocElevenKey()">Kaydı sil</button>
+      </div>
+      <div class="tool-result" id="docElevenStatus" style="display:block;margin-top:8px;font-size:12px;color:var(--muted)"></div>
+    </div>
     <button class="tool-btn" type="button" id="docBuildBtn" onclick="runDocumentary()" style="margin-top:12px">Belgeseli Üret ve Kaydet</button>
     <div class="tool-desc" style="margin-top:10px">Aktif Gemini anahtarı Araçlar → Gemini listesinden gelir. Pixabay anahtarı <code>.env</code> içindeki <code>PIXABAY_API_KEY</code> satırıdır. Çıktı: <code>C:\Users\DELL\Videos\Viral Atölyesi İndirilenler\mix\</code></div>
     <div class="tool-result" id="docMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
@@ -2174,6 +2184,7 @@ function showPage(page) {
   const btn = document.querySelector('.nav-btn[data-page="' + page + '"]');
   if (btn) btn.classList.add('active');
   if (page === 'tools') refreshCrushLocalList();
+  if (page === 'doc') refreshDocElevenStatus();
 }
 
 // TARİH
@@ -2199,6 +2210,7 @@ window.onload = function() {
   try { wireCrushManualBlurUi(); } catch (e4) {}
   try { initCompilationMixerUi(); } catch (e6) {}
   try { initVoiceMixerUi(); } catch (e7) {}
+  try { refreshDocElevenStatus(); } catch (e8) {}
 };
 
 const mixSlots = {
@@ -3024,6 +3036,53 @@ function docRandomTopic() {
   if (box) box.value = pick;
 }
 
+const DOC_ELEVEN_KEY = "doc_elevenlabs_api_key";
+
+function docElevenKeySaved() {
+  try { return String(localStorage.getItem(DOC_ELEVEN_KEY) || "").trim(); } catch (e) { return ""; }
+}
+
+function docElevenMask(key) {
+  const value = String(key || "");
+  if (value.length < 8) return "";
+  return value.slice(0, 3) + "…" + value.slice(-4);
+}
+
+function refreshDocElevenStatus() {
+  const el = document.getElementById("docElevenStatus");
+  const input = document.getElementById("docElevenKey");
+  const key = docElevenKeySaved();
+  if (input && document.activeElement !== input) input.value = key;
+  if (!el) return;
+  el.textContent = key
+    ? ("Kayıtlı: " + docElevenMask(key) + ". Belgesel bu anahtarı kullanır.")
+    : "Kayıtlı anahtar yok. Belgesel .env içindeki ELEVENLABS_API_KEY ile gider.";
+}
+
+function saveDocElevenKey() {
+  const input = document.getElementById("docElevenKey");
+  const key = String((input && input.value) || "").trim();
+  if (key && !/^[A-Za-z0-9_-]{20,256}$/.test(key)) {
+    alert("Anahtar biçimi geçersiz. sk_ ile başlayan ElevenLabs anahtarını yapıştır.");
+    return;
+  }
+  try {
+    if (key) localStorage.setItem(DOC_ELEVEN_KEY, key);
+    else localStorage.removeItem(DOC_ELEVEN_KEY);
+  } catch (e) {
+    alert("Anahtar tarayıcıya kaydedilemedi.");
+    return;
+  }
+  refreshDocElevenStatus();
+}
+
+function clearDocElevenKey() {
+  try { localStorage.removeItem(DOC_ELEVEN_KEY); } catch (e) {}
+  const input = document.getElementById("docElevenKey");
+  if (input) input.value = "";
+  refreshDocElevenStatus();
+}
+
 async function runDocumentary() {
   const btn = document.getElementById("docBuildBtn");
   const msg = document.getElementById("docMsg");
@@ -3052,7 +3111,7 @@ async function runDocumentary() {
     const res = await fetch("http://127.0.0.1:8787/documentary", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic: topic, lang: lang, voice_id: voiceId, gemini_api_key: geminiKey })
+      body: JSON.stringify({ topic: topic, lang: lang, voice_id: voiceId, gemini_api_key: geminiKey, elevenlabs_api_key: docElevenKeySaved() })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));

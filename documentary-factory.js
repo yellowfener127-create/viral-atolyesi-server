@@ -902,6 +902,7 @@ async function produceDocumentary({
   lang,
   geminiKey,
   narrator,
+  elevenKey,
   ffmpegPath,
   ffprobePath,
   outFile
@@ -912,6 +913,7 @@ async function produceDocumentary({
   const language = lang === 'tr' ? 'tr' : 'en';
   let narratorVoice = resolveDocVoice(narrator);
   let voiceWarning = '';
+  const documentaryKey = String(elevenKey || '').trim();
   const pixabayKey = readEnvValue('PIXABAY_API_KEY');
   if (!pixabayKey) {
     throw new DocumentaryError('PIXABAY_API_KEY .env içinde yok. Pixabay anahtarını o satıra yaz.', 401);
@@ -926,9 +928,10 @@ async function produceDocumentary({
       outDir: input.outDir,
       fileName: input.fileName,
       voiceId: narratorVoice.id,
-      voiceSettings: DOC_VOICE_SETTINGS
+      voiceSettings: DOC_VOICE_SETTINGS,
+      apiKey: documentaryKey
     };
-    console.log(`[belgesel] ElevenLabs voice_id=${request.voiceId}`);
+    console.log(`[belgesel] ElevenLabs voice_id=${request.voiceId} anahtar=${documentaryKey ? 'arayuz' : 'env'}`);
     try {
       return await synthesizeSpeechAligned(request);
     } catch (err) {

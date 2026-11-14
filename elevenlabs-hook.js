@@ -79,6 +79,15 @@ function readApiKey() {
   return key;
 }
 
+function resolveSpeechApiKey(explicit) {
+  const given = String(explicit || '').trim();
+  if (!given) return readApiKey();
+  if (given.length > 256 || !/^[A-Za-z0-9_-]+$/.test(given)) {
+    throw new ElevenLabsHookError('Belgesel ElevenLabs anahtarı geçersiz.');
+  }
+  return given;
+}
+
 function resolveVoiceId(explicit) {
   const voiceId = String(explicit || process.env.ELEVENLABS_VOICE_ID || '').trim();
   if (!/^[A-Za-z0-9]{10,40}$/.test(voiceId)) {
@@ -255,7 +264,7 @@ async function synthesizeSpeechAligned(input) {
     if (text.length > MAX_SPEECH_CHARS) {
       throw new ElevenLabsHookError(`Sahne metni ${MAX_SPEECH_CHARS} karakterden uzun.`);
     }
-    const apiKey = readApiKey();
+    const apiKey = resolveSpeechApiKey(opts.apiKey);
     const voiceId = String(opts.voiceId || '').trim();
     if (!/^[A-Za-z0-9]{10,40}$/.test(voiceId)) {
       throw new ElevenLabsHookError('Belgesel ses ID gelmedi. İstek .env sesine düşmez.');
