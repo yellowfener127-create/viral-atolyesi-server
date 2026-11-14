@@ -506,8 +506,18 @@
   <div class="tool-card" style="max-width:920px">
     <div class="tool-title">Parça sırası</div>
     <div class="tool-desc">
-      Parçalar eklediğin sırayla birleşir. Her geçişin arasına pembe, sarı, camgöbeği gibi canlı bir kart girer. Ortadaki yazı ElevenLabs sesiyle aynı anda başlar ve ses bitince birlikte kaybolur. Anahtarı <code>.env</code> içindeki <code>ELEVENLABS_API_KEY</code> ve <code>ELEVENLABS_VOICE_ID</code> karşılar.
+      Parçalar eklediğin sırayla birleşir. Her geçişin arasına pembe, sarı, camgöbeği gibi canlı bir kart girer. Ortadaki yazı ElevenLabs sesiyle aynı anda başlar ve ses bitince birlikte kaybolur.
       Çıktı: <code>C:\Users\DELL\Videos\Viral Atölyesi İndirilenler\voice\</code>
+    </div>
+    <div style="margin-top:12px">
+      <div class="tool-title" style="font-size:14px">ElevenLabs API</div>
+      <div class="tool-desc">Bu anahtar yalnız Voice Enjektör sesinde kullanılır. Ses kimliği <code>.env</code> içindeki <code>ELEVENLABS_VOICE_ID</code> olarak kalır. Boş bırakıp kaydedersen yine <code>.env</code> anahtarına döner.</div>
+      <input class="tool-input" type="password" id="voiceElevenKey" placeholder="sk_... ElevenLabs API key" autocomplete="off" spellcheck="false" />
+      <div class="mcc-row" style="margin-top:8px">
+        <button class="tool-btn" type="button" style="width:auto" id="voiceElevenSaveBtn" onclick="saveVoiceElevenKey()">Kaydet</button>
+        <button class="tool-btn" type="button" style="width:auto" onclick="clearVoiceElevenKey()">Kaydı sil</button>
+      </div>
+      <div class="tool-result" id="voiceElevenStatus" style="display:block;margin-top:8px;font-size:12px;color:var(--muted)"></div>
     </div>
     <div id="voiceTimeline"></div>
     <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-top:10px">
@@ -552,7 +562,7 @@
     </div>
     <div style="margin-top:14px">
       <div class="tool-title" style="font-size:14px">ElevenLabs API</div>
-      <div class="tool-desc">Bu anahtar yalnız belgesel anlatımında kullanılır. Voice Enjektör <code>.env</code> anahtarında kalır. Boş bırakıp kaydedersen belgesel yine <code>.env</code> anahtarına döner.</div>
+      <div class="tool-desc">Bu anahtar yalnız belgesel anlatımında kullanılır. Voice Enjektör kendi kutusundaki anahtarı kullanır. Boş bırakıp kaydedersen belgesel yine <code>.env</code> anahtarına döner.</div>
       <input class="tool-input" type="password" id="docElevenKey" placeholder="sk_... ElevenLabs API key" autocomplete="off" spellcheck="false" />
       <div class="mcc-row" style="margin-top:8px">
         <button class="tool-btn" type="button" style="width:auto" id="docElevenSaveBtn" onclick="saveDocElevenKey()">Kaydet</button>
@@ -2185,6 +2195,7 @@ function showPage(page) {
   if (btn) btn.classList.add('active');
   if (page === 'tools') refreshCrushLocalList();
   if (page === 'doc') refreshDocElevenStatus();
+  if (page === 'voice') refreshVoiceElevenStatus();
 }
 
 // TARİH
@@ -2211,6 +2222,7 @@ window.onload = function() {
   try { initCompilationMixerUi(); } catch (e6) {}
   try { initVoiceMixerUi(); } catch (e7) {}
   try { refreshDocElevenStatus(); } catch (e8) {}
+  try { refreshVoiceElevenStatus(); } catch (e9) {}
 };
 
 const mixSlots = {
@@ -2916,6 +2928,53 @@ async function voicePickMix(slot) {
     if (badge) badge.textContent = "Mix klasörü açılamadı";
   }
 }
+const VOICE_ELEVEN_KEY = "voice_elevenlabs_api_key";
+
+function voiceElevenKeySaved() {
+  try { return String(localStorage.getItem(VOICE_ELEVEN_KEY) || "").trim(); } catch (e) { return ""; }
+}
+
+function voiceElevenMask(key) {
+  const value = String(key || "");
+  if (value.length < 8) return "";
+  return value.slice(0, 3) + "…" + value.slice(-4);
+}
+
+function refreshVoiceElevenStatus() {
+  const el = document.getElementById("voiceElevenStatus");
+  const input = document.getElementById("voiceElevenKey");
+  const key = voiceElevenKeySaved();
+  if (input && document.activeElement !== input) input.value = key;
+  if (!el) return;
+  el.textContent = key
+    ? ("Kayıtlı: " + voiceElevenMask(key) + ". Voice Enjektör bu anahtarı kullanır.")
+    : "Kayıtlı anahtar yok. Voice Enjektör .env içindeki ELEVENLABS_API_KEY ile gider.";
+}
+
+function saveVoiceElevenKey() {
+  const input = document.getElementById("voiceElevenKey");
+  const key = String((input && input.value) || "").trim();
+  if (key && !/^[A-Za-z0-9_-]{20,256}$/.test(key)) {
+    alert("Anahtar biçimi geçersiz. sk_ ile başlayan ElevenLabs anahtarını yapıştır.");
+    return;
+  }
+  try {
+    if (key) localStorage.setItem(VOICE_ELEVEN_KEY, key);
+    else localStorage.removeItem(VOICE_ELEVEN_KEY);
+  } catch (e) {
+    alert("Anahtar tarayıcıya kaydedilemedi.");
+    return;
+  }
+  refreshVoiceElevenStatus();
+}
+
+function clearVoiceElevenKey() {
+  try { localStorage.removeItem(VOICE_ELEVEN_KEY); } catch (e) {}
+  const input = document.getElementById("voiceElevenKey");
+  if (input) input.value = "";
+  refreshVoiceElevenStatus();
+}
+
 async function runVoiceCompilation() {
   const btn = document.getElementById("voiceMixBtn");
   const msg = document.getElementById("voiceMsg");
@@ -2972,6 +3031,7 @@ async function runVoiceCompilation() {
         sources: sources,
         hooks: hooks,
         gemini_api_key: geminiKey,
+        elevenlabs_api_key: voiceElevenKeySaved(),
         shuffle: !!(document.getElementById("voiceShuffle") && document.getElementById("voiceShuffle").checked),
         caption_text: (document.getElementById("crushCaptionManual") && String(document.getElementById("crushCaptionManual").value || "").trim()) || ""
       })

@@ -2322,6 +2322,7 @@ app.post('/voice-compilation', async (req, res) => {
       hooks,
       shuffle,
       geminiKey: String(req.body?.gemini_api_key || req.body?.geminiApiKey || '').trim(),
+      elevenKey: String(req.body?.elevenlabs_api_key || req.body?.elevenlabsApiKey || '').trim(),
       outFile: mixed
     });
 

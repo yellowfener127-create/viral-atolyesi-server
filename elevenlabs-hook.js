@@ -204,7 +204,7 @@ async function synthesizeHookAligned(input) {
       throw new ElevenLabsHookError(`Kanca ${MAX_HOOK_CHARS} karakterden uzun. Bu modül 5-6 kelimelik satır içindir.`);
     }
 
-    const apiKey = readApiKey();
+    const apiKey = resolveSpeechApiKey(opts.apiKey);
     const voiceId = resolveVoiceId(opts.voiceId);
     const modelId = String(opts.modelId || process.env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL_ID).trim();
     const outDir = resolveOutDir(opts.outDir);

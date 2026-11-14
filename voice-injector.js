@@ -795,7 +795,8 @@ async function mixVoiceCompilation({
   hooks,
   shuffle,
   outFile,
-  geminiKey
+  geminiKey,
+  elevenKey
 }) {
   const pieces = (clips || []).filter((c) => c && c.file && fs.existsSync(c.file));
   if (pieces.length < 2) throw statusError('En az 2 geçerli parça gerekli.');
@@ -825,6 +826,8 @@ async function mixVoiceCompilation({
   const colorShift = Math.floor(Math.random() * VOICE_CARDS.length);
   const cardAt = (i) => VOICE_CARDS[(i + colorShift) % VOICE_CARDS.length];
 
+  const voiceKey = String(elevenKey || '').trim();
+  console.log(`[voice] ElevenLabs anahtar=${voiceKey ? 'arayuz' : 'env'}`);
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-voice-'));
   const segFiles = [];
   const timeline = [];
@@ -837,7 +840,7 @@ async function mixVoiceCompilation({
       const text = lines[i];
       let voiced = null;
       try {
-        voiced = await synthesizeHookAligned({ text });
+        voiced = await synthesizeHookAligned({ text, apiKey: voiceKey });
       } catch (err) {
         throw statusError(err && err.message ? err.message : 'ElevenLabs ses üretemedi.');
       }
