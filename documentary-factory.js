@@ -18,17 +18,23 @@ const OUT_FPS = 30;
 const DOC_VOICES = Object.freeze({
   adam: 'pNInz6obpgDQGcFmaJgB',
   george: 'JBFqnCBsd6RMkjVDRZzb',
-  brian: 'nPczCjzI2devNBz1zQrb'
+  brian: 'nPczCjzI2devNBz1zQrb',
+  narrator: 'auq43ws1oslv0tO4BDa7',
+  morgan: 'SAxJUlDKRc79XAyeWyMu'
 });
 const DOC_VOICE_LABELS = Object.freeze({
   [DOC_VOICES.adam]: 'Ses 1 - Adam (Tok & Derin)',
   [DOC_VOICES.george]: 'Ses 2 - George (Sinematik Anlatıcı)',
-  [DOC_VOICES.brian]: 'Ses 3 - Brian (Derin & Tok)'
+  [DOC_VOICES.brian]: 'Ses 3 - Brian (Derin & Tok)',
+  [DOC_VOICES.narrator]: 'Ses 4 - Anlatıcı',
+  [DOC_VOICES.morgan]: 'Ses 5 - Morgan (Derin Hikâye)'
 });
 const DOC_VOICE_KEYS = Object.freeze({
   [DOC_VOICES.adam]: 'adam',
   [DOC_VOICES.george]: 'george',
-  [DOC_VOICES.brian]: 'brian'
+  [DOC_VOICES.brian]: 'brian',
+  [DOC_VOICES.narrator]: 'narrator',
+  [DOC_VOICES.morgan]: 'morgan'
 });
 const DOC_VOICE_ALIASES = Object.freeze({
   ErXwobaYiN019PkySvjV: DOC_VOICES.george,
@@ -62,9 +68,13 @@ function resolveDocVoice(choice) {
     id = DOC_VOICES.george;
   } else if (key === 'brian' || key === 'arnold' || key === 'resonant' || key === 'tok' || key === 'ses3' || key === '3') {
     id = DOC_VOICES.brian;
+  } else if (key === 'narrator' || key === 'ses4' || key === '4') {
+    id = DOC_VOICES.narrator;
+  } else if (key === 'morgan' || key === 'ses5' || key === '5') {
+    id = DOC_VOICES.morgan;
   }
   if (!id || !DOC_VOICE_LABELS[id]) {
-    throw new DocumentaryError('Belgesel için yalnızca Adam, George veya Brian seçilebilir.', 400);
+    throw new DocumentaryError('Belgesel için listeden bir anlatıcı seç.', 400);
   }
   return { id, label: DOC_VOICE_LABELS[id], choice: pickedAtRandom ? 'random' : DOC_VOICE_KEYS[id] };
 }
