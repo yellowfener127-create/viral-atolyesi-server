@@ -128,6 +128,40 @@ function geminiModel() {
   return 'gemini-3.6-flash';
 }
 
+function geminiFailReason(err) {
+  const name = String(err && err.name || '');
+  const code = err && err.cause ? String(err.cause.code || err.cause.name || '') : '';
+  const msg = String(err && err.message || '')
+    .replace(/AIza[0-9A-Za-z_-]{8,}/g, 'AIzaREDACTED')
+    .replace(/key=[^\s&]+/gi, 'key=REDACTED');
+  return `${name} ${code} ${msg}`.replace(/\s+/g, ' ').trim().slice(0, 220);
+}
+
+function geminiFailText(err) {
+  const name = String(err && err.name || '');
+  const code = err && err.cause && err.cause.code ? String(err.cause.code) : '';
+  if (name === 'TimeoutError' || name === 'AbortError' || /timeout|aborted/i.test(String(err && err.message || ''))) {
+    return 'Gemini süre dolmadan cevap yazmadı. Tekrar dene.';
+  }
+  if (code) return `Gemini bağlantısı koptu (${code}). Tekrar dene.`;
+  return 'Gemini bağlantısı koptu. Tekrar dene.';
+}
+
+async function geminiFetch(key, body, timeoutMs) {
+  return fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel())}:generateContent`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': String(key || '').trim()
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs)
+    }
+  );
+}
+
 function runFfmpeg(ffmpegPath, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(ffmpegPath, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
@@ -767,35 +801,26 @@ async function suggestDocumentaryTopic({ lang, apiKey, avoid, channel }) {
     previous ? `Do not repeat: ${previous}` : ''
   ]).filter(Boolean).join('\n');
   let lastError = null;
-  let thinking = true;
   let jsonMode = true;
   for (let attempt = 0; attempt < 3; attempt++) {
     let res;
     let data;
-    const generationConfig = { temperature: 0.9, maxOutputTokens: 256 };
+    const generationConfig = { maxOutputTokens: 256 };
     if (jsonMode) generationConfig.responseMimeType = 'application/json';
-    if (thinking) generationConfig.thinkingConfig = { thinkingBudget: 64 };
     try {
-      res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel())}:generateContent?key=${encodeURIComponent(key)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig
-          }),
-          signal: AbortSignal.timeout(45000)
-        }
-      );
+      res = await geminiFetch(key, {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig
+      }, 25000);
       data = await res.json().catch(() => ({}));
     } catch (err) {
-      lastError = new DocumentaryError('Gemini şu an yanıt vermiyor. Birkaç saniye sonra tekrar dene.', 503);
+      console.log(`[belgesel] gemini konu ${geminiFailReason(err)}`);
+      lastError = new DocumentaryError(geminiFailText(err), 503);
+      jsonMode = false;
       continue;
     }
-    if (res.status === 400 && (thinking || jsonMode)) {
-      if (thinking) thinking = false;
-      else jsonMode = false;
+    if (res.status === 400 && jsonMode) {
+      jsonMode = false;
       continue;
     }
     if (!res.ok) {
@@ -912,7 +937,6 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
       retryNote ? `Fix: ${retryNote}` : '',
       'Return only a JSON object with music_mood and a scenes array. Each scene has timestamp_sec, narration, image_prompt, and voice_tone.'
     ].filter(Boolean).join('\n');
-  const temperature = retryNote ? 0.4 : 0.7;
   const schema = {
     type: 'OBJECT',
     properties: {
@@ -934,27 +958,16 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
     required: ['music_mood', 'scenes']
   };
   const ask = async (jsonMode, thinking) => {
-    const generationConfig = {
-      temperature,
-      maxOutputTokens: 8192
-    };
-    if (thinking) generationConfig.thinkingConfig = { thinkingBudget: 256 };
+    const generationConfig = { maxOutputTokens: 8192 };
+    if (thinking) generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
     if (jsonMode) {
       generationConfig.responseMimeType = 'application/json';
       generationConfig.responseSchema = schema;
     }
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel())}:generateContent?key=${encodeURIComponent(key)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig
-        }),
-        signal: AbortSignal.timeout(90000)
-      }
-    );
+    const res = await geminiFetch(key, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig
+    }, 60000);
     const data = await res.json().catch(() => ({}));
     return { res, data };
   };
@@ -966,11 +979,14 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
     try {
       ({ res, data } = await ask(jsonMode, thinking));
     } catch (err) {
+      console.log(`[belgesel] gemini senaryo ${geminiFailReason(err)}`);
       if (tryNo < 3) {
+        if (thinking) thinking = false;
+        else jsonMode = false;
         await new Promise((resolve) => setTimeout(resolve, 1500 * (tryNo + 1)));
         continue;
       }
-      throw new DocumentaryError('Gemini şu an yanıt vermiyor. Birkaç saniye sonra tekrar dene.', 503);
+      throw new DocumentaryError(geminiFailText(err), 503);
     }
     if (res.status === 400 && jsonMode) {
       jsonMode = false;
