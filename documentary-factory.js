@@ -247,7 +247,34 @@ function quoteDrawtext(value) {
 }
 
 function wordCount(text) {
-  return String(text || '').trim().split(/\s+/).filter(Boolean).length;
+  return String(text || '')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .length;
+}
+
+function captionCueWords(words) {
+  let depth = 0;
+  const out = [];
+  for (const item of words || []) {
+    let kept = '';
+    for (const ch of String(item && item.word || '')) {
+      if (ch === '[') {
+        depth += 1;
+        continue;
+      }
+      if (ch === ']' && depth > 0) {
+        depth -= 1;
+        continue;
+      }
+      if (depth === 0) kept += ch;
+    }
+    kept = kept.trim();
+    if (kept) out.push({ word: kept, start: item.start, end: item.end });
+  }
+  return out;
 }
 
 function evenWordCues(text, duration) {
@@ -262,7 +289,7 @@ function evenWordCues(text, duration) {
 }
 
 function captionPhrases(words, duration) {
-  const list = (words || []).filter((item) => item && item.word);
+  const list = captionCueWords(words).filter((item) => item && item.word);
   const dur = Math.max(0.4, Number(duration) || 0.4);
   if (!list.length) return [];
   const phrases = [];
@@ -893,6 +920,18 @@ function quotaMessage(detail) {
   return `Gemini ücretsiz günlük hakkı doldu. Yaklaşık ${h} saat ${min} dakika sonra yeniden açılır.`;
 }
 
+function narrationPerformanceRules() {
+  return [
+    'Sen profesyonel bir seslendirmen ve ses yönetmenisin. Yazdığın her hikaye veya belgesel metnini, ElevenLabs üzerinden okunacak şekilde duygu etiketleriyle ve duraklama komutlarıyla birlikte yazmalısın.',
+    'Şu kurallara kesinlikle uy:',
+    '1. Metin içinde sesin tonunun değişeceği yerlere [whisper: fısıltıyla], [dramatic pause: 2 seconds], [tension building: hızlanarak] gibi yönlendirici etiketler koy.',
+    '2. Cümlelerin akışını ve nefes alma noktalarını virgüllerle ve üç noktalarla (...) belirginleştir; böylece seslendirme motoru asla düz bir tonda okumaz.',
+    '3. Heyecan, korku, gizem veya trajedi anlarında cümle yapılarını kısa tutarak sesin tonuna dramatik bir duygu kat.',
+    'Put the square-bracket directions inside narration only. image_prompt stays a visual description and contains none of these tags.',
+    'Text inside square brackets is a voice direction, not a spoken word, and it does not count toward the spoken word total.'
+  ].join('\n');
+}
+
 function therapyPlanPrompt(topic, language, retryNote) {
   return [
     'You are the director of a vertical documentary about dark psychology and a real psychological experiment.',
@@ -903,7 +942,7 @@ function therapyPlanPrompt(topic, language, retryNote) {
     'timestamp_sec values are contiguous, start at 0, and look like "0-8".',
     'Scene 1 is a strong hook that lands inside the first second.',
     'Tell the documented experiment: who was tested, what the setup was, and what it revealed. Do not invent a new study.',
-    'narration is only the words to be spoken. No stage directions inside it.',
+    narrationPerformanceRules(),
     'image_prompt is a detailed English visual scene description, not a search keyword.',
     'Describe the room, the test apparatus, the era, and the camera framing in 25 to 55 words.',
     'Keep faces anonymous or in silhouette.',
@@ -931,7 +970,7 @@ function chaosPlanPrompt(story, language, retryNote) {
     `Narration language: ${language}.`,
     'Cover about 45 to 55 seconds, 110 to 130 spoken words, in 5 to 7 scenes.',
     'timestamp_sec values are contiguous, start at 0, and look like "0-7".',
-    'narration is only the words to be spoken. No stage directions inside it.',
+    narrationPerformanceRules(),
     'image_prompt is a detailed English visual scene description, not a search keyword.',
     'Describe the place, time of night, objects, weather, and camera framing in 25 to 55 words.',
     'Example: "An empty motel corridor at 3 a.m., one flickering fluorescent tube, a wet footprint trail, a door ajar at the far end, low tracking shot."',
@@ -965,7 +1004,7 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
       'Cover about 45 to 55 seconds, 110 to 130 spoken words, in 5 to 7 scenes.',
       'timestamp_sec values are contiguous, start at 0, and look like "0-7".',
       'Scene 1 is a strong hook that lands inside the first 3 seconds.',
-      'narration is only the words to be spoken. No stage directions inside it.',
+      narrationPerformanceRules(),
       'image_prompt is a detailed English visual scene description, not a search keyword.',
       'Describe the place, century, objects, weather, and camera framing in 25 to 55 words.',
       'Example: "A ruined Roman library at night, wet marble columns, scattered scorched scrolls, a single oil lamp, low wide shot through drifting smoke."',
@@ -1076,8 +1115,8 @@ async function buildPlan(topic, lang, apiKey, source, channel) {
       const maxWords = 160;
       if (total < minWords || total > maxWords) {
         note = therapy
-          ? `The narration is ${total} words. Return one JSON object with music_mood and 120 to 145 spoken words for a 50 to 60 second film.`
-          : `The narration is ${total} words. Return one JSON object with music_mood and 110 to 130 spoken words.`;
+          ? `The narration is ${total} spoken words. Square-bracket voice tags do not count. Return one JSON object with music_mood and 120 to 145 spoken words for a 50 to 60 second film. Keep the emotion and pause tags in the narration.`
+          : `The narration is ${total} spoken words. Square-bracket voice tags do not count. Return one JSON object with music_mood and 110 to 130 spoken words. Keep the emotion and pause tags in the narration.`;
         lastError = new DocumentaryError(
           therapy
             ? `Senaryo ${total} kelime çıktı. 50-60 saniye için 120-145 kelime bekleniyor.`
@@ -1383,6 +1422,14 @@ function previewCacheFile(voiceId, lang) {
   return path.join(os.tmpdir(), 'va-doc-voice-previews', `${voiceId}_${lang}.mp3`);
 }
 
+async function trimPreviewAudio(ffmpegPath, ffprobePath, sourceFile, destFile) {
+  const duration = await probeDurationSec(ffprobePath || 'ffprobe', sourceFile);
+  const args = ['-y', '-i', sourceFile, '-vn'];
+  if (duration > 5) args.push('-t', '5', '-af', 'afade=t=out:st=4.6:d=0.4');
+  args.push('-c:a', 'libmp3lame', '-b:a', '128k', destFile);
+  await runFfmpeg(ffmpegPath || 'ffmpeg', args);
+}
+
 async function previewDocumentaryVoice({ narrator, lang, elevenKey, ffmpegPath, ffprobePath }) {
   const voice = resolveDocVoice(narrator);
   if (voice.choice === 'random') {
@@ -1406,15 +1453,11 @@ async function previewDocumentaryVoice({ narrator, lang, elevenKey, ffmpegPath, 
       voiceSettings: DOC_VOICE_SETTINGS,
       apiKey: documentaryKey
     });
-    const duration = await probeDurationSec(ffprobePath || 'ffprobe', speech.filePath);
     const trimmed = path.join(tmpDir, 'preview_5s.mp3');
-    const args = ['-y', '-i', speech.filePath, '-vn'];
-    if (duration > 5) args.push('-t', '5', '-af', 'afade=t=out:st=4.6:d=0.4');
-    args.push('-c:a', 'libmp3lame', '-b:a', '128k', trimmed);
-    await runFfmpeg(ffmpegPath || 'ffmpeg', args);
+    await trimPreviewAudio(ffmpegPath, ffprobePath, speech.filePath, trimmed);
     fs.mkdirSync(path.dirname(cached), { recursive: true });
     fs.copyFileSync(trimmed, cached);
-    return { filePath: cached, narrator: voice };
+    return { filePath: cached, narrator: voice, source: 'tts' };
   } catch (err) {
     if (isVoiceFallbackError(err)) {
       throw new DocumentaryError(
