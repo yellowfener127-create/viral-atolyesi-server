@@ -255,9 +255,11 @@ function buildCaptionFilter(words, duration, fontFile) {
 }
 
 const STYLE_LOCK = ', cinematic dark horror/mystery documentary still, moody chiaroscuro lighting, dramatic shadows, desaturated cold color palette, hyper-realistic, 8k resolution, film grain, grim atmosphere, no bright colors';
+const THERAPY_STYLE_LOCK = ', surreal psychological thriller cinematography, dark shadows, silhouette in fog, eerie minimalist lighting, cold blue and black tones, hyper-realistic, 8k resolution, film grain, no bright colors';
 const STYLE_MARKS = [
   'cinematic dark horror/mystery documentary still',
-  'cinematic dark historical documentary still'
+  'cinematic dark historical documentary still',
+  'surreal psychological thriller cinematography'
 ];
 
 function cleanImagePrompt(raw) {
@@ -279,8 +281,12 @@ function cleanImagePrompt(raw) {
   return text;
 }
 
-function withStyleLock(prompt) {
-  return String(prompt || '').replace(/[\s,.:;-]+$/g, '') + STYLE_LOCK;
+function styleLockFor(channel) {
+  return resolveDocChannel(channel) === 'therapy' ? THERAPY_STYLE_LOCK : STYLE_LOCK;
+}
+
+function withStyleLock(prompt, channel) {
+  return String(prompt || '').replace(/[\s,.:;-]+$/g, '') + styleLockFor(channel);
 }
 
 function cleanTimestamp(raw) {
@@ -513,7 +519,6 @@ function cleanTopicLine(raw) {
 }
 
 const DOC_CHANNELS = Object.freeze(['epoch', 'chaos', 'therapy']);
-const THERAPY_NOTICE = 'Therapy Lab henüz yapım aşamasında...';
 const CHAOS_SUBREDDITS = Object.freeze(['LetsNotMeet', 'NoSleep', 'UnresolvedMysteries']);
 
 function resolveDocChannel(raw) {
@@ -712,32 +717,55 @@ async function pullChaosStory({ query, redditId, avoid } = {}) {
   return story;
 }
 
-async function suggestDocumentaryTopic({ lang, apiKey, avoid }) {
+async function suggestDocumentaryTopic({ lang, apiKey, avoid, channel }) {
   const key = String(apiKey || '').trim();
   if (!key) throw new DocumentaryError('Gemini API anahtarı yok. Araçlar → Gemini bölümünden bir anahtarı aktif yap.', 401);
+  const therapy = resolveDocChannel(channel || 'epoch') === 'therapy';
   const language = lang === 'tr' ? 'Turkish' : 'English';
   const previous = cleanTopicLine(avoid);
-  const examples = lang === 'tr'
+  const examples = therapy
+    ? (lang === 'tr'
+      ? [
+        'Öğrencileri gardiyan yapan bodrum',
+        'İtaati ölçen elektrik deneyi',
+        'Üçüzlerin bilmediği çalışma'
+      ]
+      : [
+        'The basement that turned students into guards',
+        'The shock test that measured obedience',
+        'Three identical strangers and the study they never knew'
+      ])
+    : (lang === 'tr'
+      ? [
+        'Nil on yıl kurusaydı ne olurdu?',
+        'Konstantinopolis’i kurtaran fırtına',
+        'İskenderiye kütüphanesi neden yok oldu?'
+      ]
+      : [
+        'What if the Nile had dried up for ten years?',
+        'The storm that saved Constantinople',
+        'Why the Library of Alexandria vanished'
+      ]);
+  const prompt = (therapy
     ? [
-      'Nil on yıl kurusaydı ne olurdu?',
-      'Konstantinopolis’i kurtaran fırtına',
-      'İskenderiye kütüphanesi neden yok oldu?'
+      'Invent one new title for a 50 to 60 second vertical documentary.',
+      'The subject is dark psychology and one real psychological experiment.',
+      'Think of documented studies such as the Stanford Prison Experiment, the Milgram obedience study, or the secret triplets study.',
+      `Write it in ${language}, the way a viewer would read it on screen.`,
+      '8 to 16 words. Name the experiment, the test, or the people who were studied.',
+      'No self-help, no therapy advice, and no fictional horror.'
     ]
     : [
-      'What if the Nile had dried up for ten years?',
-      'The storm that saved Constantinople',
-      'Why the Library of Alexandria vanished'
-    ];
-  const prompt = [
-    'Invent one new title for a 50-second vertical history documentary.',
-    `Write it in ${language}, the way a viewer would read it on screen.`,
-    '8 to 16 words. Concrete place, person from history, or a what-if question.',
+      'Invent one new title for a 50-second vertical history documentary.',
+      `Write it in ${language}, the way a viewer would read it on screen.`,
+      '8 to 16 words. Concrete place, person from history, or a what-if question.'
+    ]).concat([
     'Return JSON only: {"topic":"..."}',
     'The topic value is plain text. No label, no parentheses, no asterisk, no quotes inside it.',
     'Do not copy these examples. Match their tone:',
     examples.join('\n'),
     previous ? `Do not repeat: ${previous}` : ''
-  ].filter(Boolean).join('\n');
+  ]).filter(Boolean).join('\n');
   let lastError = null;
   let thinking = true;
   let jsonMode = true;
@@ -798,6 +826,33 @@ function quotaMessage(detail) {
   return `Gemini ücretsiz günlük hakkı doldu. Yaklaşık ${h} saat ${min} dakika sonra yeniden açılır.`;
 }
 
+function therapyPlanPrompt(topic, language, retryNote) {
+  return [
+    'You are the director of a vertical documentary about dark psychology and a real psychological experiment.',
+    'Write one plan in the same dark cinematic voice used for history and horror documentaries.',
+    `Topic: ${topic}`,
+    `Narration language: ${language}.`,
+    'Cover about 50 to 60 seconds, 120 to 145 spoken words, in 5 to 7 scenes.',
+    'timestamp_sec values are contiguous, start at 0, and look like "0-8".',
+    'Scene 1 is a strong hook that lands inside the first second.',
+    'Tell the documented experiment: who was tested, what the setup was, and what it revealed. Do not invent a new study.',
+    'narration is only the words to be spoken. No stage directions inside it.',
+    'image_prompt is a detailed English visual scene description, not a search keyword.',
+    'Describe the room, the test apparatus, the era, and the camera framing in 25 to 55 words.',
+    'Keep faces anonymous or in silhouette.',
+    'Example: "A 1971 basement corridor dressed as a prison, numbered doors, a single overhead bulb, a figure in silhouette behind frosted glass, low wide shot."',
+    'Do not add color grading or a style suffix. The editor locks the look.',
+    'voice_tone is a short English direction for the narrator, such as "quiet, clinical, pause after the first sentence".',
+    'music_mood is exactly one of mystery, epic, sad, science.',
+    'mystery is the hidden design of the study. epic is pressure and rupture. sad is the harm left behind. science is the method and the evidence.',
+    'The music bed is chosen from the local suspense library: tension, mystery, dark investigation, intense thriller, and cinematic anxiety. Pick the closest mood.',
+    'Do not ask for famous living people, logos, or copyrighted film stills.',
+    'No markdown and no commentary.',
+    retryNote ? `Fix: ${retryNote}` : '',
+    'Return only a JSON object with music_mood and a scenes array. Each scene has timestamp_sec, narration, image_prompt, and voice_tone.'
+  ].filter(Boolean).join('\n');
+}
+
 function chaosPlanPrompt(story, language, retryNote) {
   return [
     'You are the director of a vertical horror and mystery documentary.',
@@ -825,7 +880,7 @@ function chaosPlanPrompt(story, language, retryNote) {
   ].filter(Boolean).join('\n');
 }
 
-async function askGeminiPlan(topic, lang, apiKey, retryNote, source) {
+async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
   const key = String(apiKey || '').trim();
   if (!key) throw new DocumentaryError('Gemini API anahtarı yok. Araçlar → Gemini bölümünden bir anahtarı aktif yap.', 401);
   const language = lang === 'tr'
@@ -833,7 +888,9 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source) {
     : 'English';
   const prompt = source && source.selftext
     ? chaosPlanPrompt(source, language, retryNote)
-    : [
+    : channel === 'therapy'
+      ? therapyPlanPrompt(topic, language, retryNote)
+      : [
       'You are the director of a vertical documentary.',
       'Write one plan that the editor, image generator, and voice actor must follow together.',
       `Topic: ${topic}`,
@@ -943,18 +1000,27 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source) {
   return text;
 }
 
-async function buildPlan(topic, lang, apiKey, source) {
+async function buildPlan(topic, lang, apiKey, source, channel) {
+  const therapy = channel === 'therapy';
   let note = '';
   let lastError = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await askGeminiPlan(topic, lang, apiKey, note, source);
+      const raw = await askGeminiPlan(topic, lang, apiKey, note, source, channel);
       const plan = parseScenePlan(raw);
       const scenes = plan.scenes;
       const total = scenes.reduce((sum, scene) => sum + wordCount(scene.narration), 0);
-      if (total < 90 || total > 160) {
-        note = `The narration is ${total} words. Return one JSON object with music_mood and 110 to 130 spoken words.`;
-        lastError = new DocumentaryError(`Senaryo ${total} kelime çıktı. 110-130 kelime bekleniyor.`);
+      const minWords = therapy ? 110 : 90;
+      const maxWords = 160;
+      if (total < minWords || total > maxWords) {
+        note = therapy
+          ? `The narration is ${total} words. Return one JSON object with music_mood and 120 to 145 spoken words for a 50 to 60 second film.`
+          : `The narration is ${total} words. Return one JSON object with music_mood and 110 to 130 spoken words.`;
+        lastError = new DocumentaryError(
+          therapy
+            ? `Senaryo ${total} kelime çıktı. 50-60 saniye için 120-145 kelime bekleniyor.`
+            : `Senaryo ${total} kelime çıktı. 110-130 kelime bekleniyor.`
+        );
         continue;
       }
       return { scenes, words: total, music_mood: plan.music_mood };
@@ -990,8 +1056,8 @@ function runProcess(bin, args, timeoutMs) {
   });
 }
 
-async function downloadPollinationsStill(prompt, dest) {
-  const locked = withStyleLock(prompt);
+async function downloadPollinationsStill(prompt, dest, channel) {
+  const locked = withStyleLock(prompt, channel);
   const promptFile = path.join(path.dirname(dest), `prompt_${path.basename(dest, path.extname(dest))}.txt`);
   await fs.promises.mkdir(path.dirname(dest), { recursive: true });
   await fs.promises.writeFile(promptFile, locked, 'utf8');
@@ -1265,10 +1331,6 @@ async function produceDocumentary({
 }) {
   const selected = resolveDocChannel(channel);
   console.log(`[belgesel] kanal=${selected}`);
-  if (selected === 'therapy') {
-    console.log(THERAPY_NOTICE);
-    throw new DocumentaryError(THERAPY_NOTICE, 409);
-  }
   let subject = String(topic || '').replace(/\s+/g, ' ').trim();
   let reddit = null;
   if (selected === 'chaos') {
@@ -1309,7 +1371,7 @@ async function produceDocumentary({
     }
   }
   try {
-    const plan = await buildPlan(subject, language, geminiKey, selected === 'chaos' ? reddit : null);
+    const plan = await buildPlan(subject, language, geminiKey, selected === 'chaos' ? reddit : null, selected);
     const segments = [];
     const sceneInfo = [];
     for (let i = 0; i < plan.scenes.length; i++) {
@@ -1343,7 +1405,7 @@ async function produceDocumentary({
         i < plan.scenes.length - 1
       );
       const photo = path.join(imageDir, `scene_${i}.jpg`);
-      await downloadPollinationsStill(scene.image_prompt, photo);
+      await downloadPollinationsStill(scene.image_prompt, photo, selected);
       const segment = path.join(tmpDir, `scene_${i}.mp4`);
       await renderScene({
         ffmpegPath: ffmpeg,
@@ -1397,6 +1459,8 @@ module.exports = {
   parseScenePlan,
   buildPanFilter,
   STYLE_LOCK,
+  THERAPY_STYLE_LOCK,
+  styleLockFor,
   cleanImagePrompt,
   withStyleLock,
   buildCaptionFilter,
@@ -1418,7 +1482,6 @@ module.exports = {
   pickChaosPost,
   isChaosPost,
   DOC_CHANNELS,
-  THERAPY_NOTICE,
   isVoiceRestricted,
   DOC_VOICES,
   DocumentaryError,

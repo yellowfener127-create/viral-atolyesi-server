@@ -2444,10 +2444,6 @@ app.post('/documentary-topic', async (req, res) => {
     return res.status(e && e.statusCode ? e.statusCode : 400).json({ error: (e && e.message) ? e.message : String(e) });
   }
   try {
-    if (channel === 'therapy') {
-      console.log(documentaryFactory.THERAPY_NOTICE);
-      return res.json({ ok: false, skipped: true, channel, message: documentaryFactory.THERAPY_NOTICE });
-    }
     if (channel === 'chaos') {
       const story = await documentaryFactory.pullChaosStory({ avoid });
       return res.json({
@@ -2460,8 +2456,8 @@ app.post('/documentary-topic', async (req, res) => {
         score: story.score
       });
     }
-    const topic = await documentaryFactory.suggestDocumentaryTopic({ lang, apiKey: geminiKey, avoid });
-    return res.json({ ok: true, topic, lang, channel: 'epoch' });
+    const topic = await documentaryFactory.suggestDocumentaryTopic({ lang, apiKey: geminiKey, avoid, channel });
+    return res.json({ ok: true, topic, lang, channel });
   } catch (e) {
     const code = e && e.statusCode ? e.statusCode : 500;
     return res.status(code).json({ error: (e && e.message) ? e.message : String(e) });
@@ -2478,11 +2474,9 @@ app.post('/documentary', async (req, res) => {
   } catch (e) {
     return res.status(e && e.statusCode ? e.statusCode : 400).json({ error: (e && e.message) ? e.message : String(e) });
   }
-  if (channel === 'therapy') {
-    console.log(documentaryFactory.THERAPY_NOTICE);
-    return res.json({ ok: false, skipped: true, channel, message: documentaryFactory.THERAPY_NOTICE });
+  if ((channel === 'epoch' || channel === 'therapy') && topic.length < 8) {
+    return res.status(400).json({ error: 'Konu en az birkaç kelime olsun.' });
   }
-  if (channel === 'epoch' && topic.length < 8) return res.status(400).json({ error: 'Konu en az birkaç kelime olsun.' });
   if (channel === 'chaos' && topic.length > 300) return res.status(400).json({ error: 'Arama 300 karakterden kısa olsun.' });
   if (__docInProgress) return res.status(409).json({ error: 'Bir belgesel zaten üretiliyor.' });
   const hasFfmpeg = await existsOnPath('ffmpeg');

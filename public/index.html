@@ -541,7 +541,7 @@
       <select class="tool-input" id="docChannel" onchange="syncDocChannel()">
         <option value="epoch" selected>Epoch Lab — karanlık tarih</option>
         <option value="chaos">Chaos Lab — Reddit korku / gizem</option>
-        <option value="therapy">Therapy Lab</option>
+        <option value="therapy">Therapy Lab — karanlık psikoloji</option>
       </select>
     </label>
     <div class="tool-desc" id="docChannelHint" style="margin-top:8px">Epoch Lab: karanlık tarih ve alternatif tarih. Konu Gemini ile yazılır.</div>
@@ -3086,17 +3086,23 @@ function syncDocChannel() {
   if (box) {
     box.maxLength = channel === "chaos" ? 300 : 240;
     if (channel === "chaos") box.placeholder = "Boş bırakırsan popüler bir hikaye seçilir. Yazarsan Reddit’te aranır.";
-    else if (channel === "therapy") box.placeholder = "Therapy Lab henüz yapım aşamasında...";
+    else if (channel === "therapy") box.placeholder = "The basement that turned students into guards";
     else box.placeholder = "What if Rome never fell?";
   }
-  if (btn) btn.textContent = channel === "chaos" ? "Reddit’ten Hikaye Çek" : "Rastgele Viral Konu Üret";
+  if (btn) btn.textContent = docRandomLabel(channel);
   if (hint) {
     hint.textContent = channel === "chaos"
       ? "Chaos Lab: r/LetsNotMeet, r/NoSleep ve r/UnresolvedMysteries. Hikaye Gemini ile kancalı mikro-belgesele çevrilir."
       : channel === "therapy"
-        ? "Therapy Lab henüz yapım aşamasında..."
+        ? "Therapy Lab: karanlık psikoloji ve gerçek deneyler. Stanford, Milgram, üçüzler çalışması gibi konular 50-60 saniyelik mikro-belgesele dönüşür."
         : "Epoch Lab: karanlık tarih ve alternatif tarih. Konu Gemini ile yazılır.";
   }
+}
+
+function docRandomLabel(channel) {
+  if (channel === "chaos") return "Reddit’ten Hikaye Çek";
+  if (channel === "therapy") return "Rastgele Deney Konusu";
+  return "Rastgele Viral Konu Üret";
 }
 
 async function docRandomTopic() {
@@ -3106,13 +3112,9 @@ async function docRandomTopic() {
   const btn = document.getElementById("docRandomBtn");
   const msg = document.getElementById("docMsg");
   const current = box ? String(box.value || "").trim() : "";
-  if (channel === "therapy") {
-    if (msg) { msg.style.display = "block"; msg.textContent = "Therapy Lab henüz yapım aşamasında..."; }
-    return;
-  }
   let geminiKey = "";
   try { geminiKey = geminiKeySaved(); } catch (eKey) {}
-  if (channel === "epoch" && !geminiKey) {
+  if (channel !== "chaos" && !geminiKey) {
     alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
     return;
   }
@@ -3125,7 +3127,7 @@ async function docRandomTopic() {
     });
     const data = await res.json().catch(() => ({}));
     if (data && data.skipped) {
-      if (msg) { msg.style.display = "block"; msg.textContent = data.message || "Therapy Lab henüz yapım aşamasında..."; }
+      if (msg) { msg.style.display = "block"; msg.textContent = data.message || "Bu kanal şu an üretim yapmıyor."; }
       return;
     }
     if (!res.ok || !data.topic) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
@@ -3149,7 +3151,7 @@ async function docRandomTopic() {
       msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
     }
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = channel === "chaos" ? "Reddit’ten Hikaye Çek" : "Rastgele Viral Konu Üret"; }
+    if (btn) { btn.disabled = false; btn.textContent = docRandomLabel(channel); }
   }
 }
 
@@ -3212,22 +3214,20 @@ async function runDocumentary() {
   const docVoiceIds = ["pNInz6obpgDQGcFmaJgB", "JBFqnCBsd6RMkjVDRZzb", "nPczCjzI2devNBz1zQrb", "auq43ws1oslv0tO4BDa7", "SAxJUlDKRc79XAyeWyMu"];
   const pickedVoice = voiceEl ? String(voiceEl.value || "").trim() : "";
   const voiceId = pickedVoice === "random" || docVoiceIds.indexOf(pickedVoice) >= 0 ? pickedVoice : "pNInz6obpgDQGcFmaJgB";
-  if (channel === "epoch" && topic.length < 8) {
+  if (channel !== "chaos" && topic.length < 8) {
     alert("Konuyu birkaç kelimeyle yaz.");
     return;
   }
   let geminiKey = "";
   try { geminiKey = geminiKeySaved(); } catch (eKey) {}
-  if (channel !== "therapy" && !geminiKey) {
+  if (!geminiKey) {
     alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
     return;
   }
-  if (btn) { btn.disabled = true; btn.textContent = channel === "therapy" ? "Kontrol ediliyor…" : "⏳ Belgesel üretiliyor…"; }
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Belgesel üretiliyor…"; }
   if (msg) {
     msg.style.display = "block";
-    msg.textContent = channel === "therapy"
-      ? "Therapy Lab henüz yapım aşamasında..."
-      : "Senaryo, Pollinations görselleri, ElevenLabs sesi ve montaj sırayla çalışıyor. Bu birkaç dakika sürebilir.";
+    msg.textContent = "Senaryo, Pollinations görselleri, ElevenLabs sesi ve montaj sırayla çalışıyor. Bu birkaç dakika sürebilir.";
   }
   try {
     const res = await fetch("http://127.0.0.1:8787/documentary", {
@@ -3245,7 +3245,7 @@ async function runDocumentary() {
     });
     const data = await res.json().catch(() => ({}));
     if (data && data.skipped) {
-      if (msg) msg.textContent = data.message || "Therapy Lab henüz yapım aşamasında...";
+      if (msg) msg.textContent = data.message || "Bu kanal şu an üretim yapmıyor.";
       return;
     }
     if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));

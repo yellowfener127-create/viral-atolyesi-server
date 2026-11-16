@@ -9,6 +9,7 @@ from pathlib import Path
 STYLE_MARKS = (
     "cinematic dark horror/mystery documentary still",
     "cinematic dark historical documentary still",
+    "surreal psychological thriller cinematography",
 )
 STYLE_LOCK = (
     ", cinematic dark horror/mystery documentary still, moody chiaroscuro lighting, "
@@ -20,13 +21,9 @@ STYLE_LOCK = (
 def locked_prompt(prompt):
     text = " ".join(str(prompt or "").split()).strip()
     lower = text.lower()
-    cut = len(text)
     for mark in STYLE_MARKS:
-        at = lower.find(mark)
-        if at >= 0 and at < cut:
-            cut = at
-    if cut < len(text):
-        text = text[:cut].rstrip(" ,.;:-")
+        if mark in lower:
+            return text
     return text.rstrip(" ,.;:-") + STYLE_LOCK
 
 
