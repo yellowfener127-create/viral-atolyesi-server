@@ -457,6 +457,80 @@ function visibleGeminiText(data) {
   return parts.filter((part) => part && part.text).map((part) => part.text).join('\n').trim();
 }
 
+function cleanTopicLine(raw) {
+  const line = String(raw || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .split(/\r?\n/)
+    .map((part) => part.trim())
+    .filter(Boolean)[0] || '';
+  return line
+    .replace(/^["'`“”]+|["'`“”]+$/g, '')
+    .replace(/^\d+[\).\-\s]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240);
+}
+
+async function suggestDocumentaryTopic({ lang, apiKey, avoid }) {
+  const key = String(apiKey || '').trim();
+  if (!key) throw new DocumentaryError('Gemini API anahtarı yok. Araçlar → Gemini bölümünden bir anahtarı aktif yap.', 401);
+  const language = lang === 'tr' ? 'Turkish' : 'English';
+  const previous = cleanTopicLine(avoid);
+  const prompt = [
+    'You invent one viral topic for a 50-second vertical history documentary.',
+    `Write the topic in ${language}.`,
+    'One line, 8 to 18 words. A what-if, a vanished place, or a hidden historical fact.',
+    'No hashtags, no quotes, no numbering, no explanation.',
+    previous ? `Do not repeat this topic: ${previous}` : ''
+  ].filter(Boolean).join('\n');
+  let lastError = null;
+  let thinking = true;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let res;
+    let data;
+    const generationConfig = { temperature: 1, maxOutputTokens: 256 };
+    if (thinking) generationConfig.thinkingConfig = { thinkingBudget: 128 };
+    try {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel())}:generateContent?key=${encodeURIComponent(key)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig
+          }),
+          signal: AbortSignal.timeout(45000)
+        }
+      );
+      data = await res.json().catch(() => ({}));
+    } catch (err) {
+      lastError = new DocumentaryError('Gemini şu an yanıt vermiyor. Birkaç saniye sonra tekrar dene.', 503);
+      continue;
+    }
+    if (res.status === 400 && thinking) {
+      thinking = false;
+      continue;
+    }
+    if (!res.ok) {
+      const detail = JSON.stringify(data).slice(0, 500);
+      if (res.status === 429 || /quota/i.test(detail)) throw new DocumentaryError(quotaMessage(detail), 429);
+      if (res.status === 401 || res.status === 403) {
+        throw new DocumentaryError('Gemini API anahtarı geçersiz. Araçlar listesinden başka bir anahtar seç.', 401);
+      }
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < 2) {
+        lastError = new DocumentaryError('Gemini şu an meşgul. Birkaç saniye bekleyip yeniden üret.', 503);
+        continue;
+      }
+      throw new DocumentaryError(`Gemini konu yazamadı (${res.status}).`, res.status);
+    }
+    const topic = cleanTopicLine(visibleGeminiText(data));
+    if (topic.length >= 8 && topic.toLowerCase() !== previous.toLowerCase()) return topic;
+    lastError = new DocumentaryError('Gemini çok kısa bir konu döndürdü.');
+  }
+  throw lastError || new DocumentaryError('Gemini konu yazamadı.');
+}
+
 function quotaMessage(detail) {
   const m = String(detail || '').match(/retry in\s+([\d.]+)s/i);
   if (!m) return 'Gemini ücretsiz günlük hakkı doldu. Araçlar bölümünden başka anahtarı aktif yap.';
@@ -1033,6 +1107,7 @@ module.exports = {
   MUSIC_VOLUME,
   resolveDocVoice,
   documentaryVoiceFromRequest,
+  suggestDocumentaryTopic,
   isVoiceRestricted,
   DOC_VOICES,
   DocumentaryError,

@@ -2433,6 +2433,19 @@ async function normalizeLocalCrushSource(inFile, outFile) {
 
 let __docInProgress = false;
 
+app.post('/documentary-topic', async (req, res) => {
+  const lang = String(req.body?.lang || 'en').toLowerCase() === 'tr' ? 'tr' : 'en';
+  const avoid = String(req.body?.avoid || req.body?.current || '').replace(/\s+/g, ' ').trim();
+  const geminiKey = String(req.body?.gemini_api_key || req.body?.geminiApiKey || '').trim();
+  try {
+    const topic = await documentaryFactory.suggestDocumentaryTopic({ lang, apiKey: geminiKey, avoid });
+    return res.json({ ok: true, topic, lang });
+  } catch (e) {
+    const code = e && e.statusCode ? e.statusCode : 500;
+    return res.status(code).json({ error: (e && e.message) ? e.message : String(e) });
+  }
+});
+
 app.post('/documentary', async (req, res) => {
   res.setTimeout(12 * 60 * 1000);
   const topic = String(req.body?.topic || '').replace(/\s+/g, ' ').trim();

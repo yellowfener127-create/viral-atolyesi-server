@@ -540,7 +540,7 @@
     <div class="tool-title">Konu</div>
     <textarea class="tool-input" id="docTopic" rows="3" maxlength="240" placeholder="What if Rome never fell?"></textarea>
     <div class="mcc-row" style="margin-top:10px">
-      <button type="button" class="tool-btn" style="width:auto" onclick="docRandomTopic()">Rastgele Viral Konu Üret</button>
+      <button type="button" class="tool-btn" style="width:auto" id="docRandomBtn" onclick="docRandomTopic()">Rastgele Viral Konu Üret</button>
       <label style="font-size:12px;color:var(--muted)">Dil
         <select class="tool-input" id="docLang">
           <option value="en">İngilizce (Global / ABD)</option>
@@ -3055,45 +3055,37 @@ async function runVoiceCompilation() {
   }
 }
 
-const DOC_TOPICS = {
-  en: [
-    "What if Rome never fell?",
-    "The darkest secret of Sparta",
-    "Why the Library of Alexandria vanished",
-    "What if Napoleon reached Moscow?",
-    "The lost city under the Sahara",
-    "How Venice was built on water",
-    "The emperor who erased his own brother",
-    "What if the Silk Road never existed?",
-    "The storm that saved Constantinople",
-    "Why the Maya left their cities",
-    "What if Cleopatra won at Actium?",
-    "The volcano that cooled the world"
-  ],
-  tr: [
-    "Roma hiç düşmeseydi ne olurdu?",
-    "Sparta'nın en karanlık sırrı",
-    "İskenderiye kütüphanesi neden yok oldu?",
-    "Napolyon Moskova'ya varabilseydi",
-    "Sahra'nın altında kayıp şehir",
-    "Venedik suyun üstüne nasıl kuruldu?",
-    "Kardeşini tarihten silen imparator",
-    "İpek Yolu hiç olmasaydı",
-    "Konstantinopolis'i kurtaran fırtına",
-    "Maya şehirlerini neden terk etti?",
-    "Kleopatra Actium'da kazansaydı",
-    "Dünyayı bir yıl soğutan yanardağ"
-  ]
-};
-
-function docRandomTopic() {
+async function docRandomTopic() {
   const lang = (document.getElementById("docLang") && document.getElementById("docLang").value) === "tr" ? "tr" : "en";
   const box = document.getElementById("docTopic");
-  const pool = DOC_TOPICS[lang];
+  const btn = document.getElementById("docRandomBtn");
+  const msg = document.getElementById("docMsg");
   const current = box ? String(box.value || "").trim() : "";
-  let pick = pool[Math.floor(Math.random() * pool.length)];
-  if (pool.length > 1 && pick === current) pick = pool[(pool.indexOf(pick) + 1) % pool.length];
-  if (box) box.value = pick;
+  let geminiKey = "";
+  try { geminiKey = geminiKeySaved(); } catch (eKey) {}
+  if (!geminiKey) {
+    alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = "Konu yazılıyor…"; }
+  try {
+    const res = await fetch("http://127.0.0.1:8787/documentary-topic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lang: lang, avoid: current, gemini_api_key: geminiKey })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.topic) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
+    if (box) box.value = String(data.topic || "").trim();
+    if (msg) { msg.style.display = "none"; msg.textContent = ""; }
+  } catch (e) {
+    if (msg) {
+      msg.style.display = "block";
+      msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Rastgele Viral Konu Üret"; }
+  }
 }
 
 const DOC_ELEVEN_KEY = "doc_elevenlabs_api_key";
