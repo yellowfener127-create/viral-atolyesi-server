@@ -2437,9 +2437,31 @@ app.post('/documentary-topic', async (req, res) => {
   const lang = String(req.body?.lang || 'en').toLowerCase() === 'tr' ? 'tr' : 'en';
   const avoid = String(req.body?.avoid || req.body?.current || '').replace(/\s+/g, ' ').trim();
   const geminiKey = String(req.body?.gemini_api_key || req.body?.geminiApiKey || '').trim();
+  let channel = 'epoch';
   try {
+    channel = documentaryFactory.resolveDocChannel(req.body?.channel);
+  } catch (e) {
+    return res.status(e && e.statusCode ? e.statusCode : 400).json({ error: (e && e.message) ? e.message : String(e) });
+  }
+  try {
+    if (channel === 'therapy') {
+      console.log(documentaryFactory.THERAPY_NOTICE);
+      return res.json({ ok: false, skipped: true, channel, message: documentaryFactory.THERAPY_NOTICE });
+    }
+    if (channel === 'chaos') {
+      const story = await documentaryFactory.pullChaosStory({ avoid });
+      return res.json({
+        ok: true,
+        topic: story.title,
+        lang,
+        channel,
+        reddit_id: story.id,
+        subreddit: story.subreddit,
+        score: story.score
+      });
+    }
     const topic = await documentaryFactory.suggestDocumentaryTopic({ lang, apiKey: geminiKey, avoid });
-    return res.json({ ok: true, topic, lang });
+    return res.json({ ok: true, topic, lang, channel: 'epoch' });
   } catch (e) {
     const code = e && e.statusCode ? e.statusCode : 500;
     return res.status(code).json({ error: (e && e.message) ? e.message : String(e) });
@@ -2450,7 +2472,18 @@ app.post('/documentary', async (req, res) => {
   res.setTimeout(12 * 60 * 1000);
   const topic = String(req.body?.topic || '').replace(/\s+/g, ' ').trim();
   const lang = String(req.body?.lang || 'en').toLowerCase() === 'tr' ? 'tr' : 'en';
-  if (topic.length < 8) return res.status(400).json({ error: 'Konu en az birkaç kelime olsun.' });
+  let channel = 'epoch';
+  try {
+    channel = documentaryFactory.resolveDocChannel(req.body?.channel);
+  } catch (e) {
+    return res.status(e && e.statusCode ? e.statusCode : 400).json({ error: (e && e.message) ? e.message : String(e) });
+  }
+  if (channel === 'therapy') {
+    console.log(documentaryFactory.THERAPY_NOTICE);
+    return res.json({ ok: false, skipped: true, channel, message: documentaryFactory.THERAPY_NOTICE });
+  }
+  if (channel === 'epoch' && topic.length < 8) return res.status(400).json({ error: 'Konu en az birkaç kelime olsun.' });
+  if (channel === 'chaos' && topic.length > 300) return res.status(400).json({ error: 'Arama 300 karakterden kısa olsun.' });
   if (__docInProgress) return res.status(409).json({ error: 'Bir belgesel zaten üretiliyor.' });
   const hasFfmpeg = await existsOnPath('ffmpeg');
   const hasFfprobe = await existsOnPath('ffprobe');
@@ -2458,12 +2491,15 @@ app.post('/documentary', async (req, res) => {
   __docInProgress = true;
   const docDir = getMixDir();
   const stamp = Date.now();
-  const slug = safeName(topic).replace(/[. ]+$/g, '').slice(0, 80) || 'belgesel';
-  const outFile = path.join(docDir, `${slug}_${stamp}.mp4`);
+  const slug = safeName(topic).replace(/[. ]+$/g, '').slice(0, 80) || channel;
+  const fileName = channel === 'epoch' ? `${slug}_${stamp}.mp4` : `${channel}_${slug}_${stamp}.mp4`;
+  const outFile = path.join(docDir, fileName);
   try {
     const info = await documentaryFactory.produceDocumentary({
       topic,
       lang,
+      channel,
+      redditId: String(req.body?.reddit_id || req.body?.redditId || '').trim(),
       geminiKey: String(req.body?.gemini_api_key || req.body?.geminiApiKey || '').trim(),
       elevenKey: String(req.body?.elevenlabs_api_key || req.body?.elevenlabsApiKey || '').trim(),
       narrator: documentaryFactory.documentaryVoiceFromRequest(req.body).id,

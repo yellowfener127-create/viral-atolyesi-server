@@ -6,9 +6,12 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-STYLE_MARK = "cinematic dark historical documentary still"
+STYLE_MARKS = (
+    "cinematic dark horror/mystery documentary still",
+    "cinematic dark historical documentary still",
+)
 STYLE_LOCK = (
-    ", cinematic dark historical documentary still, moody chiaroscuro lighting, "
+    ", cinematic dark horror/mystery documentary still, moody chiaroscuro lighting, "
     "dramatic shadows, desaturated cold color palette, hyper-realistic, 8k resolution, "
     "film grain, grim atmosphere, no bright colors"
 )
@@ -16,9 +19,15 @@ STYLE_LOCK = (
 
 def locked_prompt(prompt):
     text = " ".join(str(prompt or "").split()).strip()
-    if STYLE_MARK not in text.lower():
-        text = text.rstrip(" ,.") + STYLE_LOCK
-    return text
+    lower = text.lower()
+    cut = len(text)
+    for mark in STYLE_MARKS:
+        at = lower.find(mark)
+        if at >= 0 and at < cut:
+            cut = at
+    if cut < len(text):
+        text = text[:cut].rstrip(" ,.;:-")
+    return text.rstrip(" ,.;:-") + STYLE_LOCK
 
 
 def is_image(data):

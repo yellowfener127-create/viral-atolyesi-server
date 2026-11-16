@@ -534,11 +534,19 @@
 <div class="wrap">
   <div style="margin-bottom:18px">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;margin-bottom:6px">Belgesel Fabrikası</div>
-    <div style="font-size:13px;color:var(--muted)">Konu bir dikey belgesele dönüşür. Senaryo Gemini, görüntü Pollinations ile üretilen 9:16 sahne ve sinematik kaydırma, ses seçilen belgesel anlatıcısı. Çıktı 9:16 ve kelime kelime beyaz altyazılıdır.</div>
+    <div style="font-size:13px;color:var(--muted)">Konu bir dikey belgesele dönüşür. Kanal Epoch, Chaos veya Therapy olabilir. Senaryo Gemini, görüntü Pollinations ile üretilen 9:16 sahne ve sinematik kaydırma, ses seçilen belgesel anlatıcısı. Çıktı 9:16 ve kelime kelime beyaz altyazılıdır.</div>
   </div>
   <div class="tool-card" style="max-width:920px">
-    <div class="tool-title">Konu</div>
-    <textarea class="tool-input" id="docTopic" rows="3" maxlength="240" placeholder="What if Rome never fell?"></textarea>
+    <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:6px;max-width:420px">Kanal
+      <select class="tool-input" id="docChannel" onchange="syncDocChannel()">
+        <option value="epoch" selected>Epoch Lab — karanlık tarih</option>
+        <option value="chaos">Chaos Lab — Reddit korku / gizem</option>
+        <option value="therapy">Therapy Lab</option>
+      </select>
+    </label>
+    <div class="tool-desc" id="docChannelHint" style="margin-top:8px">Epoch Lab: karanlık tarih ve alternatif tarih. Konu Gemini ile yazılır.</div>
+    <div class="tool-title" style="margin-top:12px">Konu</div>
+    <textarea class="tool-input" id="docTopic" rows="3" maxlength="240" placeholder="What if Rome never fell?" oninput="docTopicEdited()"></textarea>
     <div class="mcc-row" style="margin-top:10px">
       <button type="button" class="tool-btn" style="width:auto" id="docRandomBtn" onclick="docRandomTopic()">Rastgele Viral Konu Üret</button>
       <label style="font-size:12px;color:var(--muted)">Dil
@@ -3042,36 +3050,93 @@ async function runVoiceCompilation() {
   }
 }
 
+function docChannelValue() {
+  const el = document.getElementById("docChannel");
+  const value = el ? String(el.value || "epoch").trim() : "epoch";
+  return value === "chaos" || value === "therapy" ? value : "epoch";
+}
+
+function docTopicEdited() {
+  const box = document.getElementById("docTopic");
+  if (box) delete box.dataset.redditId;
+}
+
+function syncDocChannel() {
+  const channel = docChannelValue();
+  const box = document.getElementById("docTopic");
+  const btn = document.getElementById("docRandomBtn");
+  const hint = document.getElementById("docChannelHint");
+  if (box) {
+    box.value = "";
+    delete box.dataset.redditId;
+  }
+  if (box) {
+    box.maxLength = channel === "chaos" ? 300 : 240;
+    if (channel === "chaos") box.placeholder = "Boş bırakırsan popüler bir hikaye seçilir. Yazarsan Reddit’te aranır.";
+    else if (channel === "therapy") box.placeholder = "Therapy Lab henüz yapım aşamasında...";
+    else box.placeholder = "What if Rome never fell?";
+  }
+  if (btn) btn.textContent = channel === "chaos" ? "Reddit’ten Hikaye Çek" : "Rastgele Viral Konu Üret";
+  if (hint) {
+    hint.textContent = channel === "chaos"
+      ? "Chaos Lab: r/LetsNotMeet, r/NoSleep ve r/UnresolvedMysteries. Hikaye Gemini ile kancalı mikro-belgesele çevrilir."
+      : channel === "therapy"
+        ? "Therapy Lab henüz yapım aşamasında..."
+        : "Epoch Lab: karanlık tarih ve alternatif tarih. Konu Gemini ile yazılır.";
+  }
+}
+
 async function docRandomTopic() {
   const lang = (document.getElementById("docLang") && document.getElementById("docLang").value) === "tr" ? "tr" : "en";
+  const channel = docChannelValue();
   const box = document.getElementById("docTopic");
   const btn = document.getElementById("docRandomBtn");
   const msg = document.getElementById("docMsg");
   const current = box ? String(box.value || "").trim() : "";
+  if (channel === "therapy") {
+    if (msg) { msg.style.display = "block"; msg.textContent = "Therapy Lab henüz yapım aşamasında..."; }
+    return;
+  }
   let geminiKey = "";
   try { geminiKey = geminiKeySaved(); } catch (eKey) {}
-  if (!geminiKey) {
+  if (channel === "epoch" && !geminiKey) {
     alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
     return;
   }
-  if (btn) { btn.disabled = true; btn.textContent = "Konu yazılıyor…"; }
+  if (btn) { btn.disabled = true; btn.textContent = channel === "chaos" ? "Hikaye aranıyor…" : "Konu yazılıyor…"; }
   try {
     const res = await fetch("http://127.0.0.1:8787/documentary-topic", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lang: lang, avoid: current, gemini_api_key: geminiKey })
+      body: JSON.stringify({ lang: lang, avoid: current, channel: channel, gemini_api_key: geminiKey })
     });
     const data = await res.json().catch(() => ({}));
+    if (data && data.skipped) {
+      if (msg) { msg.style.display = "block"; msg.textContent = data.message || "Therapy Lab henüz yapım aşamasında..."; }
+      return;
+    }
     if (!res.ok || !data.topic) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
-    if (box) box.value = String(data.topic || "").trim();
-    if (msg) { msg.style.display = "none"; msg.textContent = ""; }
+    if (box) {
+      box.value = String(data.topic || "").trim();
+      if (data.reddit_id) box.dataset.redditId = String(data.reddit_id);
+      else delete box.dataset.redditId;
+    }
+    if (msg) {
+      if (data.subreddit) {
+        msg.style.display = "block";
+        msg.textContent = "Kaynak: r/" + data.subreddit + (data.score != null ? (" · " + data.score + " puan") : "");
+      } else {
+        msg.style.display = "none";
+        msg.textContent = "";
+      }
+    }
   } catch (e) {
     if (msg) {
       msg.style.display = "block";
       msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
     }
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "Rastgele Viral Konu Üret"; }
+    if (btn) { btn.disabled = false; btn.textContent = channel === "chaos" ? "Reddit’ten Hikaye Çek" : "Rastgele Viral Konu Üret"; }
   }
 }
 
@@ -3125,34 +3190,51 @@ function clearDocElevenKey() {
 async function runDocumentary() {
   const btn = document.getElementById("docBuildBtn");
   const msg = document.getElementById("docMsg");
-  const topic = String((document.getElementById("docTopic") || {}).value || "").trim();
+  const topicBox = document.getElementById("docTopic");
+  const topic = String((topicBox || {}).value || "").trim();
+  const channel = docChannelValue();
+  const redditId = topicBox && topicBox.dataset.redditId ? String(topicBox.dataset.redditId) : "";
   const lang = (document.getElementById("docLang") && document.getElementById("docLang").value) === "tr" ? "tr" : "en";
   const voiceEl = document.getElementById("docVoice");
   const docVoiceIds = ["pNInz6obpgDQGcFmaJgB", "JBFqnCBsd6RMkjVDRZzb", "nPczCjzI2devNBz1zQrb", "auq43ws1oslv0tO4BDa7", "SAxJUlDKRc79XAyeWyMu"];
   const pickedVoice = voiceEl ? String(voiceEl.value || "").trim() : "";
   const voiceId = pickedVoice === "random" || docVoiceIds.indexOf(pickedVoice) >= 0 ? pickedVoice : "pNInz6obpgDQGcFmaJgB";
-  if (topic.length < 8) {
+  if (channel === "epoch" && topic.length < 8) {
     alert("Konuyu birkaç kelimeyle yaz.");
     return;
   }
   let geminiKey = "";
   try { geminiKey = geminiKeySaved(); } catch (eKey) {}
-  if (!geminiKey) {
+  if (channel !== "therapy" && !geminiKey) {
     alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
     return;
   }
-  if (btn) { btn.disabled = true; btn.textContent = "⏳ Belgesel üretiliyor…"; }
+  if (btn) { btn.disabled = true; btn.textContent = channel === "therapy" ? "Kontrol ediliyor…" : "⏳ Belgesel üretiliyor…"; }
   if (msg) {
     msg.style.display = "block";
-    msg.textContent = "Senaryo, Pollinations görselleri, ElevenLabs sesi ve montaj sırayla çalışıyor. Bu birkaç dakika sürebilir.";
+    msg.textContent = channel === "therapy"
+      ? "Therapy Lab henüz yapım aşamasında..."
+      : "Senaryo, Pollinations görselleri, ElevenLabs sesi ve montaj sırayla çalışıyor. Bu birkaç dakika sürebilir.";
   }
   try {
     const res = await fetch("http://127.0.0.1:8787/documentary", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic: topic, lang: lang, voice_id: voiceId, gemini_api_key: geminiKey, elevenlabs_api_key: docElevenKeySaved() })
+      body: JSON.stringify({
+        topic: topic,
+        lang: lang,
+        channel: channel,
+        reddit_id: redditId,
+        voice_id: voiceId,
+        gemini_api_key: geminiKey,
+        elevenlabs_api_key: docElevenKeySaved()
+      })
     });
     const data = await res.json().catch(() => ({}));
+    if (data && data.skipped) {
+      if (msg) msg.textContent = data.message || "Therapy Lab henüz yapım aşamasında...";
+      return;
+    }
     if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
     const scenes = (data.documentary && data.documentary.scenes) ? data.documentary.scenes : [];
     const lines = scenes.map((scene, i) => (i + 1) + ". " + (scene.timestamp_sec || "") + " " + (scene.image_prompt || scene.image_search_query || "") + " [" + (scene.voice_tone || "") + "] — " + scene.narration).join("\n");
@@ -3160,6 +3242,8 @@ async function runDocumentary() {
       msg.textContent =
         "Kaydedildi: " + (data.absPath || "") +
         ((data.documentary && data.documentary.warning) ? ("\nUyarı: " + data.documentary.warning) : "") +
+        "\nKanal: " + ((data.documentary && data.documentary.channel) || channel) +
+        ((data.documentary && data.documentary.reddit) ? ("\nReddit: r/" + data.documentary.reddit.subreddit + " · " + data.documentary.reddit.title) : "") +
         "\nAnlatıcı: " + ((data.documentary && data.documentary.narrator && data.documentary.narrator.label) || "") +
         "\nSüre: " + ((data.documentary && data.documentary.duration) || "?") + "s" +
         "\nMüzik: " + ((data.documentary && data.documentary.music_mood) || "") + ((data.documentary && data.documentary.music_file) ? (" — " + data.documentary.music_file) : "") +

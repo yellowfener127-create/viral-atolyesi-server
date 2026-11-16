@@ -1,5 +1,6 @@
 /**
- * Belgesel Fabrikası: Gemini yönetmen planı, Pollinations 9:16 görsel, pan, ElevenLabs, FFmpeg.
+ * Belgesel Fabrikası: kanal (epoch / chaos / therapy), Gemini yönetmen planı,
+ * Pollinations 9:16 görsel, pan, ElevenLabs, FFmpeg.
  * Meme ve Voice Enjektör dosyalarına bağlı değildir.
  */
 const fs = require('fs');
@@ -253,7 +254,11 @@ function buildCaptionFilter(words, duration, fontFile) {
   ]).join(',');
 }
 
-const STYLE_LOCK = ', cinematic dark historical documentary still, moody chiaroscuro lighting, dramatic shadows, desaturated cold color palette, hyper-realistic, 8k resolution, film grain, grim atmosphere, no bright colors';
+const STYLE_LOCK = ', cinematic dark horror/mystery documentary still, moody chiaroscuro lighting, dramatic shadows, desaturated cold color palette, hyper-realistic, 8k resolution, film grain, grim atmosphere, no bright colors';
+const STYLE_MARKS = [
+  'cinematic dark horror/mystery documentary still',
+  'cinematic dark historical documentary still'
+];
 
 function cleanImagePrompt(raw) {
   let text = String(raw || '')
@@ -261,8 +266,13 @@ function cleanImagePrompt(raw) {
     .replace(/\s+/g, ' ')
     .replace(/^["']+|["']+$/g, '')
     .trim();
-  const mark = text.toLowerCase().indexOf('cinematic dark historical documentary still');
-  if (mark >= 0) text = text.slice(0, mark).replace(/[\s,.:;-]+$/g, '').trim();
+  const lower = text.toLowerCase();
+  let cut = text.length;
+  for (const mark of STYLE_MARKS) {
+    const at = lower.indexOf(mark);
+    if (at >= 0 && at < cut) cut = at;
+  }
+  if (cut < text.length) text = text.slice(0, cut).replace(/[\s,.:;-]+$/g, '').trim();
   if (text.length > 700) text = text.slice(0, 700).replace(/\s+\S*$/, '').trim();
   const words = text.split(/\s+/).filter((word) => word.length > 1);
   if (words.length < 8) return '';
@@ -502,6 +512,206 @@ function cleanTopicLine(raw) {
   return (cleaned[0] || '').slice(0, 240);
 }
 
+const DOC_CHANNELS = Object.freeze(['epoch', 'chaos', 'therapy']);
+const THERAPY_NOTICE = 'Therapy Lab henüz yapım aşamasında...';
+const CHAOS_SUBREDDITS = Object.freeze(['LetsNotMeet', 'NoSleep', 'UnresolvedMysteries']);
+
+function resolveDocChannel(raw) {
+  const value = String(raw || 'epoch').trim().toLowerCase();
+  if (!value || value === 'epoch' || value === 'umut' || value === 'epochlab' || value === 'epoch lab') return 'epoch';
+  if (value === 'chaos' || value === 'kaos' || value === 'chaoslab' || value === 'chaos lab') return 'chaos';
+  if (value === 'therapy' || value === 'terapi' || value === 'therapylab' || value === 'therapy lab') return 'therapy';
+  throw new DocumentaryError('Kanal epoch, chaos veya therapy olmalı.', 400);
+}
+
+function isChaosPost(post) {
+  if (!post || post.stickied || post.over_18 || post.promoted) return false;
+  if (post.removed_by_category || post.banned_by) return false;
+  const title = String(post.title || '').replace(/\s+/g, ' ').trim();
+  const text = String(post.selftext || '').trim();
+  if (title.length < 8 || text.length < 400) return false;
+  if (/^\[(removed|deleted)\]$/i.test(text)) return false;
+  const blob = `${title}\n${text}`.toLowerCase();
+  if (/\b(child porn|csam|underage sex|preteen sex)\b/.test(blob)) return false;
+  return true;
+}
+
+function pickChaosPost(posts, avoid) {
+  const skip = String(avoid || '').trim().toLowerCase();
+  const ranked = (Array.isArray(posts) ? posts : [])
+    .filter(isChaosPost)
+    .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+  const fresh = ranked.filter((post) => {
+    const title = String(post.title || '').trim().toLowerCase();
+    return title !== skip && String(post.id || '').toLowerCase() !== skip;
+  });
+  const pool = (fresh.length ? fresh : ranked).slice(0, 6);
+  if (!pool.length) return null;
+  return pool[Math.floor(Math.random() * Math.min(pool.length, 4))];
+}
+
+function shapeChaosStory(post) {
+  const text = String(post.selftext || '').replace(/\s+/g, ' ').trim();
+  return {
+    id: String(post.id || ''),
+    title: String(post.title || '').replace(/\s+/g, ' ').trim().slice(0, 300),
+    subreddit: String(post.subreddit || ''),
+    score: Number(post.score) || 0,
+    permalink: String(post.permalink || ''),
+    selftext: text.slice(0, 6000)
+  };
+}
+
+function postsFromListing(json) {
+  const children = json && json.data && Array.isArray(json.data.children) ? json.data.children : [];
+  return children.map((child) => child && child.data).filter(Boolean);
+}
+
+async function officialReddit(pathname) {
+  try {
+    const res = await fetch(`https://www.reddit.com${pathname}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept: 'application/json'
+      },
+      signal: AbortSignal.timeout(12000)
+    });
+    const type = String(res.headers.get('content-type') || '');
+    if (!res.ok || type.includes('text/html')) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function arcticRows(params) {
+  try {
+    const res = await fetch(`https://arctic-shift.photon-reddit.com/api/posts/search?${params}`, {
+      headers: {
+        'User-Agent': 'ViralAtolyesiDocumentary/1.0 (local documentary tool)',
+        Accept: 'application/json'
+      },
+      signal: AbortSignal.timeout(30000)
+    });
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => ({}));
+    return Array.isArray(data.data) ? data.data : [];
+  } catch {
+    return [];
+  }
+}
+
+async function arcticWindow(sub, query) {
+  const now = Math.floor(Date.now() / 1000);
+  const after = now - 14 * 24 * 3600;
+  let before = now;
+  const rows = [];
+  for (let page = 0; page < 2; page++) {
+    const params = new URLSearchParams({
+      subreddit: sub,
+      after: String(after),
+      before: String(before),
+      limit: '100',
+      sort: 'desc'
+    });
+    const batch = await arcticRows(params);
+    rows.push(...batch);
+    if (batch.length < 100) break;
+    const oldest = batch.reduce((min, row) => {
+      const stamp = Number(row.created_utc) || min;
+      return stamp < min ? stamp : min;
+    }, before);
+    if (!(oldest < before)) break;
+    before = oldest;
+  }
+  const needle = String(query || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!needle) return rows;
+  const words = needle.split(/[^a-z0-9]+/).filter((word) => word.length > 3).slice(0, 6);
+  return rows.filter((row) => {
+    const blob = `${row.title || ''} ${String(row.selftext || '').slice(0, 1500)}`.toLowerCase();
+    if (blob.includes(needle.slice(0, 80))) return true;
+    if (!words.length) return false;
+    const hits = words.filter((word) => blob.includes(word)).length;
+    return hits >= Math.min(2, words.length);
+  });
+}
+
+async function postsForSub(sub, query, state) {
+  if (state.official) {
+    const path = query
+      ? `/r/${sub}/search.json?q=${encodeURIComponent(query)}&restrict_sr=1&sort=top&t=year&limit=25&raw_json=1`
+      : `/r/${sub}/hot.json?limit=25&raw_json=1`;
+    const data = await officialReddit(path);
+    const posts = data ? postsFromListing(data) : null;
+    if (posts && posts.length) return posts;
+    state.official = false;
+  }
+  state.archive = true;
+  return arcticWindow(sub, query);
+}
+
+async function storyById(id) {
+  const clean = String(id || '').trim();
+  if (!/^[a-z0-9]{4,12}$/i.test(clean)) return null;
+  try {
+    const data = await officialReddit(`/comments/${encodeURIComponent(clean)}.json?raw_json=1&limit=1`);
+    const children = Array.isArray(data) && data[0] && data[0].data && data[0].data.children;
+    const post = children && children[0] && children[0].data;
+    if (post && isChaosPost(post)) return shapeChaosStory(post);
+  } catch {}
+  try {
+    const res = await fetch(
+      `https://arctic-shift.photon-reddit.com/api/posts/ids?ids=${encodeURIComponent(clean)}`,
+      {
+        headers: {
+          'User-Agent': 'ViralAtolyesiDocumentary/1.0 (local documentary tool)',
+          Accept: 'application/json'
+        },
+        signal: AbortSignal.timeout(20000)
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    const post = Array.isArray(data.data) ? data.data[0] : null;
+    if (!post || !isChaosPost(post)) return null;
+    return shapeChaosStory(post);
+  } catch {
+    return null;
+  }
+}
+
+async function pullChaosStory({ query, redditId, avoid } = {}) {
+  const direct = await storyById(redditId);
+  if (direct) {
+    console.log(`[belgesel] reddit=r/${direct.subreddit} id=${direct.id} score=${direct.score}`);
+    return direct;
+  }
+  const q = String(query || '').replace(/\s+/g, ' ').trim();
+  const state = { official: true, archive: false };
+  const searched = [];
+  if (q.length >= 3) {
+    for (const sub of CHAOS_SUBREDDITS) searched.push(...await postsForSub(sub, q, state));
+  }
+  let picked = pickChaosPost(searched, '');
+  if (!picked && q.length < 3) {
+    const hot = [];
+    for (const sub of CHAOS_SUBREDDITS) hot.push(...await postsForSub(sub, '', state));
+    picked = pickChaosPost(hot, avoid || q);
+  }
+  if (state.archive) console.log('[belgesel] Reddit JSON kapalı, halka açık arşiv kullanıldı.');
+  if (!picked) {
+    throw new DocumentaryError(
+      q.length >= 3
+        ? 'Bu aramayla Reddit hikayesi bulunamadı.'
+        : 'Reddit korku ve gizem akışında kullanılabilir hikaye bulunamadı.',
+      502
+    );
+  }
+  const story = shapeChaosStory(picked);
+  console.log(`[belgesel] reddit=r/${story.subreddit} id=${story.id} score=${story.score}`);
+  return story;
+}
+
 async function suggestDocumentaryTopic({ lang, apiKey, avoid }) {
   const key = String(apiKey || '').trim();
   if (!key) throw new DocumentaryError('Gemini API anahtarı yok. Araçlar → Gemini bölümünden bir anahtarı aktif yap.', 401);
@@ -588,34 +798,63 @@ function quotaMessage(detail) {
   return `Gemini ücretsiz günlük hakkı doldu. Yaklaşık ${h} saat ${min} dakika sonra yeniden açılır.`;
 }
 
-async function askGeminiPlan(topic, lang, apiKey, retryNote) {
+function chaosPlanPrompt(story, language, retryNote) {
+  return [
+    'You are the director of a vertical horror and mystery documentary.',
+    'Turn the source post into an original micro-documentary in a dark cinematic voice.',
+    'Do not quote the post. Do not say Reddit, subreddit, or the author name.',
+    'Open on a concrete image. Scene 1 must land the hook inside the first 3 seconds.',
+    `Source title: ${story.title}`,
+    `Source text: ${story.selftext}`,
+    `Narration language: ${language}.`,
+    'Cover about 45 to 55 seconds, 110 to 130 spoken words, in 5 to 7 scenes.',
+    'timestamp_sec values are contiguous, start at 0, and look like "0-7".',
+    'narration is only the words to be spoken. No stage directions inside it.',
+    'image_prompt is a detailed English visual scene description, not a search keyword.',
+    'Describe the place, time of night, objects, weather, and camera framing in 25 to 55 words.',
+    'Example: "An empty motel corridor at 3 a.m., one flickering fluorescent tube, a wet footprint trail, a door ajar at the far end, low tracking shot."',
+    'Do not add color grading or a style suffix. The editor locks the look.',
+    'voice_tone is a short English direction for the narrator, such as "hushed, tense, pause after the first sentence".',
+    'music_mood is exactly one of mystery, epic, sad, science.',
+    'mystery is secrets and dread. epic is pursuit and rupture. sad is loss and aftermath. science is evidence and explanation.',
+    'The music bed is chosen from the local suspense library: tension, mystery, dark investigation, intense thriller, and cinematic anxiety. Pick the closest mood.',
+    'Do not ask for famous living people, logos, or copyrighted film stills. Keep faces anonymous.',
+    'No markdown and no commentary.',
+    retryNote ? `Fix: ${retryNote}` : '',
+    'Return only a JSON object with music_mood and a scenes array. Each scene has timestamp_sec, narration, image_prompt, and voice_tone.'
+  ].filter(Boolean).join('\n');
+}
+
+async function askGeminiPlan(topic, lang, apiKey, retryNote, source) {
   const key = String(apiKey || '').trim();
   if (!key) throw new DocumentaryError('Gemini API anahtarı yok. Araçlar → Gemini bölümünden bir anahtarı aktif yap.', 401);
   const language = lang === 'tr'
     ? 'Turkish'
     : 'English';
-  const prompt = [
-    'You are the director of a vertical documentary.',
-    'Write one plan that the editor, image generator, and voice actor must follow together.',
-    `Topic: ${topic}`,
-    `Narration language: ${language}.`,
-    'Cover about 45 to 55 seconds, 110 to 130 spoken words, in 5 to 7 scenes.',
-    'timestamp_sec values are contiguous, start at 0, and look like "0-7".',
-    'Scene 1 is a strong hook that lands inside the first 3 seconds.',
-    'narration is only the words to be spoken. No stage directions inside it.',
-    'image_prompt is a detailed English visual scene description, not a search keyword.',
-    'Describe the place, century, objects, weather, and camera framing in 25 to 55 words.',
-    'Example: "A ruined Roman library at night, wet marble columns, scattered scorched scrolls, a single oil lamp, low wide shot through drifting smoke."',
-    'Do not add color grading or a style suffix. The editor locks the look.',
-    'voice_tone is a short English direction for the narrator, such as "mysterious, deep, dramatic pause at the beginning".',
-    'music_mood is exactly one of mystery, epic, sad, science, chosen from the tone of the whole film.',
-    'mystery is secrets and old history. epic is war and rupture. sad is collapse, famine, and disaster. science is evidence and explanation.',
-    'The music bed is chosen from the local suspense library: tension, mystery, dark investigation, intense thriller, and cinematic anxiety. Pick the closest mood.',
-    'Do not ask for famous living people, logos, or copyrighted film stills.',
-    'No markdown and no commentary.',
-    retryNote ? `Fix: ${retryNote}` : '',
-    'Return only a JSON object with music_mood and a scenes array. Each scene has timestamp_sec, narration, image_prompt, and voice_tone.'
-  ].filter(Boolean).join('\n');
+  const prompt = source && source.selftext
+    ? chaosPlanPrompt(source, language, retryNote)
+    : [
+      'You are the director of a vertical documentary.',
+      'Write one plan that the editor, image generator, and voice actor must follow together.',
+      `Topic: ${topic}`,
+      `Narration language: ${language}.`,
+      'Cover about 45 to 55 seconds, 110 to 130 spoken words, in 5 to 7 scenes.',
+      'timestamp_sec values are contiguous, start at 0, and look like "0-7".',
+      'Scene 1 is a strong hook that lands inside the first 3 seconds.',
+      'narration is only the words to be spoken. No stage directions inside it.',
+      'image_prompt is a detailed English visual scene description, not a search keyword.',
+      'Describe the place, century, objects, weather, and camera framing in 25 to 55 words.',
+      'Example: "A ruined Roman library at night, wet marble columns, scattered scorched scrolls, a single oil lamp, low wide shot through drifting smoke."',
+      'Do not add color grading or a style suffix. The editor locks the look.',
+      'voice_tone is a short English direction for the narrator, such as "mysterious, deep, dramatic pause at the beginning".',
+      'music_mood is exactly one of mystery, epic, sad, science, chosen from the tone of the whole film.',
+      'mystery is secrets and old history. epic is war and rupture. sad is collapse, famine, and disaster. science is evidence and explanation.',
+      'The music bed is chosen from the local suspense library: tension, mystery, dark investigation, intense thriller, and cinematic anxiety. Pick the closest mood.',
+      'Do not ask for famous living people, logos, or copyrighted film stills.',
+      'No markdown and no commentary.',
+      retryNote ? `Fix: ${retryNote}` : '',
+      'Return only a JSON object with music_mood and a scenes array. Each scene has timestamp_sec, narration, image_prompt, and voice_tone.'
+    ].filter(Boolean).join('\n');
   const temperature = retryNote ? 0.4 : 0.7;
   const schema = {
     type: 'OBJECT',
@@ -704,12 +943,12 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote) {
   return text;
 }
 
-async function buildPlan(topic, lang, apiKey) {
+async function buildPlan(topic, lang, apiKey, source) {
   let note = '';
   let lastError = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await askGeminiPlan(topic, lang, apiKey, note);
+      const raw = await askGeminiPlan(topic, lang, apiKey, note, source);
       const plan = parseScenePlan(raw);
       const scenes = plan.scenes;
       const total = scenes.reduce((sum, scene) => sum + wordCount(scene.narration), 0);
@@ -1015,6 +1254,8 @@ async function concatScenes(ffmpegPath, files, outFile, listPath) {
 async function produceDocumentary({
   topic,
   lang,
+  channel,
+  redditId,
   geminiKey,
   narrator,
   elevenKey,
@@ -1022,9 +1263,22 @@ async function produceDocumentary({
   ffprobePath,
   outFile
 }) {
-  const subject = String(topic || '').replace(/\s+/g, ' ').trim();
-  if (subject.length < 8) throw new DocumentaryError('Konu en az birkaç kelime olsun.', 400);
-  if (subject.length > 240) throw new DocumentaryError('Konu 240 karakterden kısa olsun.', 400);
+  const selected = resolveDocChannel(channel);
+  console.log(`[belgesel] kanal=${selected}`);
+  if (selected === 'therapy') {
+    console.log(THERAPY_NOTICE);
+    throw new DocumentaryError(THERAPY_NOTICE, 409);
+  }
+  let subject = String(topic || '').replace(/\s+/g, ' ').trim();
+  let reddit = null;
+  if (selected === 'chaos') {
+    if (subject.length > 300) throw new DocumentaryError('Arama 300 karakterden kısa olsun.', 400);
+    reddit = await pullChaosStory({ query: subject, redditId, avoid: '' });
+    subject = reddit.title;
+  } else {
+    if (subject.length < 8) throw new DocumentaryError('Konu en az birkaç kelime olsun.', 400);
+    if (subject.length > 240) throw new DocumentaryError('Konu 240 karakterden kısa olsun.', 400);
+  }
   const language = lang === 'tr' ? 'tr' : 'en';
   let narratorVoice = resolveDocVoice(narrator);
   let voiceWarning = '';
@@ -1055,7 +1309,7 @@ async function produceDocumentary({
     }
   }
   try {
-    const plan = await buildPlan(subject, language, geminiKey);
+    const plan = await buildPlan(subject, language, geminiKey, selected === 'chaos' ? reddit : null);
     const segments = [];
     const sceneInfo = [];
     for (let i = 0; i < plan.scenes.length; i++) {
@@ -1126,7 +1380,9 @@ async function produceDocumentary({
       warning: voiceWarning,
       words: plan.words,
       duration: Number(duration.toFixed(3)),
-      lang: language
+      lang: language,
+      channel: selected,
+      reddit: reddit ? { id: reddit.id, subreddit: reddit.subreddit, title: reddit.title, score: reddit.score } : null
     };
   } catch (err) {
     if (err instanceof DocumentaryError || err instanceof ElevenLabsHookError) throw err;
@@ -1157,6 +1413,12 @@ module.exports = {
   documentaryVoiceFromRequest,
   suggestDocumentaryTopic,
   cleanTopicLine,
+  resolveDocChannel,
+  pullChaosStory,
+  pickChaosPost,
+  isChaosPost,
+  DOC_CHANNELS,
+  THERAPY_NOTICE,
   isVoiceRestricted,
   DOC_VOICES,
   DocumentaryError,
