@@ -1,5 +1,5 @@
 /**
- * Belgesel Fabrikası: Gemini yönetmen planı, Pixabay fotoğraf, pan, ElevenLabs, FFmpeg.
+ * Belgesel Fabrikası: Gemini yönetmen planı, Pollinations 9:16 görsel, pan, ElevenLabs, FFmpeg.
  * Meme ve Voice Enjektör dosyalarına bağlı değildir.
  */
 const fs = require('fs');
@@ -117,30 +117,6 @@ class DocumentaryError extends Error {
     this.name = 'DocumentaryError';
     this.statusCode = statusCode || 500;
   }
-}
-
-function readEnvValue(name) {
-  const live = String(process.env[name] || '').trim();
-  if (live) return live;
-  let raw = '';
-  try {
-    raw = fs.readFileSync(path.join(__dirname, '.env'), 'utf8');
-  } catch {
-    return '';
-  }
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq <= 0) continue;
-    if (trimmed.slice(0, eq).trim() !== name) continue;
-    let value = trimmed.slice(eq + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    return value.trim();
-  }
-  return '';
 }
 
 function geminiModel() {
@@ -277,22 +253,24 @@ function buildCaptionFilter(words, duration, fontFile) {
   ]).join(',');
 }
 
-function cleanVisualQuery(raw) {
-  const words = String(raw || '')
-    .replace(/["']/g, '')
-    .replace(/[^\w\s-]/g, ' ')
+const STYLE_LOCK = ', cinematic dark historical documentary still, moody chiaroscuro lighting, dramatic shadows, desaturated cold color palette, hyper-realistic, 8k resolution, film grain, grim atmosphere, no bright colors';
+
+function cleanImagePrompt(raw) {
+  let text = String(raw || '')
+    .replace(/```[\s\S]*?```/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim()
-    .split(' ')
-    .filter((word) => word.length > 1);
-  if (words.length < 2) return '';
-  let query = '';
-  for (const word of words) {
-    const next = query ? `${query} ${word}` : word;
-    if (next.length > 100) break;
-    query = next;
-  }
-  return query;
+    .replace(/^["']+|["']+$/g, '')
+    .trim();
+  const mark = text.toLowerCase().indexOf('cinematic dark historical documentary still');
+  if (mark >= 0) text = text.slice(0, mark).replace(/[\s,.:;-]+$/g, '').trim();
+  if (text.length > 700) text = text.slice(0, 700).replace(/\s+\S*$/, '').trim();
+  const words = text.split(/\s+/).filter((word) => word.length > 1);
+  if (words.length < 8) return '';
+  return text;
+}
+
+function withStyleLock(prompt) {
+  return String(prompt || '').replace(/[\s,.:;-]+$/g, '') + STYLE_LOCK;
 }
 
 function cleanTimestamp(raw) {
@@ -448,14 +426,14 @@ function normalizeScenes(data) {
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
     const narration = spokenHookText(item.narration || item.text || '');
-    const image_search_query = cleanVisualQuery(
-      item.image_search_query || item.visual_search_query || item.search_keyword || item.keyword || ''
+    const image_prompt = cleanImagePrompt(
+      item.image_prompt || item.image_search_query || item.visual_search_query || item.prompt || ''
     );
-    if (!narration || wordCount(narration) < 4 || !image_search_query) continue;
+    if (!narration || wordCount(narration) < 4 || !image_prompt) continue;
     scenes.push({
       timestamp_sec: cleanTimestamp(item.timestamp_sec || item.timestamp || ''),
       narration,
-      image_search_query,
+      image_prompt,
       voice_tone: cleanVoiceTone(item.voice_tone || item.tone || '') || 'deep documentary'
     });
   }
@@ -496,15 +474,17 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote) {
     : 'English';
   const prompt = [
     'You are the director of a vertical documentary.',
-    'Write one plan that the editor, stock search, and voice actor must follow together.',
+    'Write one plan that the editor, image generator, and voice actor must follow together.',
     `Topic: ${topic}`,
     `Narration language: ${language}.`,
     'Cover about 45 to 55 seconds, 110 to 130 spoken words, in 5 to 7 scenes.',
     'timestamp_sec values are contiguous, start at 0, and look like "0-7".',
     'Scene 1 is a strong hook that lands inside the first 3 seconds.',
     'narration is only the words to be spoken. No stage directions inside it.',
-    'image_search_query is a concrete English Pixabay photo search for a vertical historical or mythological still that matches that sentence.',
-    'Example: "ancient roman marble ruins in winter rain".',
+    'image_prompt is a detailed English visual scene description, not a search keyword.',
+    'Describe the place, century, objects, weather, and camera framing in 25 to 55 words.',
+    'Example: "A ruined Roman library at night, wet marble columns, scattered scorched scrolls, a single oil lamp, low wide shot through drifting smoke."',
+    'Do not add color grading or a style suffix. The editor locks the look.',
     'voice_tone is a short English direction for the narrator, such as "mysterious, deep, dramatic pause at the beginning".',
     'music_mood is exactly one of mystery, epic, sad, science, chosen from the tone of the whole film.',
     'mystery is secrets and old history. epic is war and rupture. sad is collapse, famine, and disaster. science is evidence and explanation.',
@@ -512,7 +492,7 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote) {
     'Do not ask for famous living people, logos, or copyrighted film stills.',
     'No markdown and no commentary.',
     retryNote ? `Fix: ${retryNote}` : '',
-    'Return only a JSON object with music_mood and a scenes array. Each scene has timestamp_sec, narration, image_search_query, and voice_tone.'
+    'Return only a JSON object with music_mood and a scenes array. Each scene has timestamp_sec, narration, image_prompt, and voice_tone.'
   ].filter(Boolean).join('\n');
   const temperature = retryNote ? 0.4 : 0.7;
   const schema = {
@@ -526,10 +506,10 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote) {
           properties: {
             timestamp_sec: { type: 'STRING' },
             narration: { type: 'STRING' },
-            image_search_query: { type: 'STRING' },
+            image_prompt: { type: 'STRING' },
             voice_tone: { type: 'STRING' }
           },
-          required: ['timestamp_sec', 'narration', 'image_search_query', 'voice_tone']
+          required: ['timestamp_sec', 'narration', 'image_prompt', 'voice_tone']
         }
       }
     },
@@ -626,81 +606,55 @@ async function buildPlan(topic, lang, apiKey) {
   throw lastError || new DocumentaryError('Senaryo kurulamadı.');
 }
 
-function pickPixabayPhoto(hit) {
-  if (!hit) return null;
-  const url = String(hit.largeImageURL || hit.webformatURL || '').trim();
-  const width = Number(hit.imageWidth) || 0;
-  const height = Number(hit.imageHeight) || 0;
-  if (!url || height < 400) return null;
-  return { url, width, height, id: hit.id };
-}
-
-function stockQueries(keyword) {
-  const words = String(keyword || '').trim().split(/\s+/).filter(Boolean);
-  const variants = [];
-  if (words.length) variants.push(words.join(' '));
-  if (words.length > 4) variants.push(words.slice(0, 4).join(' '));
-  if (words.length > 3) variants.push(words.slice(0, 3).join(' '));
-  if (words.length > 2) variants.push(words.slice(0, 2).join(' '));
-  return [...new Set(variants.map((item) => item.slice(0, 100)).filter(Boolean))];
-}
-
-async function searchPixabay(keyword, apiKey, page) {
-  const params = new URLSearchParams({
-    key: apiKey,
-    q: keyword,
-    image_type: 'photo',
-    orientation: 'vertical',
-    safesearch: 'true',
-    per_page: '20',
-    page: String(page || 1)
+function runProcess(bin, args, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    let stderr = '';
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch {}
+    }, timeoutMs);
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+      if (stderr.length > 4000) stderr = stderr.slice(-4000);
+    });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) return resolve();
+      reject(new Error(stderr.trim() || `${bin} exit ${code}`));
+    });
   });
-  const res = await fetch(`https://pixabay.com/api/?${params.toString()}`, {
-    signal: AbortSignal.timeout(30000)
-  });
-  if (res.status === 400 || res.status === 401 || res.status === 403) {
-    throw new DocumentaryError('PIXABAY_API_KEY geçersiz. .env içindeki anahtarı kontrol et.', 401);
-  }
-  if (!res.ok) throw new DocumentaryError(`Pixabay araması başarısız (${res.status}).`);
-  const data = await res.json();
-  return Array.isArray(data.hits) ? data.hits : [];
 }
 
-async function downloadFile(url, dest) {
-  const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(120000) });
-  if (!res.ok) throw new DocumentaryError(`Fotoğraf indirilemedi (${res.status}).`);
-  const audio = Buffer.from(await res.arrayBuffer());
-  if (audio.length < 2048 || audio.length > 80 * 1024 * 1024) {
-    throw new DocumentaryError('Fotoğraf boyutu uygun değil.');
-  }
-  await fs.promises.writeFile(dest, audio);
-}
-
-async function downloadPhoto(keyword, apiKey, dest, usedIds) {
-  const queries = stockQueries(keyword);
-  for (const query of queries) {
-    let hits = [];
-    try {
-      hits = await searchPixabay(query, apiKey, 1);
-    } catch (err) {
-      if (err && err.statusCode === 401) throw err;
-      continue;
-    }
-    const ranked = hits
-      .map((hit) => pickPixabayPhoto(hit))
-      .filter((photo) => photo && !usedIds.has(photo.id))
-      .sort((a, b) => (b.width * b.height) - (a.width * a.height));
-    for (const photo of ranked) {
+async function downloadPollinationsStill(prompt, dest) {
+  const locked = withStyleLock(prompt);
+  const promptFile = path.join(path.dirname(dest), `prompt_${path.basename(dest, path.extname(dest))}.txt`);
+  await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+  await fs.promises.writeFile(promptFile, locked, 'utf8');
+  const script = path.join(__dirname, 'pollinations_image.py');
+  const bins = process.platform === 'win32' ? [['py', ['-3']], ['python', []]] : [['python3', []], ['python', []]];
+  let lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    for (const [bin, prefix] of bins) {
       try {
-        await downloadFile(photo.url, dest);
-        usedIds.add(photo.id);
-        return { id: photo.id, keyword: query, width: photo.width, height: photo.height };
-      } catch {
+        await runProcess(bin, [...prefix, script, promptFile, dest], 300000);
+        const size = fs.statSync(dest).size;
+        if (size < 2048) throw new Error('Pollinations boş bir görsel yazdı.');
+        console.log(`[belgesel] görsel=${path.basename(dest)} bytes=${size}`);
+        return dest;
+      } catch (err) {
+        lastErr = err;
+        if (err && err.code === 'ENOENT') continue;
         try { fs.unlinkSync(dest); } catch {}
+        break;
       }
     }
   }
-  throw new DocumentaryError(`Pixabay "${keyword}" için dikey fotoğraf vermedi.`);
+  const detail = lastErr && lastErr.message ? lastErr.message : 'görsel inemedi';
+  throw new DocumentaryError(`Pollinations görseli üretemedi. ${detail}`.slice(0, 400));
 }
 
 function probeImageSize(ffprobePath, filePath) {
@@ -953,14 +907,11 @@ async function produceDocumentary({
   let narratorVoice = resolveDocVoice(narrator);
   let voiceWarning = '';
   const documentaryKey = String(elevenKey || '').trim();
-  const pixabayKey = readEnvValue('PIXABAY_API_KEY');
-  if (!pixabayKey) {
-    throw new DocumentaryError('PIXABAY_API_KEY .env içinde yok. Pixabay anahtarını o satıra yaz.', 401);
-  }
   const ffmpeg = ffmpegPath || 'ffmpeg';
   const ffprobe = ffprobePath || 'ffprobe';
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-doc-'));
-  const usedIds = new Set();
+  const imageDir = path.join(tmpDir, 'temp_images');
+  fs.mkdirSync(imageDir, { recursive: true });
   async function narrateScene(input) {
     const request = {
       text: input.text,
@@ -1015,8 +966,8 @@ async function produceDocumentary({
         breathedFile,
         i < plan.scenes.length - 1
       );
-      const photo = path.join(tmpDir, `photo_${i}.jpg`);
-      await downloadPhoto(scene.image_search_query, pixabayKey, photo, usedIds);
+      const photo = path.join(imageDir, `scene_${i}.jpg`);
+      await downloadPollinationsStill(scene.image_prompt, photo);
       const segment = path.join(tmpDir, `scene_${i}.mp4`);
       await renderScene({
         ffmpegPath: ffmpeg,
@@ -1033,7 +984,7 @@ async function produceDocumentary({
       sceneInfo.push({
         timestamp_sec: scene.timestamp_sec,
         narration: scene.narration,
-        image_search_query: scene.image_search_query,
+        image_prompt: scene.image_prompt,
         voice_tone: scene.voice_tone,
         duration: Number(breathed.duration.toFixed(3))
       });
@@ -1066,13 +1017,13 @@ async function produceDocumentary({
 module.exports = {
   produceDocumentary,
   parseScenePlan,
-  pickPixabayPhoto,
   buildPanFilter,
-  stockQueries,
+  STYLE_LOCK,
+  cleanImagePrompt,
+  withStyleLock,
   buildCaptionFilter,
   captionPhrases,
   renderScene,
-  cleanVisualQuery,
   voiceSettingsForTone,
   shapeNarration,
   cleanMusicMood,
