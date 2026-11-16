@@ -147,9 +147,23 @@ function geminiFailText(err) {
   return 'Gemini bağlantısı koptu. Tekrar dene.';
 }
 
-async function geminiFetch(key, body, timeoutMs) {
+function geminiCandidates() {
+  return [...new Set(
+    [geminiModel(), 'gemini-3.8-flash', 'gemini-2.5-flash']
+      .map((name) => String(name || '').trim())
+      .filter(Boolean)
+  )];
+}
+
+function geminiErrorMessage(data) {
+  const msg = data && data.error && (data.error.message || data.error.status);
+  return String(msg || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+}
+
+async function geminiFetch(key, body, timeoutMs, model) {
+  const name = model || geminiModel();
   return fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel())}:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(name)}:generateContent`,
     {
       method: 'POST',
       headers: {
@@ -801,43 +815,61 @@ async function suggestDocumentaryTopic({ lang, apiKey, avoid, channel }) {
     previous ? `Do not repeat: ${previous}` : ''
   ]).filter(Boolean).join('\n');
   let lastError = null;
-  let jsonMode = true;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    let res;
-    let data;
-    const generationConfig = { maxOutputTokens: 256 };
-    if (jsonMode) generationConfig.responseMimeType = 'application/json';
-    try {
-      res = await geminiFetch(key, {
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig
-      }, 25000);
-      data = await res.json().catch(() => ({}));
-    } catch (err) {
-      console.log(`[belgesel] gemini konu ${geminiFailReason(err)}`);
-      lastError = new DocumentaryError(geminiFailText(err), 503);
-      jsonMode = false;
-      continue;
-    }
-    if (res.status === 400 && jsonMode) {
-      jsonMode = false;
-      continue;
-    }
-    if (!res.ok) {
-      const detail = JSON.stringify(data).slice(0, 500);
-      if (res.status === 429 || /quota/i.test(detail)) throw new DocumentaryError(quotaMessage(detail), 429);
+  const models = geminiCandidates();
+  for (let modelIndex = 0; modelIndex < models.length; modelIndex++) {
+    const model = models[modelIndex];
+    let jsonMode = true;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let res;
+      let data;
+      const generationConfig = { maxOutputTokens: 256 };
+      if (jsonMode) generationConfig.responseMimeType = 'application/json';
+      try {
+        res = await geminiFetch(key, {
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig
+        }, 25000, model);
+        data = await res.json().catch(() => ({}));
+      } catch (err) {
+        console.log(`[belgesel] gemini konu model=${model} ${geminiFailReason(err)}`);
+        lastError = new DocumentaryError(geminiFailText(err), 503);
+        jsonMode = false;
+        continue;
+      }
+      if (res.ok) {
+        const topic = cleanTopicLine(visibleGeminiText(data));
+        if (topic.length >= 8 && topic.toLowerCase() !== previous.toLowerCase()) {
+          if (model !== models[0]) console.log(`[belgesel] gemini konu model=${model}`);
+          return topic;
+        }
+        lastError = new DocumentaryError('Gemini çok kısa bir konu döndürdü.');
+        break;
+      }
+      const detail = geminiErrorMessage(data);
+      console.log(`[belgesel] gemini konu model=${model} http=${res.status} ${detail}`);
+      const blob = JSON.stringify(data).slice(0, 500);
+      if (res.status === 429 || /quota/i.test(blob)) throw new DocumentaryError(quotaMessage(blob), 429);
       if (res.status === 401 || res.status === 403) {
         throw new DocumentaryError('Gemini API anahtarı geçersiz. Araçlar listesinden başka bir anahtar seç.', 401);
       }
-      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < 2) {
-        lastError = new DocumentaryError('Gemini şu an meşgul. Birkaç saniye bekleyip yeniden üret.', 503);
+      if (res.status === 400 && jsonMode) {
+        jsonMode = false;
         continue;
       }
-      throw new DocumentaryError(`Gemini konu yazamadı (${res.status}).`, res.status);
+      if (res.status === 404) break;
+      if (res.status === 502 || res.status === 503 || res.status === 504) {
+        lastError = new DocumentaryError('Gemini şu an çok yoğun. Birkaç saniye sonra tekrar dene.', 503);
+        if (attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          continue;
+        }
+        break;
+      }
+      throw new DocumentaryError(
+        detail ? `Gemini konu yazamadı (${res.status}): ${detail}` : `Gemini konu yazamadı (${res.status}).`,
+        res.status
+      );
     }
-    const topic = cleanTopicLine(visibleGeminiText(data));
-    if (topic.length >= 8 && topic.toLowerCase() !== previous.toLowerCase()) return topic;
-    lastError = new DocumentaryError('Gemini çok kısa bir konu döndürdü.');
   }
   throw lastError || new DocumentaryError('Gemini konu yazamadı.');
 }
@@ -957,6 +989,8 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
     },
     required: ['music_mood', 'scenes']
   };
+  const models = geminiCandidates();
+  let modelIndex = 0;
   const ask = async (jsonMode, thinking) => {
     const generationConfig = { maxOutputTokens: 8192 };
     if (thinking) generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
@@ -967,7 +1001,7 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
     const res = await geminiFetch(key, {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig
-    }, 60000);
+    }, 60000, models[modelIndex]);
     const data = await res.json().catch(() => ({}));
     return { res, data };
   };
@@ -993,7 +1027,9 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
       thinking = false;
       continue;
     }
-    if ((res.status === 502 || res.status === 503 || res.status === 504) && tryNo < 3) {
+    if ((res.status === 404 || res.status === 502 || res.status === 503 || res.status === 504) && tryNo < 3) {
+      console.log(`[belgesel] gemini senaryo model=${models[modelIndex]} http=${res.status} ${geminiErrorMessage(data)}`);
+      if ((res.status === 404 || res.status === 503) && modelIndex < models.length - 1) modelIndex += 1;
       jsonMode = false;
       thinking = false;
       await new Promise((resolve) => setTimeout(resolve, 1500 * (tryNo + 1)));
