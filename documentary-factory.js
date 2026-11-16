@@ -457,18 +457,49 @@ function visibleGeminiText(data) {
   return parts.filter((part) => part && part.text).map((part) => part.text).join('\n').trim();
 }
 
+function stripTopicDecor(line) {
+  let text = String(line || '').trim();
+  for (let i = 0; i < 4; i++) {
+    const next = text
+      .replace(/^[*_#>\-\d\.\)\s]+/, '')
+      .replace(/^(\([^)]{0,48}\)\s*[:*\-–.]+\s*)+/i, '')
+      .replace(/^(hidden fact|what-if|what if|topic|title|hook|konu|başlık|baslik)\s*[:*\-–.]+\s*/i, '')
+      .replace(/^["'`“”]+|["'`“”*_:]+$/g, '')
+      .trim();
+    if (next === text) break;
+    text = next;
+  }
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function isSpokenTopic(text) {
+  if (!text || text.length < 8 || text.length > 180) return false;
+  if (/^(hidden fact|what-if|topic|title|konu|başlık)\b/i.test(text)) return false;
+  if (/^[\(\*_:]/.test(text)) return false;
+  const words = text.split(/\s+/).filter(Boolean);
+  return words.length >= 4 && words.length <= 22;
+}
+
 function cleanTopicLine(raw) {
-  const line = String(raw || '')
-    .replace(/```[\s\S]*?```/g, ' ')
-    .split(/\r?\n/)
-    .map((part) => part.trim())
-    .filter(Boolean)[0] || '';
-  return line
-    .replace(/^["'`“”]+|["'`“”]+$/g, '')
-    .replace(/^\d+[\).\-\s]+/, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 240);
+  const source = String(raw || '').replace(/```[\s\S]*?```/g, ' ').trim();
+  let parsed = '';
+  const jsonStart = source.indexOf('{');
+  const jsonEnd = source.lastIndexOf('}');
+  if (jsonStart >= 0 && jsonEnd > jsonStart) {
+    try {
+      const obj = JSON.parse(source.slice(jsonStart, jsonEnd + 1));
+      if (obj && obj.topic) parsed = String(obj.topic);
+    } catch {}
+  }
+  const blob = parsed || source;
+  const quoted = [];
+  const quoteRe = /["“]([^"”\n]{8,180})["”]/g;
+  let match;
+  while ((match = quoteRe.exec(blob))) quoted.push(match[1]);
+  const pieces = quoted.concat(blob.split(/\r?\n/));
+  const cleaned = pieces.map(stripTopicDecor).filter(isSpokenTopic);
+  cleaned.sort((a, b) => b.length - a.length);
+  return (cleaned[0] || '').slice(0, 240);
 }
 
 async function suggestDocumentaryTopic({ lang, apiKey, avoid }) {
@@ -476,20 +507,36 @@ async function suggestDocumentaryTopic({ lang, apiKey, avoid }) {
   if (!key) throw new DocumentaryError('Gemini API anahtarı yok. Araçlar → Gemini bölümünden bir anahtarı aktif yap.', 401);
   const language = lang === 'tr' ? 'Turkish' : 'English';
   const previous = cleanTopicLine(avoid);
+  const examples = lang === 'tr'
+    ? [
+      'Nil on yıl kurusaydı ne olurdu?',
+      'Konstantinopolis’i kurtaran fırtına',
+      'İskenderiye kütüphanesi neden yok oldu?'
+    ]
+    : [
+      'What if the Nile had dried up for ten years?',
+      'The storm that saved Constantinople',
+      'Why the Library of Alexandria vanished'
+    ];
   const prompt = [
-    'You invent one viral topic for a 50-second vertical history documentary.',
-    `Write the topic in ${language}.`,
-    'One line, 8 to 18 words. A what-if, a vanished place, or a hidden historical fact.',
-    'No hashtags, no quotes, no numbering, no explanation.',
-    previous ? `Do not repeat this topic: ${previous}` : ''
+    'Invent one new title for a 50-second vertical history documentary.',
+    `Write it in ${language}, the way a viewer would read it on screen.`,
+    '8 to 16 words. Concrete place, person from history, or a what-if question.',
+    'Return JSON only: {"topic":"..."}',
+    'The topic value is plain text. No label, no parentheses, no asterisk, no quotes inside it.',
+    'Do not copy these examples. Match their tone:',
+    examples.join('\n'),
+    previous ? `Do not repeat: ${previous}` : ''
   ].filter(Boolean).join('\n');
   let lastError = null;
   let thinking = true;
+  let jsonMode = true;
   for (let attempt = 0; attempt < 3; attempt++) {
     let res;
     let data;
-    const generationConfig = { temperature: 1, maxOutputTokens: 256 };
-    if (thinking) generationConfig.thinkingConfig = { thinkingBudget: 128 };
+    const generationConfig = { temperature: 0.9, maxOutputTokens: 256 };
+    if (jsonMode) generationConfig.responseMimeType = 'application/json';
+    if (thinking) generationConfig.thinkingConfig = { thinkingBudget: 64 };
     try {
       res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel())}:generateContent?key=${encodeURIComponent(key)}`,
@@ -508,8 +555,9 @@ async function suggestDocumentaryTopic({ lang, apiKey, avoid }) {
       lastError = new DocumentaryError('Gemini şu an yanıt vermiyor. Birkaç saniye sonra tekrar dene.', 503);
       continue;
     }
-    if (res.status === 400 && thinking) {
-      thinking = false;
+    if (res.status === 400 && (thinking || jsonMode)) {
+      if (thinking) thinking = false;
+      else jsonMode = false;
       continue;
     }
     if (!res.ok) {
@@ -1108,6 +1156,7 @@ module.exports = {
   resolveDocVoice,
   documentaryVoiceFromRequest,
   suggestDocumentaryTopic,
+  cleanTopicLine,
   isVoiceRestricted,
   DOC_VOICES,
   DocumentaryError,
