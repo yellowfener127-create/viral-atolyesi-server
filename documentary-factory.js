@@ -45,6 +45,10 @@ const DOC_VOICE_SETTINGS = Object.freeze({
   style: 0.35,
   use_speaker_boost: true
 });
+const DOC_PREVIEW_LINES = Object.freeze({
+  en: 'The corridor was silent, and a buried truth finally found its voice.',
+  tr: 'Koridor sessizdi ve gömülü bir gerçek sonunda sesini buldu.'
+});
 
 function resolveDocVoice(choice) {
   const raw = String(choice || '').trim();
@@ -1375,6 +1379,59 @@ async function concatScenes(ffmpegPath, files, outFile, listPath) {
   }
 }
 
+function previewCacheFile(voiceId, lang) {
+  return path.join(os.tmpdir(), 'va-doc-voice-previews', `${voiceId}_${lang}.mp3`);
+}
+
+async function previewDocumentaryVoice({ narrator, lang, elevenKey, ffmpegPath, ffprobePath }) {
+  const voice = resolveDocVoice(narrator);
+  if (voice.choice === 'random') {
+    throw new DocumentaryError('5 saniye dinlemek için listeden tek bir anlatıcı seç.', 400);
+  }
+  const language = lang === 'tr' ? 'tr' : 'en';
+  const cached = previewCacheFile(voice.id, language);
+  if (fs.existsSync(cached) && fs.statSync(cached).size > 64) {
+    console.log(`[belgesel] ses ornegi voice_id=${voice.id} onbellek=1`);
+    return { filePath: cached, narrator: voice };
+  }
+  const documentaryKey = String(elevenKey || '').trim();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-doc-preview-'));
+  try {
+    console.log(`[belgesel] ses ornegi voice_id=${voice.id} anahtar=${documentaryKey ? 'arayuz' : 'env'}`);
+    const speech = await synthesizeSpeechAligned({
+      text: DOC_PREVIEW_LINES[language],
+      outDir: tmpDir,
+      fileName: 'preview.mp3',
+      voiceId: voice.id,
+      voiceSettings: DOC_VOICE_SETTINGS,
+      apiKey: documentaryKey
+    });
+    const duration = await probeDurationSec(ffprobePath || 'ffprobe', speech.filePath);
+    const trimmed = path.join(tmpDir, 'preview_5s.mp3');
+    const args = ['-y', '-i', speech.filePath, '-vn'];
+    if (duration > 5) args.push('-t', '5', '-af', 'afade=t=out:st=4.6:d=0.4');
+    args.push('-c:a', 'libmp3lame', '-b:a', '128k', trimmed);
+    await runFfmpeg(ffmpegPath || 'ffmpeg', args);
+    fs.mkdirSync(path.dirname(cached), { recursive: true });
+    fs.copyFileSync(trimmed, cached);
+    return { filePath: cached, narrator: voice };
+  } catch (err) {
+    if (isVoiceFallbackError(err)) {
+      throw new DocumentaryError(
+        `${voice.label} (${voice.id}) bu hesapta API ile kullanılamadı. 5 saniyelik örnek çalınamadı.`,
+        402
+      );
+    }
+    if (/quota|credits remaining|exceeds your quota/i.test(String(err && err.message || ''))) {
+      throw new DocumentaryError('Bu anahtarın ElevenLabs kredisi 5 saniyelik örnek için yetmiyor.', 429);
+    }
+    if (err instanceof DocumentaryError || err instanceof ElevenLabsHookError) throw err;
+    throw new DocumentaryError(err && err.message ? err.message : 'Ses örneği üretilemedi.');
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  }
+}
+
 async function produceDocumentary({
   topic,
   lang,
@@ -1551,6 +1608,7 @@ module.exports = {
   MUSIC_VOLUME,
   resolveDocVoice,
   documentaryVoiceFromRequest,
+  previewDocumentaryVoice,
   suggestDocumentaryTopic,
   cleanTopicLine,
   resolveDocChannel,

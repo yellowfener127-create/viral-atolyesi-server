@@ -2464,6 +2464,28 @@ app.post('/documentary-topic', async (req, res) => {
   }
 });
 
+app.post('/documentary-voice-preview', async (req, res) => {
+  try {
+    const info = await documentaryFactory.previewDocumentaryVoice({
+      narrator: String(req.body?.voice_id || req.body?.voiceId || '').trim(),
+      lang: req.body?.lang,
+      elevenKey: String(req.body?.elevenlabs_api_key || req.body?.elevenlabsApiKey || '').trim(),
+      ffmpegPath: 'ffmpeg',
+      ffprobePath: 'ffprobe'
+    });
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'no-store');
+    const stream = fs.createReadStream(info.filePath);
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(500).json({ error: 'Ses örneği okunamadı.' });
+    });
+    stream.pipe(res);
+  } catch (e) {
+    const code = e && e.statusCode ? e.statusCode : 500;
+    return res.status(code).json({ error: (e && e.message) ? e.message : String(e) });
+  }
+});
+
 app.post('/documentary', async (req, res) => {
   res.setTimeout(12 * 60 * 1000);
   const topic = String(req.body?.topic || '').replace(/\s+/g, ' ').trim();
