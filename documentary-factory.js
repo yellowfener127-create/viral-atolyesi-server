@@ -108,6 +108,16 @@ function isVoiceRestricted(err) {
   return /library voice|free users|cannot use|can not use|voice restriction|not available for|paid plan/i.test(msg);
 }
 
+function isVoiceFallbackError(err) {
+  if (isVoiceRestricted(err)) return true;
+  if (!(err instanceof ElevenLabsHookError)) return false;
+  const status = Number(err.details && err.details.status);
+  const msg = String(err.message || '');
+  if (status === 404) return true;
+  if (status === 400 && /voice|ses id|voice_id|voice id/i.test(msg)) return true;
+  return /voice_not_found|invalid voice|unknown voice|voice does not exist|no voice/i.test(msg);
+}
+
 class DocumentaryError extends Error {
   constructor(message, statusCode) {
     super(message);
@@ -1411,11 +1421,29 @@ async function produceDocumentary({
     try {
       return await synthesizeSpeechAligned(request);
     } catch (err) {
-      if (!isVoiceRestricted(err)) throw err;
-      throw new DocumentaryError(
-        `${narratorVoice.label} (${narratorVoice.id}) bu hesapta API ile kullanılamadı. Voice Enjektör sesine dönülmedi.`,
-        402
-      );
+      const fallbackId = DOC_VOICES.adam;
+      if (!isVoiceFallbackError(err) || narratorVoice.id === fallbackId) throw err;
+      const failed = narratorVoice;
+      const detail = String(err && err.message || '')
+        .replace(/sk_[A-Za-z0-9_-]+/g, 'sk_REDACTED')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 180);
+      narratorVoice = resolveDocVoice(fallbackId);
+      voiceWarning = `${failed.label} (${failed.id}) bu hesapta API ile kullanılamadı. Üretim ${narratorVoice.label} ile sürdürüldü.`;
+      console.warn(`[belgesel] uyarı: ${voiceWarning} neden=${detail}`);
+      request.voiceId = narratorVoice.id;
+      console.log(`[belgesel] ElevenLabs voice_id=${request.voiceId} anahtar=${documentaryKey ? 'arayuz' : 'env'} yedek=1`);
+      try {
+        return await synthesizeSpeechAligned(request);
+      } catch (fallbackErr) {
+        const fallbackDetail = String(fallbackErr && fallbackErr.message || 'yedek ses de üretilemedi')
+          .replace(/sk_[A-Za-z0-9_-]+/g, 'sk_REDACTED')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 180);
+        throw new DocumentaryError(`${voiceWarning} Yedek ses de üretilemedi: ${fallbackDetail}`, 502);
+      }
     }
   }
   try {
@@ -1531,6 +1559,7 @@ module.exports = {
   isChaosPost,
   DOC_CHANNELS,
   isVoiceRestricted,
+  isVoiceFallbackError,
   DOC_VOICES,
   DocumentaryError,
   OUT_FPS
