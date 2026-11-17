@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { spawnSync } = require('child_process');
 
 const TTS_URL = 'https://api.elevenlabs.io/v1/text-to-speech';
 const OUTPUT_FORMAT = 'mp3_44100_128';
@@ -62,13 +63,57 @@ function loadEnvFile(filePath) {
 
 loadEnvFile(path.join(__dirname, '.env'));
 
+const narrationCleanCache = new Map();
+
+function stripSquareTags(raw) {
+  let text = String(raw || '');
+  for (let i = 0; i < 4; i++) {
+    const next = text.replace(/\[[^\[\]]*\]/g, ' ');
+    if (next === text) break;
+    text = next;
+  }
+  return text.replace(/[\[\]]/g, ' ');
+}
+
+function cleanNarrationWithPython(raw) {
+  const script = path.join(__dirname, 'clean_narration.py');
+  const bins = process.platform === 'win32'
+    ? [['py', ['-3']], ['python', []]]
+    : [['python3', []], ['python', []]];
+  for (const [bin, prefix] of bins) {
+    let result;
+    try {
+      result = spawnSync(bin, [...prefix, script], {
+        input: String(raw || ''),
+        encoding: 'utf8',
+        timeout: 8000,
+        windowsHide: true,
+        maxBuffer: 1024 * 1024,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }
+      });
+    } catch {
+      return null;
+    }
+    if (result.error && result.error.code === 'ENOENT') continue;
+    if (result.status === 0 && typeof result.stdout === 'string') return result.stdout;
+    return null;
+  }
+  return null;
+}
+
 function spokenHookText(raw) {
-  return String(raw || '')
+  const key = String(raw || '');
+  if (narrationCleanCache.has(key)) return narrationCleanCache.get(key);
+  const fromPython = cleanNarrationWithPython(key);
+  const text = stripSquareTags(fromPython == null ? key : fromPython)
     .replace(/<break\b[^>]*\/?>/gi, ' ')
     .replace(/<\/?emphasis\b[^>]*>/gi, '')
     .replace(/\p{Extended_Pictographic}/gu, '')
     .replace(/\s+/g, ' ')
     .trim();
+  if (narrationCleanCache.size > 200) narrationCleanCache.clear();
+  narrationCleanCache.set(key, text);
+  return text;
 }
 
 function readApiKey() {

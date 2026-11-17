@@ -931,13 +931,15 @@ function quotaMessage(detail) {
 
 function narrationPerformanceRules() {
   return [
-    'Sen profesyonel bir seslendirmen ve ses yönetmenisin. Yazdığın her hikaye veya belgesel metnini, ElevenLabs üzerinden okunacak şekilde duygu etiketleriyle ve duraklama komutlarıyla birlikte yazmalısın.',
-    'Şu kurallara kesinlikle uy:',
-    '1. Metin içinde sesin tonunun değişeceği yerlere [whisper: fısıltıyla], [dramatic pause: 2 seconds], [tension building: hızlanarak] gibi yönlendirici etiketler koy.',
-    '2. Cümlelerin akışını ve nefes alma noktalarını virgüllerle ve üç noktalarla (...) belirginleştir; böylece seslendirme motoru asla düz bir tonda okumaz.',
-    '3. Heyecan, korku, gizem veya trajedi anlarında cümle yapılarını kısa tutarak sesin tonuna dramatik bir duygu kat.',
-    'Put the square-bracket directions inside narration only. image_prompt stays a visual description and contains none of these tags.',
-    'Text inside square brackets is a voice direction, not a spoken word, and it does not count toward the spoken word total.'
+    'Sen profesyonel bir belgesel anlatıcısısın. Yazdığın her cümle ElevenLabs tarafından yüksek sesle okunacak.',
+    'Köşeli parantez, sahne direktifi ve duygu etiketi yazma. [whisper], [dramatic pause], [tension building] ve buna benzer hiçbir etiket kullanma. ElevenLabs bunları kelime olarak okur.',
+    'Duyguyu ve tonu tamamen metnin yapısıyla ver.',
+    '1. Kısa, sarsıcı cümleler kur. Heyecan, korku, gizem ve trajedi anlarında cümleyi daha da kısalt.',
+    '2. Gerilimi üç noktalarla (...) büyüt. Nefes ve duraklama hissini virgül ve üç noktayla ver.',
+    '3. Stratejik büyük harf vurgusu kullan: yalnızca birkaç kelime, asla bütün bir cümle. Merakı açık tutan akıcı bir dil kullan.',
+    'Narration is only the words to be spoken. No square brackets. No stage directions. No pause commands.',
+    'image_prompt stays a visual description and contains none of these labels.',
+    'Every word in narration is spoken and counts toward the spoken word total.'
   ].join('\n');
 }
 
@@ -1130,8 +1132,8 @@ async function buildPlan(topic, lang, apiKey, source, channel) {
       const maxWords = 160;
       if (total < minWords || total > maxWords) {
         note = therapy
-          ? `The narration is ${total} spoken words. Square-bracket voice tags do not count. Return one JSON object with music_mood and 120 to 145 spoken words for a 50 to 60 second film. Keep the emotion and pause tags in the narration.`
-          : `The narration is ${total} spoken words. Square-bracket voice tags do not count. Return one JSON object with music_mood and 110 to 130 spoken words. Keep the emotion and pause tags in the narration.`;
+          ? `The narration is ${total} spoken words. Return one JSON object with music_mood and 120 to 145 spoken words for a 50 to 60 second film. No square-bracket tags. Keep the short sentences, ellipses, and sparse capital emphasis.`
+          : `The narration is ${total} spoken words. Return one JSON object with music_mood and 110 to 130 spoken words. No square-bracket tags. Keep the short sentences, ellipses, and sparse capital emphasis.`;
         lastError = new DocumentaryError(
           therapy
             ? `Senaryo ${total} kelime çıktı. 50-60 saniye için 120-145 kelime bekleniyor.`
