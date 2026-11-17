@@ -248,6 +248,22 @@ function voiceGeminiModel() {
   return 'gemini-3.6-flash';
 }
 
+function voiceGeminiModels() {
+  return [...new Set(
+    [voiceGeminiModel(), 'gemini-2.5-flash', 'gemini-2.0-flash']
+      .map((name) => String(name || '').trim())
+      .filter(Boolean)
+  )];
+}
+
+function geminiDemandError(err) {
+  const msg = String((err && err.message) || '');
+  const status = Number(err && err.statusCode);
+  if (/quota|free_tier|exceeded your current quota/i.test(msg) && !/high demand|spikes in demand/i.test(msg)) return false;
+  return status === 500 || status === 502 || status === 503 || status === 504
+    || /high demand|spikes in demand|try again later|unavailable|overloaded|currently experiencing/i.test(msg);
+}
+
 async function geminiHookFromName(name, apiKey, used) {
   const key = String(apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
   const concept = conceptFromName(name);
@@ -262,35 +278,53 @@ async function geminiHookFromName(name, apiKey, used) {
     'Output the line only.'
   ].join(' ');
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(voiceGeminiModel())}:generateContent?key=${encodeURIComponent(key)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.9, maxOutputTokens: 40 }
-        }),
-        signal: AbortSignal.timeout(12000)
+    let lastDemand = false;
+    for (const model of voiceGeminiModels()) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': key
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.9, maxOutputTokens: 40 }
+          }),
+          signal: AbortSignal.timeout(12000)
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = data && data.error && data.error.message;
+        if (geminiDemandError(statusError(msg || '', res.status))) {
+          lastDemand = true;
+          console.log(`[voice] gemini kanca model=${model} yogun`);
+          continue;
+        }
+        return '';
       }
-    );
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) return '';
-    const text = data
-      && data.candidates
-      && data.candidates[0]
-      && data.candidates[0].content
-      && Array.isArray(data.candidates[0].content.parts)
-      ? data.candidates[0].content.parts.map((part) => part.text || '').join(' ')
-      : '';
-    const cleaned = String(text || '')
-      .replace(/\s+/g, ' ')
-      .replace(/^["'`]+|["'`]+$/g, '')
-      .replace(/[.!?]+$/g, '')
-      .trim();
-    const line = normalizeHookLine(cleaned);
-    if (!line || (used && used.has(line))) return '';
-    return line;
+      const text = data
+        && data.candidates
+        && data.candidates[0]
+        && data.candidates[0].content
+        && Array.isArray(data.candidates[0].content.parts)
+        ? data.candidates[0].content.parts.map((part) => part.text || '').join(' ')
+        : '';
+      const cleaned = String(text || '')
+        .replace(/\s+/g, ' ')
+        .replace(/^["'`]+|["'`]+$/g, '')
+        .replace(/[.!?]+$/g, '')
+        .trim();
+      let line = '';
+      try { line = normalizeHookLine(cleaned); } catch { line = ''; }
+      if (!line || (used && used.has(line))) continue;
+      if (model !== voiceGeminiModels()[0]) console.log(`[voice] gemini kanca model=${model}`);
+      return line;
+    }
+    if (lastDemand) console.log('[voice] gemini kanca modeller yogun');
+    return '';
   } catch (err) {
     if (err && err.statusCode === 400) return '';
     return '';
@@ -449,15 +483,18 @@ function quotaReason(err) {
   return `Gemini ücretsiz günlük hakkı doldu.${when}`;
 }
 
-async function askGeminiClip(key, media, avoid, retry) {
+async function askGeminiClip(key, media, avoid, retry, model) {
   const videoPart = media && media.inline
     ? { inlineData: { mimeType: 'video/mp4', data: media.inline }, videoMetadata: { fps: 2 } }
     : { fileData: { mimeType: media.mime || 'video/mp4', fileUri: media.uri }, videoMetadata: { fps: 2 } };
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(voiceGeminiModel())}:generateContent?key=${encodeURIComponent(key)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model || voiceGeminiModel())}:generateContent`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': key
+      },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: VOICE_HOOK_SYSTEM }] },
         contents: [{
@@ -496,37 +533,51 @@ async function geminiHookFromClip(clipPath, apiKey, avoid) {
   }
   let reason = 'Gemini 5 veya 6 kelimelik cümle döndürmedi.';
   try {
-    for (const retry of [false, true]) {
-      let raw = '';
-      try {
-        raw = await askGeminiClip(key, media, avoid, retry);
-      } catch (err) {
-        const quota = quotaReason(err);
-        if (quota) throw statusError(quota, 429);
-        if (isTimeoutError(err)) {
-          reason = 'Gemini yanıtı zaman aşımına uğradı.';
+    let demand = false;
+    for (const model of voiceGeminiModels()) {
+      for (const retry of [false, true]) {
+        let raw = '';
+        try {
+          raw = await askGeminiClip(key, media, avoid, retry, model);
+        } catch (err) {
+          const quota = quotaReason(err);
+          if (quota && !geminiDemandError(err)) throw statusError(quota, 429);
+          if (geminiDemandError(err)) {
+            demand = true;
+            console.log(`[voice] gemini klip model=${model} yogun`);
+            if (!retry) {
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+              continue;
+            }
+            break;
+          }
+          if (isTimeoutError(err)) {
+            reason = 'Gemini yanıtı zaman aşımına uğradı.';
+            continue;
+          }
+          throw err;
+        }
+        const line = lastSpokenHook(raw);
+        if (!line) {
+          const heard = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+          reason = heard
+            ? `Gemini kanca cümlesi yazmadı: "${heard}"`
+            : 'Gemini boş cevap verdi.';
           continue;
         }
-        throw err;
+        if (isTurkishHook(line)) {
+          reason = `Gemini Türkçe yazdı: "${line}"`;
+          continue;
+        }
+        if (taken.has(line)) {
+          reason = 'Gemini önceki cümleyi tekrar etti.';
+          continue;
+        }
+        if (model !== voiceGeminiModels()[0]) console.log(`[voice] gemini klip model=${model}`);
+        return line;
       }
-      const line = lastSpokenHook(raw);
-      if (!line) {
-        const heard = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 80);
-        reason = heard
-          ? `Gemini kanca cümlesi yazmadı: "${heard}"`
-          : 'Gemini boş cevap verdi.';
-        continue;
-      }
-      if (isTurkishHook(line)) {
-        reason = `Gemini Türkçe yazdı: "${line}"`;
-        continue;
-      }
-      if (taken.has(line)) {
-        reason = 'Gemini önceki cümleyi tekrar etti.';
-        continue;
-      }
-      return line;
     }
+    if (demand) throw statusError('Gemini şu an yoğun. Birkaç saniye sonra tekrar dene.', 503);
     throw statusError(reason);
   } finally {
     if (uploaded) await geminiDeleteFile(key, uploaded.name);

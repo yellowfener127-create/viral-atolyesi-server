@@ -2765,6 +2765,13 @@ app.post('/crush', async (req, res) => {
       const sc = Number(e && e.statusCode);
       return (sc === 404) && /model[s]?\/.+?is not found|not supported for generatecontent/i.test(msg.toLowerCase());
     };
+    const isGeminiDemand = (e) => {
+      const msg = String((e && e.message) || '');
+      const sc = Number(e && (e.statusCode || e.code));
+      if (/quota|free_tier|exceeded your current quota/i.test(msg) && !/high demand|spikes in demand/i.test(msg)) return false;
+      return sc === 500 || sc === 502 || sc === 503 || sc === 504
+        || /high demand|spikes in demand|try again later|unavailable|overloaded|currently experiencing/i.test(msg);
+    };
     if (!manualHookTextRaw && metaTitle && isLabBrand) {
       try {
         const frameFile = path.join(tmpDir, 'gem_frame.png');
@@ -2946,6 +2953,27 @@ app.post('/crush', async (req, res) => {
           } catch (e2) {
             e = e2;
           }
+        }
+        if (e && !preferVertex && isGeminiDemand(e)) {
+          const backups = ['gemini-2.5-flash', 'gemini-2.0-flash'].filter((name) => name !== gemModel);
+          for (const name of backups) {
+            try {
+              gemModel = name;
+              gemHook = await fetchGeminiHookEnglish(gemKey, metaTitle, brand, emojiPool, {
+                framePng: path.join(tmpDir, 'gem_frame.png'),
+                audioWav: path.join(tmpDir, 'gem_audio.wav')
+              }, gemModel, hookGemCtx);
+              if (isRepetitiveTemplateHook(gemHook)) gemHook = '';
+              e = null;
+              if (gemHook) break;
+            } catch (e2) {
+              e = e2;
+              if (!isGeminiDemand(e2) && !isModelNotFound(e2)) break;
+            }
+          }
+        }
+        if (e && isGeminiDemand(e)) {
+          e = Object.assign(new Error('Gemini şu an yoğun. Birkaç saniye sonra tekrar dene.'), { statusCode: 503, model: gemModel });
         }
         if (!e && gemHook && gemHook.length >= 6) {
           // recovered via fallback model

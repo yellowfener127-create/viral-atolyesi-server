@@ -159,10 +159,22 @@ function geminiFailText(err) {
 
 function geminiCandidates() {
   return [...new Set(
-    [geminiModel(), 'gemini-3.8-flash', 'gemini-2.5-flash']
+    [geminiModel(), 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3.8-flash']
       .map((name) => String(name || '').trim())
       .filter(Boolean)
   )];
+}
+
+function geminiIsDemand(status, message) {
+  const msg = String(message || '');
+  if (/high demand|spikes in demand|try again later|unavailable|overloaded|currently experiencing/i.test(msg)) return true;
+  return status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function geminiIsQuota(status, message) {
+  const msg = String(message || '');
+  if (/high demand|spikes in demand/i.test(msg)) return false;
+  return status === 429 || /quota|free_tier|exceeded your current quota|resource_exhausted/i.test(msg);
 }
 
 function geminiErrorMessage(data) {
@@ -885,7 +897,7 @@ async function suggestDocumentaryTopic({ lang, apiKey, avoid, channel }) {
       const detail = geminiErrorMessage(data);
       console.log(`[belgesel] gemini konu model=${model} http=${res.status} ${detail}`);
       const blob = JSON.stringify(data).slice(0, 500);
-      if (res.status === 429 || /quota/i.test(blob)) throw new DocumentaryError(quotaMessage(blob), 429);
+      if (geminiIsQuota(res.status, detail)) throw new DocumentaryError(quotaMessage(blob), 429);
       if (res.status === 401 || res.status === 403) {
         throw new DocumentaryError('Gemini API anahtarı geçersiz. Araçlar listesinden başka bir anahtar seç.', 401);
       }
@@ -894,18 +906,15 @@ async function suggestDocumentaryTopic({ lang, apiKey, avoid, channel }) {
         continue;
       }
       if (res.status === 404) break;
-      if (res.status === 502 || res.status === 503 || res.status === 504) {
+      if (geminiIsDemand(res.status, detail)) {
         lastError = new DocumentaryError('Gemini şu an çok yoğun. Birkaç saniye sonra tekrar dene.', 503);
         if (attempt === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          await new Promise((resolve) => setTimeout(resolve, 1000));
           continue;
         }
         break;
       }
-      throw new DocumentaryError(
-        detail ? `Gemini konu yazamadı (${res.status}): ${detail}` : `Gemini konu yazamadı (${res.status}).`,
-        res.status
-      );
+      throw new DocumentaryError(`Gemini konu yazamadı (${res.status}).`, res.status);
     }
   }
   throw lastError || new DocumentaryError('Gemini konu yazamadı.');
@@ -1039,66 +1048,72 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
     required: ['music_mood', 'scenes']
   };
   const models = geminiCandidates();
-  let modelIndex = 0;
-  const ask = async (jsonMode, thinking) => {
-    const generationConfig = { maxOutputTokens: 8192 };
-    if (thinking) generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
-    if (jsonMode) {
-      generationConfig.responseMimeType = 'application/json';
-      generationConfig.responseSchema = schema;
-    }
-    const res = await geminiFetch(key, {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig
-    }, 60000, models[modelIndex]);
-    const data = await res.json().catch(() => ({}));
-    return { res, data };
-  };
-  let jsonMode = true;
-  let thinking = true;
-  let res;
-  let data;
-  for (let tryNo = 0; tryNo < 4; tryNo++) {
-    try {
-      ({ res, data } = await ask(jsonMode, thinking));
-    } catch (err) {
-      console.log(`[belgesel] gemini senaryo ${geminiFailReason(err)}`);
-      if (tryNo < 3) {
+  let lastError = new DocumentaryError('Gemini şu an meşgul. Birkaç saniye bekleyip yeniden üret.', 503);
+  for (let modelIndex = 0; modelIndex < models.length; modelIndex++) {
+    const model = models[modelIndex];
+    let jsonMode = true;
+    let thinking = true;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const generationConfig = { maxOutputTokens: 8192 };
+      if (thinking) generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
+      if (jsonMode) {
+        generationConfig.responseMimeType = 'application/json';
+        generationConfig.responseSchema = schema;
+      }
+      let res;
+      let data;
+      try {
+        res = await geminiFetch(key, {
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig
+        }, 60000, model);
+        data = await res.json().catch(() => ({}));
+      } catch (err) {
+        console.log(`[belgesel] gemini senaryo model=${model} ${geminiFailReason(err)}`);
         if (thinking) thinking = false;
         else jsonMode = false;
-        await new Promise((resolve) => setTimeout(resolve, 1500 * (tryNo + 1)));
+        if (attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          continue;
+        }
+        lastError = new DocumentaryError(geminiFailText(err), 503);
+        break;
+      }
+      if (res.ok) {
+        const text = visibleGeminiText(data);
+        if (!text) {
+          lastError = new DocumentaryError('Gemini boş bir senaryo döndürdü.');
+          jsonMode = false;
+          thinking = false;
+          continue;
+        }
+        if (model !== models[0]) console.log(`[belgesel] gemini senaryo model=${model}`);
+        return text;
+      }
+      const detail = geminiErrorMessage(data);
+      console.log(`[belgesel] gemini senaryo model=${model} http=${res.status} ${detail}`);
+      if (res.status === 400 && (jsonMode || thinking)) {
+        jsonMode = false;
+        thinking = false;
         continue;
       }
-      throw new DocumentaryError(geminiFailText(err), 503);
+      if (geminiIsQuota(res.status, detail)) throw new DocumentaryError(quotaMessage(JSON.stringify(data).slice(0, 500)), 429);
+      if (res.status === 401 || res.status === 403) {
+        throw new DocumentaryError('Gemini API anahtarı geçersiz. Araçlar listesinden başka bir anahtar seç.', 401);
+      }
+      if (res.status === 404) break;
+      if (geminiIsDemand(res.status, detail)) {
+        lastError = new DocumentaryError('Gemini şu an meşgul. Birkaç saniye bekleyip yeniden üret.', 503);
+        if (attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          continue;
+        }
+        break;
+      }
+      throw new DocumentaryError(`Gemini senaryoyu yazamadı (${res.status}).`, res.status);
     }
-    if (res.status === 400 && jsonMode) {
-      jsonMode = false;
-      thinking = false;
-      continue;
-    }
-    if ((res.status === 404 || res.status === 502 || res.status === 503 || res.status === 504) && tryNo < 3) {
-      console.log(`[belgesel] gemini senaryo model=${models[modelIndex]} http=${res.status} ${geminiErrorMessage(data)}`);
-      if ((res.status === 404 || res.status === 503) && modelIndex < models.length - 1) modelIndex += 1;
-      jsonMode = false;
-      thinking = false;
-      await new Promise((resolve) => setTimeout(resolve, 1500 * (tryNo + 1)));
-      continue;
-    }
-    break;
   }
-  if (!res.ok) {
-    const detail = JSON.stringify(data).slice(0, 500);
-    if (res.status === 429 || /quota/i.test(detail)) {
-      throw new DocumentaryError(quotaMessage(detail), 429);
-    }
-    if (res.status === 502 || res.status === 503 || res.status === 504) {
-      throw new DocumentaryError('Gemini şu an meşgul. Birkaç saniye bekleyip yeniden üret.', 503);
-    }
-    throw new DocumentaryError(`Gemini senaryoyu yazamadı (${res.status}).`);
-  }
-  const text = visibleGeminiText(data);
-  if (!text) throw new DocumentaryError('Gemini boş bir senaryo döndürdü.');
-  return text;
+  throw lastError;
 }
 
 async function buildPlan(topic, lang, apiKey, source, channel) {
