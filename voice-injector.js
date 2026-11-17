@@ -245,12 +245,12 @@ function voiceGeminiModel() {
   if (explicit) return explicit;
   const shared = String(process.env.GEMINI_MODEL || '').trim();
   if (shared && shared !== 'gemini-2.0-flash') return shared;
-  return 'gemini-3.6-flash';
+  return 'gemini-3.5-flash-lite';
 }
 
 function voiceGeminiModels() {
   return [...new Set(
-    [voiceGeminiModel(), 'gemini-3.8-flash', 'gemini-3.5-flash-lite']
+    ['gemini-3.5-flash-lite', voiceGeminiModel(), 'gemini-3.6-flash', 'gemini-3.8-flash']
       .map((name) => String(name || '').trim())
       .filter(Boolean)
   )];

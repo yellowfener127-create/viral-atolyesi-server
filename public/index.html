@@ -2104,7 +2104,7 @@ async function crushVideo() {
     msg.textContent = "Telif Ezici hazırlanıyor…";
     let gemini_api_key = geminiKeySaved();
     // Force model per requirement (ignore localStorage override)
-    const gemini_model = "gemini-2.0-flash";
+    const gemini_model = "gemini-3.5-flash-lite";
     const localRes = await fetch("http://127.0.0.1:8787/crush", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -3391,7 +3391,7 @@ function showMccTab(id) {
   if (key === "gemini") refreshGeminiChatGate();
 }
 
-const GEMINI_CHAT_MODEL = "gemini-3.6-flash";
+const GEMINI_CHAT_MODEL = "gemini-3.5-flash-lite";
 const GEMINI_STORY_SYSTEM = "You are a senior short-form story editor. The uploaded video is one compilation cut from TWO DIFFERENT ranking videos, not a single clip. Watch the file from the first moment to the last. Do not judge it from one frame or one freeze. Keep the two rankings separate. Write a beat sheet in order: who does what, what changes, and how each ranking pays off. Then one short paragraph on how the two rankings sit together as one video. No hook, no caption, no hashtags.";
 const GEMINI_HOOK_SYSTEM = "You are a professional retention writer for Reels, TikTok, and Shorts. These videos are compilations of TWO different ranking videos. You are given the full beat sheet of both rankings. Read that entire beat sheet before you write. The hook must come from the whole video, both rankings together, not from a single frame or a single clip. It has to stop a stranger in the first 3 seconds.\n\nOutput exactly this shape and nothing else:\nHOOK:\n<one English line, 53 characters MAXIMUM including spaces and the emoji. Count every character. Include exactly one fitting emoji inside the line. No hashtags. No quotes.>\nCAPTION:\n<one or two English sentences that carry both rankings without spoiling the last beat. Include at least one fitting emoji. No hashtags in this block.>\nHASHTAGS:\n<exactly 5 hashtags, no more and no less: #chaos #therapy #epoch plus exactly 2 topical tags>\n\nAlways use emojis. Never skip the emoji on the hook or the caption. English only. One hook. One caption. No alternatives.";
 const GEMINI_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
@@ -3811,7 +3811,7 @@ function geminiBusyError(msg, status) {
 }
 
 async function geminiGenerate(key, systemText, contents) {
-  const models = [GEMINI_CHAT_MODEL, "gemini-3.8-flash", "gemini-3.5-flash-lite"].filter(function (name, index, list) {
+  const models = ["gemini-3.5-flash-lite", GEMINI_CHAT_MODEL, "gemini-3.6-flash", "gemini-3.8-flash"].filter(function (name, index, list) {
     return name && list.indexOf(name) === index;
   });
   const keys = [];

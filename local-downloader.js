@@ -1089,7 +1089,7 @@ function fetchGeminiHookEnglish(apiKey, title, brand, emojiPool, media, modelOve
     recentHooks: ctx.recentHooks
   });
   // Note: Some older model aliases (e.g. gemini-1.5-flash) may no longer be available on v1beta generateContent.
-  const model = String(modelOverride || process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
+  const model = String(modelOverride || process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite').trim();
   const parts = [{ text: prompt }];
   try {
     const fs = require('fs');
@@ -2751,8 +2751,8 @@ app.post('/crush', async (req, res) => {
       ? crypto.createHash('sha256').update(gemKey).digest('hex').slice(0, 10)
       : null;
     const gemModelFromReq = normalizeGeminiModelName(req.body?.gemini_model ?? req.body?.geminiModel ?? '');
-    const gemModelDefault = normalizeGeminiModelName(process.env.GEMINI_MODEL || 'gemini-2.0-flash');
-    let gemModel = gemModelFromReq || gemModelDefault || 'gemini-2.0-flash';
+    const gemModelDefault = normalizeGeminiModelName(process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite');
+    let gemModel = gemModelFromReq || gemModelDefault || 'gemini-3.5-flash-lite';
     const mustUseGeminiHook = !manualHookTextRaw && isLabBrand;
     let geminiErr = null;
     const vertexSaPath = resolveVertexServiceAccountPath();
@@ -2806,7 +2806,10 @@ app.post('/crush', async (req, res) => {
             uniqLoc.push(l);
           }
           const vertexModelCandidates = [
+            'gemini-3.5-flash-lite',
             String(gemModel || '').trim(),
+            'gemini-3.6-flash',
+            'gemini-3.8-flash',
             'gemini-2.0-flash',
             'gemini-1.5-flash',
             'gemini-1.5-pro'
@@ -2955,7 +2958,7 @@ app.post('/crush', async (req, res) => {
           }
         }
         if (e && !preferVertex && isGeminiDemand(e)) {
-          const backups = ['gemini-3.8-flash', 'gemini-3.5-flash-lite'].filter((name) => name !== gemModel);
+          const backups = ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-2.0-flash'].filter((name) => name !== gemModel);
           for (const name of backups) {
             try {
               gemModel = name;
