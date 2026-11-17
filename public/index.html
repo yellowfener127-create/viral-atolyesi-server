@@ -666,7 +666,7 @@
       <select class="platform-select" id="crushBrand">
         <option value="terapi" selected>TERAPİ ATÖLYESİ</option>
         <option value="kaos">KAOS ATÖLYESİ</option>
-        <option value="umut">UMUT ATÖLYESİ</option>
+        <option value="umut">EPOCH ATÖLYESİ</option>
       </select>
     </div>
 
@@ -3393,7 +3393,7 @@ function showMccTab(id) {
 
 const GEMINI_CHAT_MODEL = "gemini-3.6-flash";
 const GEMINI_STORY_SYSTEM = "You are a senior short-form story editor. The uploaded video is one compilation cut from TWO DIFFERENT ranking videos, not a single clip. Watch the file from the first moment to the last. Do not judge it from one frame or one freeze. Keep the two rankings separate. Write a beat sheet in order: who does what, what changes, and how each ranking pays off. Then one short paragraph on how the two rankings sit together as one video. No hook, no caption, no hashtags.";
-const GEMINI_HOOK_SYSTEM = "You are a professional retention writer for Reels, TikTok, and Shorts. These videos are compilations of TWO different ranking videos. You are given the full beat sheet of both rankings. Read that entire beat sheet before you write. The hook must come from the whole video, both rankings together, not from a single frame or a single clip. It has to stop a stranger in the first 3 seconds.\n\nOutput exactly this shape and nothing else:\nHOOK:\n<one English line, 53 characters MAXIMUM including spaces and the emoji. Count every character. Include exactly one fitting emoji inside the line. No hashtags. No quotes.>\nCAPTION:\n<one or two English sentences that carry both rankings without spoiling the last beat. Include at least one fitting emoji. No hashtags in this block.>\nHASHTAGS:\n<exactly 5 hashtags, no more and no less: #chaos #therapy #hope plus exactly 2 topical tags>\n\nAlways use emojis. Never skip the emoji on the hook or the caption. English only. One hook. One caption. No alternatives.";
+const GEMINI_HOOK_SYSTEM = "You are a professional retention writer for Reels, TikTok, and Shorts. These videos are compilations of TWO different ranking videos. You are given the full beat sheet of both rankings. Read that entire beat sheet before you write. The hook must come from the whole video, both rankings together, not from a single frame or a single clip. It has to stop a stranger in the first 3 seconds.\n\nOutput exactly this shape and nothing else:\nHOOK:\n<one English line, 53 characters MAXIMUM including spaces and the emoji. Count every character. Include exactly one fitting emoji inside the line. No hashtags. No quotes.>\nCAPTION:\n<one or two English sentences that carry both rankings without spoiling the last beat. Include at least one fitting emoji. No hashtags in this block.>\nHASHTAGS:\n<exactly 5 hashtags, no more and no less: #chaos #therapy #epoch plus exactly 2 topical tags>\n\nAlways use emojis. Never skip the emoji on the hook or the caption. English only. One hook. One caption. No alternatives.";
 const GEMINI_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
 let geminiChatHistory = [];
 let geminiChatVideoFile = null;
@@ -3758,7 +3758,7 @@ async function sendGeminiChat() {
         { role: "model", parts: [{ text: story || "No beat sheet." }] },
         {
           role: "user",
-          parts: [{ text: "Read that entire beat sheet. Write the hook from the whole video, both rankings, not from one moment. Hook is one line, 53 characters max including one emoji, strong enough to stop the scroll in 3 seconds. Caption includes an emoji. Hashtags are exactly 5: #chaos #therapy #hope and 2 topical tags. Use the HOOK / CAPTION / HASHTAGS format." }]
+          parts: [{ text: "Read that entire beat sheet. Write the hook from the whole video, both rankings, not from one moment. Hook is one line, 53 characters max including one emoji, strong enough to stop the scroll in 3 seconds. Caption includes an emoji. Hashtags are exactly 5: #chaos #therapy #epoch and 2 topical tags. Use the HOOK / CAPTION / HASHTAGS format." }]
         }
       ]));
       setGeminiChatNotice("");
@@ -3923,7 +3923,7 @@ function geminiClipChars(text, max) {
 }
 
 function geminiFiveTags(raw) {
-  const required = ["#chaos", "#therapy", "#hope"];
+  const required = ["#chaos", "#therapy", "#epoch"];
   const found = String(raw || "").match(/#[^\s#]+/g) || [];
   const seen = new Set(required.map(function (t) { return t.toLowerCase(); }));
   const extra = [];
