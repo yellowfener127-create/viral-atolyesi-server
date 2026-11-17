@@ -43,7 +43,8 @@ const DOC_VOICE_SETTINGS = Object.freeze({
   stability: 0.45,
   similarity_boost: 0.75,
   style: 0.35,
-  use_speaker_boost: true
+  use_speaker_boost: true,
+  speed: 1.1
 });
 const DOC_PREVIEW_LINES = Object.freeze({
   en: 'The corridor was silent, and a buried truth finally found its voice.',
@@ -845,7 +846,7 @@ async function suggestDocumentaryTopic({ lang, apiKey, avoid, channel }) {
       ]);
   const prompt = (therapy
     ? [
-      'Invent one new title for a 50 to 60 second vertical documentary.',
+      'Invent one new title for a short, sharp vertical documentary.',
       'The subject is dark psychology and one real psychological experiment.',
       'Think of documented studies such as the Stanford Prison Experiment, the Milgram obedience study, or the secret triplets study.',
       `Write it in ${language}, the way a viewer would read it on screen.`,
@@ -853,7 +854,7 @@ async function suggestDocumentaryTopic({ lang, apiKey, avoid, channel }) {
       'No self-help, no therapy advice, and no fictional horror.'
     ]
     : [
-      'Invent one new title for a 50-second vertical history documentary.',
+      'Invent one new title for a short, sharp vertical history documentary.',
       `Write it in ${language}, the way a viewer would read it on screen.`,
       '8 to 16 words. Concrete place, person from history, or a what-if question.'
     ]).concat([
@@ -935,8 +936,10 @@ function narrationPerformanceRules() {
     'Köşeli parantez, sahne direktifi ve duygu etiketi yazma. [whisper], [dramatic pause], [tension building] ve buna benzer hiçbir etiket kullanma. ElevenLabs bunları kelime olarak okur.',
     'Duyguyu ve tonu tamamen metnin yapısıyla ver.',
     '1. Kısa, sarsıcı cümleler kur. Heyecan, korku, gizem ve trajedi anlarında cümleyi daha da kısalt.',
-    '2. Gerilimi üç noktalarla (...) büyüt. Nefes ve duraklama hissini virgül ve üç noktayla ver.',
+    '2. Gerilimi kısa cümle ve virgülle kur. Üç noktayı (...) bütün filmde en fazla iki kez kullan.',
     '3. Stratejik büyük harf vurgusu kullan: yalnızca birkaç kelime, asla bütün bir cümle. Merakı açık tutan akıcı bir dil kullan.',
+    'Anlatım keskin olsun. Az kelimeyle, tekrar etmeden, konuyu hızlı söyle ve geç.',
+    'Üç noktayı (...) bütün filmde en fazla iki kez kullan. Uzun durak yalnızca oradadır. Diğer cümleler tek nokta, soru işareti veya ünlemle biter.',
     'Narration is only the words to be spoken. No square brackets. No stage directions. No pause commands.',
     'image_prompt stays a visual description and contains none of these labels.',
     'Every word in narration is spoken and counts toward the spoken word total.'
@@ -949,7 +952,7 @@ function therapyPlanPrompt(topic, language, retryNote) {
     'Write one plan in the same dark cinematic voice used for history and horror documentaries.',
     `Topic: ${topic}`,
     `Narration language: ${language}.`,
-    'Cover about 50 to 60 seconds, 120 to 145 spoken words, in 5 to 7 scenes.',
+    'Cover about 40 to 48 seconds, 90 to 110 spoken words, in 5 to 6 scenes.',
     'timestamp_sec values are contiguous, start at 0, and look like "0-8".',
     'Scene 1 is a strong hook that lands inside the first second.',
     'Tell the documented experiment: who was tested, what the setup was, and what it revealed. Do not invent a new study.',
@@ -979,7 +982,7 @@ function chaosPlanPrompt(story, language, retryNote) {
     `Source title: ${story.title}`,
     `Source text: ${story.selftext}`,
     `Narration language: ${language}.`,
-    'Cover about 45 to 55 seconds, 110 to 130 spoken words, in 5 to 7 scenes.',
+    'Cover about 32 to 42 seconds, 80 to 100 spoken words, in 5 to 6 scenes.',
     'timestamp_sec values are contiguous, start at 0, and look like "0-7".',
     narrationPerformanceRules(),
     'image_prompt is a detailed English visual scene description, not a search keyword.',
@@ -1012,7 +1015,7 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
       'Write one plan that the editor, image generator, and voice actor must follow together.',
       `Topic: ${topic}`,
       `Narration language: ${language}.`,
-      'Cover about 45 to 55 seconds, 110 to 130 spoken words, in 5 to 7 scenes.',
+      'Cover about 32 to 42 seconds, 80 to 100 spoken words, in 5 to 6 scenes.',
       'timestamp_sec values are contiguous, start at 0, and look like "0-7".',
       'Scene 1 is a strong hook that lands inside the first 3 seconds.',
       narrationPerformanceRules(),
@@ -1128,16 +1131,16 @@ async function buildPlan(topic, lang, apiKey, source, channel) {
       const plan = parseScenePlan(raw);
       const scenes = plan.scenes;
       const total = scenes.reduce((sum, scene) => sum + wordCount(scene.narration), 0);
-      const minWords = therapy ? 110 : 90;
-      const maxWords = 160;
+      const minWords = therapy ? 80 : 70;
+      const maxWords = therapy ? 125 : 115;
       if (total < minWords || total > maxWords) {
         note = therapy
-          ? `The narration is ${total} spoken words. Return one JSON object with music_mood and 120 to 145 spoken words for a 50 to 60 second film. No square-bracket tags. Keep the short sentences, ellipses, and sparse capital emphasis.`
-          : `The narration is ${total} spoken words. Return one JSON object with music_mood and 110 to 130 spoken words. No square-bracket tags. Keep the short sentences, ellipses, and sparse capital emphasis.`;
+          ? `The narration is ${total} spoken words. Return one JSON object with music_mood and 90 to 110 spoken words for a sharp 40 to 48 second film. No square-bracket tags. At most two ellipses in the whole film. Keep the short sentences and sparse capital emphasis.`
+          : `The narration is ${total} spoken words. Return one JSON object with music_mood and 80 to 100 spoken words. No square-bracket tags. At most two ellipses in the whole film. Keep the short sentences and sparse capital emphasis.`;
         lastError = new DocumentaryError(
           therapy
-            ? `Senaryo ${total} kelime çıktı. 50-60 saniye için 120-145 kelime bekleniyor.`
-            : `Senaryo ${total} kelime çıktı. 110-130 kelime bekleniyor.`
+            ? `Senaryo ${total} kelime çıktı. Daha keskin anlatım için 90-110 kelime bekleniyor.`
+            : `Senaryo ${total} kelime çıktı. Daha keskin anlatım için 80-100 kelime bekleniyor.`
         );
         continue;
       }
@@ -1285,35 +1288,61 @@ async function fitNarration(ffmpegPath, ffprobePath, src, words, text, dest, opt
   return { duration, words: shifted };
 }
 
-function breathSeconds(tone, sceneBoundary) {
-  const hint = String(tone || '').toLowerCase();
-  const dramatic = sceneBoundary || /dramatic|pause|emphasis|tragic|solemn|collapse|grief/.test(hint);
-  return dramatic ? 1.5 : 1.15;
+function narrationParts(narration) {
+  const text = String(narration || '').replace(/\s+/g, ' ').trim();
+  const parts = [];
+  let buf = '';
+  for (let i = 0; i < text.length; i++) {
+    buf += text[i];
+    if (text[i] === '.' && text[i + 1] === '.') {
+      while (text[i + 1] === '.') {
+        i += 1;
+        buf += '.';
+      }
+      parts.push(buf);
+      buf = '';
+      continue;
+    }
+    if (text[i] === '\u2026' || text[i] === '.' || text[i] === '!' || text[i] === '?') {
+      parts.push(buf);
+      buf = '';
+    }
+  }
+  if (buf.trim()) parts.push(buf);
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+function pauseForSpan(part) {
+  const text = String(part || '').trim();
+  if (/(?:\.{2,}|\u2026)\s*$/.test(text)) return 1.5;
+  if (/\.\s*$/.test(text)) return 1;
+  return 0.7;
 }
 
 function sentenceSpans(words, narration) {
-  const parts = String(narration || '').match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
+  const parts = narrationParts(narration);
   const spans = [];
   let index = 0;
   for (const part of parts) {
-    const count = part.trim().split(/\s+/).filter(Boolean).length;
+    const count = part.split(/\s+/).filter(Boolean).length;
     const slice = words.slice(index, index + count);
     index += count;
     if (!slice.length) continue;
     spans.push({
       end: Number(slice[slice.length - 1].end) || 0,
       fromWord: index - slice.length,
-      toWord: index
+      toWord: index,
+      pause: pauseForSpan(part)
     });
   }
   if (!spans.length || index !== words.length) {
     const end = Number(words[words.length - 1] && words[words.length - 1].end) || 0;
-    return [{ end, fromWord: 0, toWord: words.length }];
+    return [{ end, fromWord: 0, toWord: words.length, pause: pauseForSpan(narration) }];
   }
   return spans;
 }
 
-async function breatheSentences(ffmpegPath, ffprobePath, src, words, narration, tone, dest, sceneBoundary) {
+async function breatheSentences(ffmpegPath, ffprobePath, src, words, narration, dest) {
   const spoken = (words && words.length) ? words : [];
   if (spoken.length < 2) {
     await fs.promises.copyFile(src, dest);
@@ -1331,7 +1360,7 @@ async function breatheSentences(ffmpegPath, ffprobePath, src, words, narration, 
   let from = 0;
   let shift = 0;
   spans.forEach((span, i) => {
-    const pause = breathSeconds(tone, sceneBoundary && i === spans.length - 1);
+    const pause = Number(span.pause) > 0 ? Number(span.pause) : 0.7;
     const end = Math.max(from + 0.05, span.end);
     filters.push(
       `[s${i}]atrim=start=${from.toFixed(3)}:end=${end.toFixed(3)},asetpts=PTS-STARTPTS,apad=pad_dur=${pause.toFixed(3)}[p${i}]`
@@ -1436,7 +1465,7 @@ async function concatScenes(ffmpegPath, files, outFile, listPath) {
 }
 
 function previewCacheFile(voiceId, lang) {
-  return path.join(os.tmpdir(), 'va-doc-voice-previews', `${voiceId}_${lang}.mp3`);
+  return path.join(os.tmpdir(), 'va-doc-voice-previews', `${voiceId}_${lang}_110.mp3`);
 }
 
 async function trimPreviewAudio(ffmpegPath, ffprobePath, sourceFile, destFile) {
@@ -1593,9 +1622,7 @@ async function produceDocumentary({
         fitted,
         synced.words,
         scene.narration,
-        scene.voice_tone,
-        breathedFile,
-        i < plan.scenes.length - 1
+        breathedFile
       );
       const photo = path.join(imageDir, `scene_${i}.jpg`);
       await downloadPollinationsStill(scene.image_prompt, photo, selected);
