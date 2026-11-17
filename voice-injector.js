@@ -250,7 +250,7 @@ function voiceGeminiModel() {
 
 function voiceGeminiModels() {
   return [...new Set(
-    [voiceGeminiModel(), 'gemini-2.5-flash', 'gemini-2.0-flash']
+    [voiceGeminiModel(), 'gemini-3.8-flash', 'gemini-3.5-flash-lite']
       .map((name) => String(name || '').trim())
       .filter(Boolean)
   )];

@@ -2955,7 +2955,7 @@ app.post('/crush', async (req, res) => {
           }
         }
         if (e && !preferVertex && isGeminiDemand(e)) {
-          const backups = ['gemini-2.5-flash', 'gemini-2.0-flash'].filter((name) => name !== gemModel);
+          const backups = ['gemini-3.8-flash', 'gemini-3.5-flash-lite'].filter((name) => name !== gemModel);
           for (const name of backups) {
             try {
               gemModel = name;

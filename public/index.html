@@ -3106,6 +3106,23 @@ function docRandomLabel(channel) {
   return "Rastgele Viral Konu Üret";
 }
 
+function geminiKeysInOrder() {
+  const keys = [];
+  const push = function (value) {
+    const item = String(value || "").trim();
+    if (item.length > 10 && keys.indexOf(item) < 0) keys.push(item);
+  };
+  try { push(geminiKeySaved()); } catch (e) {}
+  try { readGeminiPool().forEach(function (item) { push(item.key); }); } catch (e2) {}
+  return keys;
+}
+
+function docGeminiRetryable(status, message) {
+  const text = String(message || "");
+  if (status === 401 || status === 403 || status === 429 || status === 502 || status === 503) return true;
+  return /Gemini şu an|Gemini API anahtarı|kota|yoğun|meşgul|geçersiz/i.test(text);
+}
+
 async function docRandomTopic() {
   const lang = (document.getElementById("docLang") && document.getElementById("docLang").value) === "tr" ? "tr" : "en";
   const channel = docChannelValue();
@@ -3113,20 +3130,30 @@ async function docRandomTopic() {
   const btn = document.getElementById("docRandomBtn");
   const msg = document.getElementById("docMsg");
   const current = box ? String(box.value || "").trim() : "";
-  let geminiKey = "";
-  try { geminiKey = geminiKeySaved(); } catch (eKey) {}
-  if (channel !== "chaos" && !geminiKey) {
+  const keys = geminiKeysInOrder();
+  if (channel !== "chaos" && !keys.length) {
     alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
     return;
   }
   if (btn) { btn.disabled = true; btn.textContent = channel === "chaos" ? "Hikaye aranıyor…" : "Konu yazılıyor…"; }
   try {
-    const res = await fetch("http://127.0.0.1:8787/documentary-topic", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lang: lang, avoid: current, channel: channel, gemini_api_key: geminiKey })
-    });
-    const data = await res.json().catch(() => ({}));
+    const attempts = channel === "chaos" ? [""] : keys;
+    let res;
+    let data = {};
+    for (let i = 0; i < attempts.length; i++) {
+      if (i > 0 && msg) {
+        msg.style.display = "block";
+        msg.textContent = "Bu Gemini anahtarı dolu. Sıradaki anahtar deneniyor…";
+      }
+      res = await fetch("http://127.0.0.1:8787/documentary-topic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lang: lang, avoid: current, channel: channel, gemini_api_key: attempts[i] })
+      });
+      data = await res.json().catch(() => ({}));
+      const errText = (data && data.error) ? data.error : "";
+      if ((res.ok && data.topic) || data.skipped || !docGeminiRetryable(res.status, errText) || i === attempts.length - 1) break;
+    }
     if (data && data.skipped) {
       if (msg) { msg.style.display = "block"; msg.textContent = data.message || "Bu kanal şu an üretim yapmıyor."; }
       return;
@@ -3294,9 +3321,8 @@ async function runDocumentary() {
     alert("Konuyu birkaç kelimeyle yaz.");
     return;
   }
-  let geminiKey = "";
-  try { geminiKey = geminiKeySaved(); } catch (eKey) {}
-  if (!geminiKey) {
+  const keys = geminiKeysInOrder();
+  if (!keys.length) {
     alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
     return;
   }
@@ -3306,20 +3332,27 @@ async function runDocumentary() {
     msg.textContent = "Senaryo, Pollinations görselleri, ElevenLabs sesi ve montaj sırayla çalışıyor. Bu birkaç dakika sürebilir.";
   }
   try {
-    const res = await fetch("http://127.0.0.1:8787/documentary", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        topic: topic,
-        lang: lang,
-        channel: channel,
-        reddit_id: redditId,
-        voice_id: voiceId,
-        gemini_api_key: geminiKey,
-        elevenlabs_api_key: docElevenKeySaved()
-      })
-    });
-    const data = await res.json().catch(() => ({}));
+    let res;
+    let data = {};
+    for (let i = 0; i < keys.length; i++) {
+      if (i > 0 && msg) msg.textContent = "Bu Gemini anahtarı dolu. Sıradaki anahtarla yeniden üretiliyor…";
+      res = await fetch("http://127.0.0.1:8787/documentary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: topic,
+          lang: lang,
+          channel: channel,
+          reddit_id: redditId,
+          voice_id: voiceId,
+          gemini_api_key: keys[i],
+          elevenlabs_api_key: docElevenKeySaved()
+        })
+      });
+      data = await res.json().catch(() => ({}));
+      const errText = (data && data.error) ? data.error : "";
+      if ((res.ok && data.ok) || (data && data.skipped) || !docGeminiRetryable(res.status, errText) || i === keys.length - 1) break;
+    }
     if (data && data.skipped) {
       if (msg) msg.textContent = data.message || "Bu kanal şu an üretim yapmıyor.";
       return;
@@ -3778,7 +3811,7 @@ function geminiBusyError(msg, status) {
 }
 
 async function geminiGenerate(key, systemText, contents) {
-  const models = [GEMINI_CHAT_MODEL, "gemini-2.5-flash", "gemini-2.0-flash"].filter(function (name, index, list) {
+  const models = [GEMINI_CHAT_MODEL, "gemini-3.8-flash", "gemini-3.5-flash-lite"].filter(function (name, index, list) {
     return name && list.indexOf(name) === index;
   });
   const keys = [];

@@ -159,7 +159,7 @@ function geminiFailText(err) {
 
 function geminiCandidates() {
   return [...new Set(
-    [geminiModel(), 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3.8-flash']
+    [geminiModel(), 'gemini-3.8-flash', 'gemini-3.5-flash-lite']
       .map((name) => String(name || '').trim())
       .filter(Boolean)
   )];
