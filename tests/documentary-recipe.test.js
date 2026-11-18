@@ -88,6 +88,25 @@ test('metadata stays on one channel and the filename has no hashtag', () => {
   assert.match(name, /^20261118_epoch_/);
 });
 
+test('eight frames mark only shots under 3 for one redo', () => {
+  const vision = require('../documentary-vision');
+  const times = vision.sampleTimes(40, 8);
+  assert.equal(times.length, 8);
+  assert.ok(times[0] > 0 && times[7] < 40);
+  const shots = [
+    { start: 0, end: 10 },
+    { start: 10, end: 20 },
+    { start: 20, end: 40 }
+  ];
+  assert.equal(vision.shotAt(shots, times[0]), 0);
+  assert.deepEqual(vision.shotsToRedo([
+    { shot: 0, score: 5 },
+    { shot: 1, score: 2 },
+    { shot: 1, score: 4 },
+    { shot: 2, score: 3 }
+  ]), [1]);
+});
+
 test('keys are masked and a finished stage can be skipped', () => {
   assert.equal(maskKey('sk_live_1234567890abcd'), '****abcd');
   assert.equal(maskKey('short'), '');

@@ -1649,6 +1649,49 @@ async function askGeminiJson(apiKey, prompt, schema) {
   throw lastError;
 }
 
+async function askGeminiVision(apiKey, prompt, images) {
+  const key = String(apiKey || '').trim();
+  if (!key) throw new DocumentaryError('Gemini API anahtarı yok. Araçlar → Gemini bölümünden bir anahtarı aktif yap.', 401);
+  const parts = [{ text: prompt }];
+  (images || []).forEach((image) => {
+    parts.push({ inlineData: { mimeType: 'image/jpeg', data: image } });
+  });
+  const schema = require('./documentary-vision').VISION_SCHEMA;
+  const models = geminiCandidates();
+  let lastError = new DocumentaryError('Gemini görsel puanı yazamadı.', 503);
+  for (let modelIndex = 0; modelIndex < models.length; modelIndex++) {
+    const model = models[modelIndex];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const generationConfig = { maxOutputTokens: 2048, responseMimeType: 'application/json', responseSchema: schema };
+      if (attempt === 0) generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
+      try {
+        const res = await geminiFetch(key, { contents: [{ parts }], generationConfig }, 60000, model);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const detail = geminiErrorMessage(data);
+          if (geminiIsQuota(res.status, detail)) throw new DocumentaryError(quotaMessage(JSON.stringify(data).slice(0, 500)), 429);
+          if (res.status === 401 || res.status === 403) throw new DocumentaryError('Gemini API anahtarı geçersiz. Araçlar listesinden başka bir anahtar seç.', 401);
+          if (res.status === 404) break;
+          lastError = new DocumentaryError('Gemini görsel puanı yazamadı.', 503);
+          if (attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            continue;
+          }
+          break;
+        }
+        const parsed = parseJsonLoose(visibleGeminiText(data));
+        if (!parsed || !Array.isArray(parsed.frames)) throw new DocumentaryError('Gemini görsel puanı JSON döndürmedi.');
+        return parsed;
+      } catch (err) {
+        if (err && (err.statusCode === 401 || err.statusCode === 429)) throw err;
+        lastError = err instanceof DocumentaryError ? err : new DocumentaryError(err && err.message ? err.message : 'Gemini görsel puanı yazamadı.', 503);
+        if (attempt === 0) continue;
+      }
+    }
+  }
+  throw lastError;
+}
+
 async function produceDocumentaryLegacy({
   topic,
   lang,
@@ -1814,6 +1857,7 @@ async function produceDocumentary(opts) {
     pullChaosStory,
     buildPlan,
     askGeminiJson,
+    askGeminiVision,
     spokenHookText,
     cleanImagePrompt,
     resolveDocVoice,
@@ -1835,6 +1879,7 @@ module.exports = {
   produceDocumentary,
   produceDocumentaryLegacy,
   askGeminiJson,
+  askGeminiVision,
   parseScenePlan,
   buildPanFilter,
   STYLE_LOCK,

@@ -8,6 +8,7 @@ const timeline = require('./documentary-timeline');
 const { judgeQc } = require('./documentary-qc');
 const { buildMetadata } = require('./documentary-meta');
 const { measureFile } = require('./documentary-measure');
+const vision = require('./documentary-vision');
 
 const JOBS_ROOT = path.join(__dirname, 'jobs');
 const HISTORY_FILE = path.join(JOBS_ROOT, 'topic_history.jsonl');
@@ -238,6 +239,49 @@ async function produceRecipe(opts, config, deps) {
     const photo = path.join(dir, 'images', `shot_${i}.jpg`);
     if (rank(from) > rank('images') && fs.existsSync(photo) && opts.onlyScene == null) continue;
     await deps.downloadPollinationsStill(shot.visual_prompt, photo, selected, seedBase + i + 1, ffmpegBin);
+  }
+  if (rank(from) <= rank('images') && deps.askGeminiVision) {
+    const samples = vision.sampleTimes(clock.duration, 8).map((time, index) => {
+      const shotIndex = vision.shotAt(clock.shots, time);
+      const shot = clock.shots[shotIndex];
+      const scene = plan.scenes[shot.scene] || {};
+      return { index, time, shot: shotIndex, line: String(scene.narration || '').slice(0, 240) };
+    });
+    const previewDir = path.join(dir, 'vision');
+    fs.mkdirSync(previewDir, { recursive: true });
+    const ready = [];
+    const images = [];
+    for (let i = 0; i < samples.length; i++) {
+      const src = path.join(dir, 'images', `shot_${samples[i].shot}.jpg`);
+      const dest = path.join(previewDir, `frame_${ready.length}.jpg`);
+      if (!fs.existsSync(src)) continue;
+      await ffmpeg(ffmpegBin, ['-y', '-i', src, '-vf', 'scale=270:480', '-frames:v', '1', dest]);
+      ready.push(samples[i]);
+      images.push(fs.readFileSync(dest).toString('base64'));
+    }
+    if (!ready.length) {
+      job.writeJson(dir, 'vision.json', { skipped: true, error: 'kare yok' });
+    } else try {
+      const scored = await deps.askGeminiVision(opts.geminiKey, vision.visionPrompt(ready), images);
+      const frames = (scored.frames || []).map((frame, index) => ({
+        frame: Number(frame.frame) || index + 1,
+        shot: Number.isInteger(Number(frame.shot)) ? Number(frame.shot) : (ready[index] ? ready[index].shot : -1),
+        score: Number(frame.score) || 0
+      }));
+      const redo = vision.shotsToRedo(frames).filter((index) => clock.shots[index]);
+      for (const index of redo) {
+        const shot = clock.shots[index];
+        const photo = path.join(dir, 'images', `shot_${index}.jpg`);
+        await deps.downloadPollinationsStill(shot.visual_prompt, photo, selected, seedBase + index + 1 + 50000, ffmpegBin);
+      }
+      job.writeJson(dir, 'vision.json', { frames, redo });
+      console.log(`[belgesel] vision kare=8 yeniden=${redo.length}`);
+    } catch (err) {
+      if (err && (err.statusCode === 401 || err.statusCode === 429)) throw err;
+      const message = String(err && err.message || 'görsel puan yazılamadı').replace(/AIza[0-9A-Za-z_-]+/g, 'AIzaREDACTED').slice(0, 180);
+      job.writeJson(dir, 'vision.json', { skipped: true, error: message });
+      console.warn(`[belgesel] görsel puan atlandı: ${message}`);
+    }
   }
   job.markStage(dir, 'images', { state: 'done' });
 

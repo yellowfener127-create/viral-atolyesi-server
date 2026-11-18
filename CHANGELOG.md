@@ -26,7 +26,7 @@
 
 ## Faz 3
 
-- Beat başına üç görsel. Shot, söylenen kelimenin zamanına kilitlenir.
+- Beat başına üç görsel. Shot, söylenen kelimenin zamanına kilitlenir. Sekiz eşit kare 1–5 puanlanır. 3 altı shot bir kez yeniden üretilir.
 - Hareket sırası zoom-in, zoom-out, pan sol, pan sağ.
 - Altyazı güvenli alanda. Hesap adı gömülmez. İlk üç saniyede kısa hook satırı vardır.
 - Varsayılan kadraj tam ekrandır. `DOC_LAYOUT=card` kart kadrajını açar.
