@@ -3283,8 +3283,9 @@ if (require.main === module) {
     console.log('yt-dlp:', YTDLP_BIN);
     publishQueue.startScheduler();
   });
-  server.requestTimeout = 15 * 60 * 1000;
-  server.headersTimeout = 16 * 60 * 1000;
+  server.requestTimeout = 0;
+  server.headersTimeout = 0;
+  server.timeout = 0;
 }
 
 module.exports = {

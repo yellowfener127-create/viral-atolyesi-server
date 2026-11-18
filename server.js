@@ -3,6 +3,7 @@ const cors = require('cors');
 const { exec, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 const https = require('https');
 const os = require('os');
 const { pipeline } = require('stream/promises');
@@ -15,6 +16,25 @@ const app = express(); // 1. Sırada bu olmalı
 app.use(express.static(path.join(__dirname, 'public'))); // 2. Sırada bu olmalı
 
 app.use(cors({ exposedHeaders: ['Content-Disposition'] }));
+app.use('/local-api', (req, res) => {
+  const headers = Object.assign({}, req.headers, { host: '127.0.0.1:8787' });
+  const proxyReq = http.request({
+    hostname: '127.0.0.1',
+    port: process.env.LOCAL_DOWNLOADER_PORT || 8787,
+    path: req.url,
+    method: req.method,
+    headers
+  }, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+    proxyRes.pipe(res);
+  });
+  proxyReq.setTimeout(0);
+  proxyReq.on('error', () => {
+    if (!res.headersSent) res.status(502).json({ error: 'Yerel API kapalı. npm run local-downloader çalışmıyor.' });
+    else res.end();
+  });
+  req.pipe(proxyReq);
+});
 app.use(express.json({ limit: '1mb' }));
 
 // API response caching/etag kapat (304 dönüp frontend'in json() kırılmasını engeller)
@@ -1235,9 +1255,12 @@ console.log('Cookie files:', {
 
 // ÖNEMLİ: Önce dinlemeye başla. yt-dlp indirmesi Render health check'ten önce bitmeyebilir;
 // listen gecikirse deploy "Failed" görünür (/ping yanıt vermez).
-app.listen(PORT, '0.0.0.0', () => {
+const siteServer = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Sunucu ${PORT} portunda çalışıyor`);
 });
+siteServer.requestTimeout = 0;
+siteServer.headersTimeout = 0;
+siteServer.timeout = 0;
 
 installYtDlp().then(() => {
   console.log('yt-dlp hazır:', YTDLP_PATH);

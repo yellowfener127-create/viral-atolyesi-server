@@ -768,6 +768,9 @@ function backendUrl(path) {
   const p = path.startsWith("/") ? path : "/" + path;
   return BACKEND_ORIGIN + p;
 }
+const LOCAL_API = (location.protocol === "file:")
+  ? LOCAL_API + ""
+  : (location.protocol + "//" + location.host + "/local-api");
 
 function pickOne(arr) {
   if (!arr || !arr.length) return "";
@@ -2046,7 +2049,7 @@ async function resolveCrushLocalPath() {
   const fileInput = document.getElementById("crushLocalFile");
   const file = fileInput && fileInput.files && fileInput.files[0];
   if (file) {
-    const up = await fetch("http://127.0.0.1:8787/mix-import", {
+    const up = await fetch(LOCAL_API + "/mix-import", {
       method: "POST",
       headers: { "x-original-name": encodeURIComponent(file.name || "video.mp4") },
       body: await file.arrayBuffer()
@@ -2067,7 +2070,7 @@ async function refreshCrushLocalList() {
   if (!sel) return;
   const prev = sel.value;
   try {
-    const res = await fetch("http://127.0.0.1:8787/mix-files");
+    const res = await fetch(LOCAL_API + "/mix-files");
     const data = await res.json().catch(() => ({}));
     const files = (data && data.files) || [];
     sel.innerHTML = '<option value="">Mix klasöründen seç…</option>' + files.map((f) =>
@@ -2107,7 +2110,7 @@ async function crushVideo() {
     let gemini_api_key = geminiKeySaved();
     // Force model per requirement (ignore localStorage override)
     const gemini_model = "gemini-3.5-flash-lite";
-    const localRes = await fetch("http://127.0.0.1:8787/crush", {
+    const localRes = await fetch(LOCAL_API + "/crush", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2513,7 +2516,7 @@ function mixFileKey(file) {
 }
 
 async function uploadMixSource(file) {
-  const res = await fetch("http://127.0.0.1:8787/mix-source", {
+  const res = await fetch(LOCAL_API + "/mix-source", {
     method: "POST",
     headers: { "x-original-name": encodeURIComponent(file.name || "video.mp4") },
     body: await file.arrayBuffer()
@@ -2559,7 +2562,7 @@ async function runCompilationMix() {
       }
     }
     if (msg) msg.textContent = "Kaynaklar hazırlanıyor, parçalar birleşiyor, meme geçişleri ekleniyor…";
-    const res = await fetch("http://127.0.0.1:8787/crush-compilation", {
+    const res = await fetch(LOCAL_API + "/crush-compilation", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2799,7 +2802,7 @@ async function voiceRequestHook(slot, part) {
     if (!url) throw new Error("Link boş.");
     payload.url = url;
   }
-  const res = await fetch("http://127.0.0.1:8787/voice-hook", {
+  const res = await fetch(LOCAL_API + "/voice-hook", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
@@ -2906,7 +2909,7 @@ async function voicePickMix(slot) {
   const badge = document.getElementById("voiceSrc" + slot);
   if (badge) badge.textContent = "Mix klasörü okunuyor…";
   try {
-    const res = await fetch("http://127.0.0.1:8787/mix-files");
+    const res = await fetch(LOCAL_API + "/mix-files");
     const data = await res.json().catch(() => ({}));
     const files = (data.files || []).filter((f) => f && f.file && f.absPath);
     if (!files.length) {
@@ -2931,7 +2934,7 @@ async function voicePickMix(slot) {
     const v = document.getElementById("voiceVideo" + slot);
     if (v) {
       v.hidden = false;
-      v.src = "http://127.0.0.1:8787/mix-file?name=" + encodeURIComponent(pick.file);
+      v.src = LOCAL_API + "/mix-file?name=" + encodeURIComponent(pick.file);
       v.load();
     }
     if (badge) badge.textContent = "Mix: " + pick.file;
@@ -3035,7 +3038,7 @@ async function runVoiceCompilation() {
     }
     let geminiKey = "";
     try { geminiKey = geminiKeySaved(); } catch (eKey) {}
-    const res = await fetch("http://127.0.0.1:8787/voice-compilation", {
+    const res = await fetch(LOCAL_API + "/voice-compilation", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -3147,7 +3150,7 @@ async function docRandomTopic() {
         msg.style.display = "block";
         msg.textContent = "Bu Gemini anahtarı dolu. Sıradaki anahtar deneniyor…";
       }
-      res = await fetch("http://127.0.0.1:8787/documentary-topic", {
+      res = await fetch(LOCAL_API + "/documentary-topic", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lang: lang, avoid: current, channel: channel, gemini_api_key: attempts[i] })
@@ -3206,7 +3209,7 @@ async function refreshDocElevenStatus() {
   try { localStorage.removeItem(DOC_ELEVEN_KEY); } catch (e) {}
   let mask = "";
   try {
-    const res = await fetch("http://127.0.0.1:8787/documentary-keys");
+    const res = await fetch(LOCAL_API + "/documentary-keys");
     const data = await res.json();
     mask = data && data.elevenlabs ? data.elevenlabs : "";
   } catch (e) {}
@@ -3225,7 +3228,7 @@ async function saveDocElevenKey() {
     return;
   }
   try {
-    const res = await fetch("http://127.0.0.1:8787/documentary-keys", {
+    const res = await fetch(LOCAL_API + "/documentary-keys", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ elevenlabs: key })
@@ -3251,7 +3254,7 @@ async function refreshDocJobs() {
   const el = document.getElementById("docJobs");
   if (!el) return;
   try {
-    const res = await fetch("http://127.0.0.1:8787/documentary-jobs");
+    const res = await fetch(LOCAL_API + "/documentary-jobs");
     const data = await res.json();
     const jobs = (data && data.jobs) || [];
     if (!jobs.length) {
@@ -3273,7 +3276,7 @@ async function resumeDocJob(id, scene) {
   const keys = geminiKeysInOrder();
   const body = { job: id, gemini_api_key: keys[0] || "" };
   if (scene != null) body.scene = scene;
-  const res = await fetch("http://127.0.0.1:8787/documentary-resume", {
+  const res = await fetch(LOCAL_API + "/documentary-resume", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -3322,7 +3325,7 @@ async function previewDocVoice() {
     msg.textContent = "Seçili sesin 5 saniyelik örneği hazırlanıyor.";
   }
   try {
-    const res = await fetch("http://127.0.0.1:8787/documentary-voice-preview", {
+    const res = await fetch(LOCAL_API + "/documentary-voice-preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -3393,7 +3396,7 @@ async function runDocumentary() {
     let data = {};
     for (let i = 0; i < keys.length; i++) {
       if (i > 0 && msg) msg.textContent = "Bu Gemini anahtarı dolu. Sıradaki anahtarla yeniden üretiliyor…";
-      res = await fetch("http://127.0.0.1:8787/documentary", {
+      res = await fetch(LOCAL_API + "/documentary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -4599,8 +4602,8 @@ async function startDownload(url, btn) {
     // Tercih: Kullanıcının kendi bilgisayarından indirme (localhost helper).
     // Kullanıcı `npm run local-downloader` çalıştırırsa bu endpoint aktif olur.
     try {
-      const localUrl = "http://127.0.0.1:8787/download?url=" + encodeURIComponent(new URL(url).searchParams.get("url") || url);
-      const h = await fetch("http://127.0.0.1:8787/health", { cache: "no-store" }).then(r => r.ok).catch(() => false);
+      const localUrl = LOCAL_API + "/download?url=" + encodeURIComponent(new URL(url).searchParams.get("url") || url);
+      const h = await fetch(LOCAL_API + "/health", { cache: "no-store" }).then(r => r.ok).catch(() => false);
       if (h) {
         const resLocal = await fetch(localUrl, { method: "GET", cache: "no-store" });
         const data = await resLocal.json().catch(() => ({}));
