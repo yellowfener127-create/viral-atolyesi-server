@@ -7,19 +7,23 @@ const fixture = require('./fixtures/scene-plan.json');
 
 test('config defaults keep the current pipeline', () => {
   const config = loadDocConfig({});
-  assert.equal(config.STORY_PIPELINE, 'v1');
-  assert.equal(config.OUTPUT_LAYOUT, 'legacy');
+  assert.equal(config.STORY_PIPELINE, 'v2');
+  assert.equal(config.OUTPUT_LAYOUT, 'jobs');
   assert.equal(config.CHAOS_SOURCE, 'reddit_premise');
-  assert.equal(config.shots_per_scene, 1);
+  assert.equal(config.shots_per_scene, 3);
+  assert.equal(config.subtitles, 'ass');
+  assert.equal(config.loudnorm, true);
   assert.equal(config.music_volume, 0.07);
-  assert.deepEqual(config.duration_range.epoch, [40, 50]);
+  assert.deepEqual(config.duration_range.epoch, [24, 70]);
+  assert.deepEqual(config.duration_aim, [40, 50]);
   assert.equal(DOC_CONFIG.TTS_MODEL, 'eleven_multilingual_v2');
 });
 
-test('unknown flags fall back to the current behavior', () => {
-  const config = loadDocConfig({ STORY_PIPELINE: 'v9', OUTPUT_LAYOUT: 'cloud' });
+test('legacy flags still select the previous pipeline', () => {
+  const config = loadDocConfig({ STORY_PIPELINE: 'v1', OUTPUT_LAYOUT: 'legacy', DOC_LOUDNORM: '0' });
   assert.equal(config.STORY_PIPELINE, 'v1');
   assert.equal(config.OUTPUT_LAYOUT, 'legacy');
+  assert.equal(config.loudnorm, false);
 });
 
 test('ebur128 and probe parsers read a sample report', () => {

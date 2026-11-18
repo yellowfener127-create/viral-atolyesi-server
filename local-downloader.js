@@ -10,10 +10,20 @@ const crush = require('./crush-pipeline');
 const compilationMixer = require('./compilation-mixer');
 const voiceInjector = require('./voice-injector');
 const documentaryFactory = require('./documentary-factory');
+const docKeys = require('./documentary-keys');
+const { listJobs } = require('./documentary-job');
+const { JOBS_ROOT } = require('./documentary-run');
+const { fileNameFor } = require('./documentary-meta');
+const { stampDay } = require('./documentary-job');
 const publishQueue = require('./publish-queue');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return callback(null, true);
+    return callback(null, false);
+  }
+}));
 app.use(express.json({ limit: '256kb' }));
 
 const PORT = process.env.LOCAL_DOWNLOADER_PORT || 8787;
@@ -2469,7 +2479,7 @@ app.post('/documentary-voice-preview', async (req, res) => {
     const info = await documentaryFactory.previewDocumentaryVoice({
       narrator: String(req.body?.voice_id || req.body?.voiceId || '').trim(),
       lang: req.body?.lang,
-      elevenKey: String(req.body?.elevenlabs_api_key || req.body?.elevenlabsApiKey || '').trim(),
+      elevenKey: docKeys.resolveElevenKey(req.body?.elevenlabs_api_key || req.body?.elevenlabsApiKey),
       ffmpegPath: 'ffmpeg',
       ffprobePath: 'ffprobe'
     });
@@ -2486,8 +2496,24 @@ app.post('/documentary-voice-preview', async (req, res) => {
   }
 });
 
+app.get('/documentary-keys', (req, res) => {
+  res.json(docKeys.publicKeys());
+});
+
+app.post('/documentary-keys', (req, res) => {
+  try {
+    return res.json(docKeys.saveElevenKey(req.body && req.body.elevenlabs));
+  } catch (err) {
+    return res.status(err && err.statusCode ? err.statusCode : 400).json({ error: err && err.message ? err.message : 'Anahtar kaydedilemedi.' });
+  }
+});
+
+app.get('/documentary-jobs', (req, res) => {
+  res.json({ jobs: listJobs(JOBS_ROOT) });
+});
+
 app.post('/documentary', async (req, res) => {
-  res.setTimeout(12 * 60 * 1000);
+  res.setTimeout(25 * 60 * 1000);
   const topic = String(req.body?.topic || '').replace(/\s+/g, ' ').trim();
   const lang = String(req.body?.lang || 'en').toLowerCase() === 'tr' ? 'tr' : 'en';
   let channel = 'epoch';
@@ -2507,9 +2533,12 @@ app.post('/documentary', async (req, res) => {
   __docInProgress = true;
   const docDir = getMixDir();
   const stamp = Date.now();
-  const slug = safeName(topic).replace(/[. ]+$/g, '').slice(0, 80) || channel;
-  const fileName = channel === 'epoch' ? `${slug}_${stamp}.mp4` : `${channel}_${slug}_${stamp}.mp4`;
-  const outFile = path.join(docDir, fileName);
+  let fileName = fileNameFor(stampDay(new Date()), channel, topic || channel);
+  let outFile = path.join(docDir, fileName);
+  if (fs.existsSync(outFile)) {
+    fileName = fileName.replace(/\.mp4$/, `_${stamp}.mp4`);
+    outFile = path.join(docDir, fileName);
+  }
   try {
     const info = await documentaryFactory.produceDocumentary({
       topic,
@@ -2517,8 +2546,11 @@ app.post('/documentary', async (req, res) => {
       channel,
       redditId: String(req.body?.reddit_id || req.body?.redditId || '').trim(),
       geminiKey: String(req.body?.gemini_api_key || req.body?.geminiApiKey || '').trim(),
-      elevenKey: String(req.body?.elevenlabs_api_key || req.body?.elevenlabsApiKey || '').trim(),
+      elevenKey: docKeys.resolveElevenKey(req.body?.elevenlabs_api_key || req.body?.elevenlabsApiKey),
       narrator: documentaryFactory.documentaryVoiceFromRequest(req.body).id,
+      jobDir: req.body?.job_dir ? path.join(JOBS_ROOT, path.basename(String(req.body.job_dir))) : undefined,
+      fromStage: req.body?.from_stage || undefined,
+      onlyScene: Number.isInteger(req.body?.scene) ? req.body.scene : undefined,
       ffmpegPath: 'ffmpeg',
       ffprobePath: 'ffprobe',
       outFile
@@ -2534,6 +2566,43 @@ app.post('/documentary', async (req, res) => {
     try { if (fs.existsSync(outFile)) fs.unlinkSync(outFile); } catch {}
     const code = e && e.statusCode ? e.statusCode : 500;
     return res.status(code).json({ error: (e && e.message) ? e.message : String(e) });
+  } finally {
+    __docInProgress = false;
+  }
+});
+
+app.post('/documentary-resume', async (req, res) => {
+  res.setTimeout(25 * 60 * 1000);
+  const id = path.basename(String(req.body?.job || ''));
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) return res.status(400).json({ error: 'İş adı geçersiz.' });
+  const dir = path.join(JOBS_ROOT, id);
+  const topicFile = path.join(dir, 'topic.json');
+  if (!fs.existsSync(topicFile)) return res.status(404).json({ error: 'İş bulunamadı.' });
+  if (__docInProgress) return res.status(409).json({ error: 'Bir belgesel zaten üretiliyor.' });
+  const topicInfo = JSON.parse(fs.readFileSync(topicFile, 'utf8'));
+  const scene = Number.isInteger(req.body?.scene) ? req.body.scene : undefined;
+  __docInProgress = true;
+  const outFile = path.join(getMixDir(), `${id}.mp4`);
+  try {
+    const info = await documentaryFactory.produceDocumentary({
+      topic: topicInfo.topic,
+      lang: topicInfo.lang,
+      channel: topicInfo.channel,
+      redditId: topicInfo.reddit && topicInfo.reddit.id,
+      geminiKey: String(req.body?.gemini_api_key || '').trim(),
+      elevenKey: docKeys.resolveElevenKey(''),
+      narrator: String(req.body?.voice_id || 'pNInz6obpgDQGcFmaJgB'),
+      ffmpegPath: 'ffmpeg',
+      ffprobePath: 'ffprobe',
+      outFile,
+      jobDir: dir,
+      fromStage: scene == null ? String(req.body?.stage || 'script') : 'images',
+      onlyScene: scene
+    });
+    return res.json({ ok: true, absPath: outFile, documentary: info });
+  } catch (err) {
+    const code = err && err.statusCode ? err.statusCode : 500;
+    return res.status(code).json({ error: err && err.message ? err.message : 'İş sürdürülemedi.' });
   } finally {
     __docInProgress = false;
   }

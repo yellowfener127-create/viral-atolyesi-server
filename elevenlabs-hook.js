@@ -5,6 +5,7 @@
  *   const filePath = await synthesizeHook({ text, voiceId });
  */
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
@@ -301,6 +302,30 @@ const MAX_SPEECH_CHARS = 900;
  * Belgesel sahnesi gibi daha uzun metin. Kanca limiti burada uygulanmaz.
  * @returns {Promise<{ filePath: string, words: { word: string, start: number, end: number }[] }>}
  */
+function speechCachePaths(text, voiceId, modelId, settings) {
+  const hash = crypto.createHash('sha256')
+    .update(JSON.stringify({ text, voiceId, modelId, settings }))
+    .digest('hex');
+  const dir = path.join(os.tmpdir(), 'va-doc-tts-cache');
+  return { dir, mp3: path.join(dir, `${hash}.mp3`), json: path.join(dir, `${hash}.json`) };
+}
+
+async function checkElevenCredits(apiKey, needed) {
+  const key = resolveSpeechApiKey(apiKey);
+  const res = await fetch('https://api.elevenlabs.io/v1/user/subscription', {
+    headers: { 'xi-api-key': key, Accept: 'application/json' },
+    signal: AbortSignal.timeout(15000)
+  });
+  if (res.status === 401) throw new ElevenLabsHookError('ElevenLabs anahtarı geçersiz.', { status: 401 });
+  if (!res.ok) return;
+  const data = await res.json().catch(() => ({}));
+  const limit = Number(data.character_limit);
+  const used = Number(data.character_count);
+  if (Number.isFinite(limit) && Number.isFinite(used) && (limit - used) < Number(needed || 0)) {
+    throw new ElevenLabsHookError('ElevenLabs karakter hakkı bu film için yetmiyor.', { status: 429 });
+  }
+}
+
 async function synthesizeSpeechAligned(input) {
   const opts = typeof input === 'string' ? { text: input } : (input || {});
   try {
@@ -319,32 +344,66 @@ async function synthesizeSpeechAligned(input) {
     const fileName = opts.fileName ? safeFileName(opts.fileName) : uniqueFileName();
     const filePath = path.join(outDir, fileName);
     const settings = opts.voiceSettings || HOOK_VOICE_SETTINGS;
-    const url = `${TTS_URL}/${encodeURIComponent(voiceId)}/with-timestamps?output_format=${OUTPUT_FORMAT}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'xi-api-key': apiKey,
-        'Content-Type': 'application/json',
-        Accept: 'application/json'
-      },
-      body: JSON.stringify({
-        text,
-        model_id: modelId,
-        voice_settings: settings
-      }),
-      signal: AbortSignal.timeout(90000)
-    });
-    if (!res.ok) {
-      const detail = await readErrorBody(res);
-      throw new ElevenLabsHookError(`ElevenLabs ${res.status}: ${detail}`, { status: res.status });
+    const cache = opts.cache ? speechCachePaths(text, voiceId, modelId, settings) : null;
+    if (cache && fs.existsSync(cache.mp3) && fs.existsSync(cache.json) && fs.statSync(cache.mp3).size > 64) {
+      await fs.promises.mkdir(outDir, { recursive: true });
+      await fs.promises.copyFile(cache.mp3, filePath);
+      return { filePath, words: JSON.parse(fs.readFileSync(cache.json, 'utf8')), cached: true };
     }
-    const data = await res.json();
-    const audio = Buffer.from(String(data.audio_base64 || ''), 'base64');
-    if (audio.length < 64) throw new ElevenLabsHookError('ElevenLabs boş bir ses dosyası döndürdü.');
-    await fs.promises.mkdir(outDir, { recursive: true });
-    await fs.promises.writeFile(filePath, audio);
-    const alignment = data.normalized_alignment || data.alignment || null;
-    return { filePath, words: wordsFromAlignment(text, alignment) };
+    const url = `${TTS_URL}/${encodeURIComponent(voiceId)}/with-timestamps?output_format=${OUTPUT_FORMAT}`;
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let res;
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'xi-api-key': apiKey,
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
+          },
+          body: JSON.stringify({
+            text,
+            model_id: modelId,
+            voice_settings: settings
+          }),
+          signal: AbortSignal.timeout(90000)
+        });
+      } catch (err) {
+        lastError = err && err.name === 'TimeoutError'
+          ? new ElevenLabsHookError('ElevenLabs 90 saniye içinde yanıt vermedi.')
+          : new ElevenLabsHookError(err && err.message ? err.message : 'Ses üretilemedi.');
+        if (attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * (2 ** attempt)));
+          continue;
+        }
+        throw lastError;
+      }
+      if (!res.ok) {
+        const detail = await readErrorBody(res);
+        const error = new ElevenLabsHookError(`ElevenLabs ${res.status}: ${detail}`, { status: res.status });
+        const retry = res.status === 429 || res.status >= 500;
+        const quota = /quota|credits remaining|exceeds your quota/i.test(detail);
+        if (!retry || quota || attempt === 2) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (2 ** attempt)));
+        lastError = error;
+        continue;
+      }
+      const data = await res.json();
+      const audio = Buffer.from(String(data.audio_base64 || ''), 'base64');
+      if (audio.length < 64) throw new ElevenLabsHookError('ElevenLabs boş bir ses dosyası döndürdü.');
+      await fs.promises.mkdir(outDir, { recursive: true });
+      await fs.promises.writeFile(filePath, audio);
+      const alignment = data.normalized_alignment || data.alignment || null;
+      const words = wordsFromAlignment(text, alignment);
+      if (cache) {
+        await fs.promises.mkdir(cache.dir, { recursive: true });
+        await fs.promises.copyFile(filePath, cache.mp3);
+        await fs.promises.writeFile(cache.json, JSON.stringify(words));
+      }
+      return { filePath, words };
+    }
+    throw lastError || new ElevenLabsHookError('Ses üretilemedi.');
   } catch (err) {
     if (err instanceof ElevenLabsHookError) throw err;
     if (err && err.name === 'TimeoutError') {
@@ -358,6 +417,7 @@ module.exports = {
   synthesizeHook,
   synthesizeHookAligned,
   synthesizeSpeechAligned,
+  checkElevenCredits,
   wordsFromAlignment,
   spokenHookText,
   HOOK_VOICE_SETTINGS,

@@ -582,6 +582,8 @@
     <button class="tool-btn" type="button" id="docBuildBtn" onclick="runDocumentary()" style="margin-top:12px">Belgeseli Üret ve Kaydet</button>
     <div class="tool-desc" style="margin-top:10px">Aktif Gemini anahtarı Araçlar → Gemini listesinden gelir. Görseller Pollinations ile 1080×1920 üretilir. Çıktı: <code>C:\Users\DELL\Videos\Viral Atölyesi İndirilenler\mix\</code></div>
     <div class="tool-result" id="docMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
+    <div class="tool-title" style="margin-top:14px;font-size:14px">İşler</div>
+    <div id="docJobs" style="margin-top:8px;font-size:12px;color:var(--muted);white-space:pre-wrap">Henüz iş yok.</div>
   </div>
 </div>
 </div>
@@ -2203,7 +2205,7 @@ function showPage(page) {
   const btn = document.querySelector('.nav-btn[data-page="' + page + '"]');
   if (btn) btn.classList.add('active');
   if (page === 'tools') refreshCrushLocalList();
-  if (page === 'doc') refreshDocElevenStatus();
+  if (page === 'doc') { refreshDocElevenStatus(); refreshDocJobs(); }
   if (page === 'voice') refreshVoiceElevenStatus();
 }
 
@@ -3186,7 +3188,10 @@ async function docRandomTopic() {
 const DOC_ELEVEN_KEY = "doc_elevenlabs_api_key";
 
 function docElevenKeySaved() {
-  try { return String(localStorage.getItem(DOC_ELEVEN_KEY) || "").trim(); } catch (e) { return ""; }
+  const input = document.getElementById("docElevenKey");
+  const typed = String((input && input.value) || "").trim();
+  if (/^[A-Za-z0-9_-]{20,256}$/.test(typed)) return typed;
+  return "";
 }
 
 function docElevenMask(key) {
@@ -3195,18 +3200,24 @@ function docElevenMask(key) {
   return value.slice(0, 3) + "…" + value.slice(-4);
 }
 
-function refreshDocElevenStatus() {
+async function refreshDocElevenStatus() {
   const el = document.getElementById("docElevenStatus");
   const input = document.getElementById("docElevenKey");
-  const key = docElevenKeySaved();
-  if (input && document.activeElement !== input) input.value = key;
+  try { localStorage.removeItem(DOC_ELEVEN_KEY); } catch (e) {}
+  let mask = "";
+  try {
+    const res = await fetch("http://127.0.0.1:8787/documentary-keys");
+    const data = await res.json();
+    mask = data && data.elevenlabs ? data.elevenlabs : "";
+  } catch (e) {}
+  if (input && document.activeElement !== input && !docElevenKeySaved()) input.value = "";
   if (!el) return;
-  el.textContent = key
-    ? ("Kayıtlı: " + docElevenMask(key) + ". Belgesel bu anahtarı kullanır.")
+  el.textContent = mask
+    ? ("Kayıtlı: " + mask + ". İsteklerde anahtar taşınmaz.")
     : "Kayıtlı anahtar yok. Belgesel .env içindeki ELEVENLABS_API_KEY ile gider.";
 }
 
-function saveDocElevenKey() {
+async function saveDocElevenKey() {
   const input = document.getElementById("docElevenKey");
   const key = String((input && input.value) || "").trim();
   if (key && !/^[A-Za-z0-9_-]{20,256}$/.test(key)) {
@@ -3214,20 +3225,66 @@ function saveDocElevenKey() {
     return;
   }
   try {
-    if (key) localStorage.setItem(DOC_ELEVEN_KEY, key);
-    else localStorage.removeItem(DOC_ELEVEN_KEY);
+    const res = await fetch("http://127.0.0.1:8787/documentary-keys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ elevenlabs: key })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Kaydedilemedi");
+    try { localStorage.removeItem(DOC_ELEVEN_KEY); } catch (e) {}
+    if (input) input.value = "";
   } catch (e) {
-    alert("Anahtar tarayıcıya kaydedilemedi.");
+    alert(e && e.message ? e.message : "Anahtar sunucuya kaydedilemedi.");
     return;
   }
   refreshDocElevenStatus();
 }
 
 function clearDocElevenKey() {
-  try { localStorage.removeItem(DOC_ELEVEN_KEY); } catch (e) {}
   const input = document.getElementById("docElevenKey");
   if (input) input.value = "";
-  refreshDocElevenStatus();
+  return saveDocElevenKey();
+}
+
+async function refreshDocJobs() {
+  const el = document.getElementById("docJobs");
+  if (!el) return;
+  try {
+    const res = await fetch("http://127.0.0.1:8787/documentary-jobs");
+    const data = await res.json();
+    const jobs = (data && data.jobs) || [];
+    if (!jobs.length) {
+      el.textContent = "Henüz iş yok.";
+      return;
+    }
+    el.innerHTML = jobs.slice(0, 8).map((job) => {
+      const id = String(job.id || "").replace(/[^A-Za-z0-9_-]/g, "");
+      return id + " · " + (job.stage || "") + " · " + (job.state || "") +
+        " <button type=\"button\" onclick=\"resumeDocJob('" + id + "')\">devam</button>" +
+        " <button type=\"button\" onclick=\"resumeDocJob('" + id + "', 0)\">sahne 1</button>";
+    }).join("<br>");
+  } catch (e) {
+    el.textContent = "İş listesi okunamadı.";
+  }
+}
+
+async function resumeDocJob(id, scene) {
+  const keys = geminiKeysInOrder();
+  const body = { job: id, gemini_api_key: keys[0] || "" };
+  if (scene != null) body.scene = scene;
+  const res = await fetch("http://127.0.0.1:8787/documentary-resume", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  const msg = document.getElementById("docMsg");
+  if (msg) {
+    msg.style.display = "block";
+    msg.textContent = res.ok ? ("Sürdürüldü: " + (data.absPath || id)) : ("Hata: " + (data.error || res.status));
+  }
+  refreshDocJobs();
 }
 
 let docPreviewAudio = null;

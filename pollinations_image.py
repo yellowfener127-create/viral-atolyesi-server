@@ -66,7 +66,7 @@ def retry_wait(code, body, headers, attempt):
     return min(wait, 60)
 
 
-def download(prompt, dest):
+def download(prompt, dest, seed=None):
     text = locked_prompt(prompt)
     if len(text) < 20:
         raise ValueError("Gorsel promptu bos.")
@@ -76,6 +76,8 @@ def download(prompt, dest):
         + encoded
         + "?width=1080&height=1920&nologo=true"
     )
+    if seed not in (None, ""):
+        url += "&seed=" + str(int(seed))
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     target = Path(dest)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -108,12 +110,13 @@ def download(prompt, dest):
 
 
 def main():
-    if len(sys.argv) != 3:
-        print("usage: pollinations_image.py PROMPT_FILE DEST", file=sys.stderr)
+    if len(sys.argv) not in (3, 4):
+        print("usage: pollinations_image.py PROMPT_FILE DEST [SEED]", file=sys.stderr)
         return 2
     prompt = Path(sys.argv[1]).read_text(encoding="utf-8")
+    seed = sys.argv[3] if len(sys.argv) == 4 else None
     try:
-        download(prompt, sys.argv[2])
+        download(prompt, sys.argv[2], seed)
     except Exception as err:
         print(str(err), file=sys.stderr)
         return 1

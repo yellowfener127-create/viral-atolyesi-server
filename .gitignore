@@ -20,3 +20,4 @@ keys/*.json
 # temp artifacts
 _tmp_*.b64
 output/
+jobs/

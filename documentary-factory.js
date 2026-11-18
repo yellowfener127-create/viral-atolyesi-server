@@ -7,11 +7,17 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const {
   synthesizeSpeechAligned,
   spokenHookText,
+  checkElevenCredits,
   ElevenLabsHookError
 } = require('./elevenlabs-hook');
+const { loadDocConfig } = require('./documentary-config');
+const { averageHash, isFlat, tooSimilar } = require('./documentary-image');
+const storyLib = require('./documentary-story');
+const { produceRecipe } = require('./documentary-run');
 
 const OUT_W = 1080;
 const OUT_H = 1920;
@@ -830,6 +836,7 @@ async function suggestDocumentaryTopic({ lang, apiKey, avoid, channel }) {
   const therapy = resolveDocChannel(channel || 'epoch') === 'therapy';
   const language = lang === 'tr' ? 'Turkish' : 'English';
   const previous = cleanTopicLine(avoid);
+  const history = storyLib.readTopicHistory(path.join(__dirname, 'jobs', 'topic_history.jsonl'));
   const examples = therapy
     ? (lang === 'tr'
       ? [
@@ -871,7 +878,8 @@ async function suggestDocumentaryTopic({ lang, apiKey, avoid, channel }) {
     'The topic value is plain text. No label, no parentheses, no asterisk, no quotes inside it.',
     'Do not copy these examples. Match their tone:',
     examples.join('\n'),
-    previous ? `Do not repeat: ${previous}` : ''
+    previous ? `Do not repeat: ${previous}` : '',
+    history.length ? `Do not repeat these titles: ${history.slice(-12).join(' | ')}` : ''
   ]).filter(Boolean).join('\n');
   let lastError = null;
   const models = geminiCandidates();
@@ -897,8 +905,9 @@ async function suggestDocumentaryTopic({ lang, apiKey, avoid, channel }) {
       }
       if (res.ok) {
         const topic = cleanTopicLine(visibleGeminiText(data));
-        if (topic.length >= 8 && topic.toLowerCase() !== previous.toLowerCase()) {
+        if (topic.length >= 8 && topic.toLowerCase() !== previous.toLowerCase() && !storyLib.similarTopic(topic, history)) {
           if (model !== models[0]) console.log(`[belgesel] gemini konu model=${model}`);
+          storyLib.rememberTopic(path.join(__dirname, 'jobs', 'topic_history.jsonl'), topic);
           return topic;
         }
         lastError = new DocumentaryError('Gemini çok kısa bir konu döndürdü.');
@@ -986,7 +995,7 @@ function therapyPlanPrompt(topic, language, retryNote) {
     causalDocumentaryRules(),
     'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-10".',
     openingShockRules(),
-    'Tell the documented experiment: who was tested, what the setup was, and what it revealed. Do not invent a new study. Scene order is the experiment: who was tested, what was done to them, what they did because of that, what was measured. The method causes the result. Do not add a moral the study itself did not show.',
+    'Tell the documented experiment: who was tested, what the setup was, and what it revealed. Do not invent a new study. Say "research suggests" for the finding. Scene order is the experiment: who was tested, what was done to them, what they did because of that, what was measured. The method causes the result. Do not add a moral the study itself did not show.',
     narrationPerformanceRules(),
     imageDetailRules(),
     'Keep faces anonymous or in silhouette.',
@@ -1011,6 +1020,7 @@ function chaosPlanPrompt(story, language, retryNote) {
     `Source title: ${story.title}`,
     `Source text: ${story.selftext}`,
     'Keep only source events that cause the next event. Drop dreams, omens, and coincidences. Do not invent a cause the source does not support.',
+    'Premise only. Invent new characters and a new order of events. Do not copy sentences from the source.',
     `Narration language: ${language}.`,
     causalDocumentaryRules(),
     'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-10".',
@@ -1213,21 +1223,64 @@ function runProcess(bin, args, timeoutMs) {
   });
 }
 
-async function downloadPollinationsStill(prompt, dest, channel) {
+let lastImageHash = '';
+
+function imageCacheFile(prompt, seed) {
+  const hash = crypto.createHash('sha256').update(`${prompt}|${seed}`).digest('hex');
+  return path.join(os.tmpdir(), 'va-doc-image-cache', `${hash}.jpg`);
+}
+
+function grayFingerprint(ffmpegPath, file) {
+  return new Promise((resolve) => {
+    const child = spawn(ffmpegPath || 'ffmpeg', [
+      '-v', 'error', '-i', file, '-vf', 'scale=8:8,format=gray', '-frames:v', '1', '-f', 'rawvideo', '-'
+    ], { windowsHide: true });
+    const chunks = [];
+    child.stdout.on('data', (chunk) => chunks.push(chunk));
+    child.on('close', () => resolve(Buffer.concat(chunks)));
+    child.on('error', () => resolve(Buffer.alloc(0)));
+  });
+}
+
+async function downloadPollinationsStill(prompt, dest, channel, seed, ffmpegPath) {
   const locked = withStyleLock(prompt, channel);
+  const baseSeed = Number.isFinite(Number(seed)) ? Number(seed) : 0;
   const promptFile = path.join(path.dirname(dest), `prompt_${path.basename(dest, path.extname(dest))}.txt`);
   await fs.promises.mkdir(path.dirname(dest), { recursive: true });
   await fs.promises.writeFile(promptFile, locked, 'utf8');
   const script = path.join(__dirname, 'pollinations_image.py');
   const bins = process.platform === 'win32' ? [['py', ['-3']], ['python', []]] : [['python3', []], ['python', []]];
   let lastErr = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const usedSeed = baseSeed + (attempt * 997);
+    const cached = imageCacheFile(locked, usedSeed);
+    if (fs.existsSync(cached) && fs.statSync(cached).size > 2048) {
+      await fs.promises.copyFile(cached, dest);
+      const cachedPixels = await grayFingerprint(ffmpegPath, dest);
+      const cachedHash = averageHash(cachedPixels);
+      if (!isFlat(cachedPixels) && !tooSimilar(lastImageHash, cachedHash)) {
+        lastImageHash = cachedHash;
+        console.log(`[belgesel] görsel=${path.basename(dest)} onbellek=1`);
+        return dest;
+      }
+    }
+    let wrote = false;
     for (const [bin, prefix] of bins) {
       try {
-        await runProcess(bin, [...prefix, script, promptFile, dest], 300000);
+        const args = [...prefix, script, promptFile, dest];
+        if (usedSeed) args.push(String(usedSeed));
+        await runProcess(bin, args, 300000);
         const size = fs.statSync(dest).size;
         if (size < 2048) throw new Error('Pollinations boş bir görsel yazdı.');
-        console.log(`[belgesel] görsel=${path.basename(dest)} bytes=${size}`);
+        const pixels = await grayFingerprint(ffmpegPath, dest);
+        if (isFlat(pixels)) throw new Error('Pollinations tek renk bir kare verdi.');
+        const hash = averageHash(pixels);
+        if (tooSimilar(lastImageHash, hash)) throw new Error('Pollinations bir önceki kareye çok benzedi.');
+        lastImageHash = hash;
+        await fs.promises.mkdir(path.dirname(cached), { recursive: true });
+        await fs.promises.copyFile(dest, cached);
+        console.log(`[belgesel] görsel=${path.basename(dest)} bytes=${size} seed=${usedSeed || 0}`);
+        wrote = true;
         return dest;
       } catch (err) {
         lastErr = err;
@@ -1236,6 +1289,7 @@ async function downloadPollinationsStill(prompt, dest, channel) {
         break;
       }
     }
+    if (wrote) return dest;
   }
   const detail = lastErr && lastErr.message ? lastErr.message : 'görsel inemedi';
   throw new DocumentaryError(`Pollinations görseli üretemedi. ${detail}`.slice(0, 400));
@@ -1557,7 +1611,45 @@ async function previewDocumentaryVoice({ narrator, lang, elevenKey, ffmpegPath, 
   }
 }
 
-async function produceDocumentary({
+async function askGeminiJson(apiKey, prompt, schema) {
+  const key = String(apiKey || '').trim();
+  if (!key) throw new DocumentaryError('Gemini API anahtarı yok. Araçlar → Gemini bölümünden bir anahtarı aktif yap.', 401);
+  const models = geminiCandidates();
+  let lastError = new DocumentaryError('Gemini şu an meşgul. Birkaç saniye bekleyip yeniden üret.', 503);
+  for (let modelIndex = 0; modelIndex < models.length; modelIndex++) {
+    const model = models[modelIndex];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const generationConfig = { maxOutputTokens: 8192, responseMimeType: 'application/json', responseSchema: schema };
+      if (attempt === 0) generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
+      try {
+        const res = await geminiFetch(key, { contents: [{ parts: [{ text: prompt }] }], generationConfig }, 60000, model);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const detail = geminiErrorMessage(data);
+          if (geminiIsQuota(res.status, detail)) throw new DocumentaryError(quotaMessage(JSON.stringify(data).slice(0, 500)), 429);
+          if (res.status === 401 || res.status === 403) throw new DocumentaryError('Gemini API anahtarı geçersiz. Araçlar listesinden başka bir anahtar seç.', 401);
+          if (res.status === 404) break;
+          lastError = new DocumentaryError(geminiFailText({ statusCode: res.status, message: detail }), 503);
+          if (attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            continue;
+          }
+          break;
+        }
+        const parsed = parseJsonLoose(visibleGeminiText(data));
+        if (!parsed) throw new DocumentaryError('Gemini JSON döndürmedi.');
+        return parsed;
+      } catch (err) {
+        if (err && (err.statusCode === 401 || err.statusCode === 429)) throw err;
+        lastError = err instanceof DocumentaryError ? err : new DocumentaryError(err && err.message ? err.message : 'Gemini yanıt vermedi.', 503);
+        if (attempt === 0) continue;
+      }
+    }
+  }
+  throw lastError;
+}
+
+async function produceDocumentaryLegacy({
   topic,
   lang,
   channel,
@@ -1597,7 +1689,8 @@ async function produceDocumentary({
       fileName: input.fileName,
       voiceId: narratorVoice.id,
       voiceSettings: DOC_VOICE_SETTINGS,
-      apiKey: documentaryKey
+      apiKey: documentaryKey,
+      cache: true
     };
     console.log(`[belgesel] ElevenLabs voice_id=${request.voiceId} anahtar=${documentaryKey ? 'arayuz' : 'env'}`);
     try {
@@ -1710,8 +1803,38 @@ async function produceDocumentary({
   }
 }
 
+async function produceDocumentary(opts) {
+  const config = loadDocConfig();
+  if (config.STORY_PIPELINE === 'v1' && config.OUTPUT_LAYOUT === 'legacy') {
+    return produceDocumentaryLegacy(opts);
+  }
+  return produceRecipe(opts, config, {
+    DocumentaryError,
+    resolveDocChannel,
+    pullChaosStory,
+    buildPlan,
+    askGeminiJson,
+    spokenHookText,
+    cleanImagePrompt,
+    resolveDocVoice,
+    shapeNarration,
+    DOC_VOICE_SETTINGS,
+    DOC_VOICES,
+    isVoiceFallbackError,
+    synthesizeSpeechAligned,
+    checkElevenCredits,
+    fitNarration,
+    breatheSentences,
+    downloadPollinationsStill,
+    musicFileForMood,
+    mixMusicBed
+  });
+}
+
 module.exports = {
   produceDocumentary,
+  produceDocumentaryLegacy,
+  askGeminiJson,
   parseScenePlan,
   buildPanFilter,
   STYLE_LOCK,
