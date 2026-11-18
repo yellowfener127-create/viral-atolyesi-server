@@ -968,7 +968,7 @@ function openingShockRules() {
 
 function causalDocumentaryRules() {
   return [
-    'This film is 40 to 50 seconds. The whole narration is 80 to 85 spoken words. Never write more than 85.',
+    'This film is 40 to 50 seconds. Aim for 80 to 90 spoken words. Stay between 75 and 100.',
     'Use 5 scenes. A breath sits between scenes so the tension can rise. Do not dump every fact in one breath.',
     'No logic errors. No dreams. No absurd coincidences. No link that the evidence does not support.',
     'Each beat causes the next. A leads to B through a concrete object, wound, record, or action. If a link is not supported, cut it.',
@@ -1151,33 +1151,42 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
 async function buildPlan(topic, lang, apiKey, source, channel) {
   let note = '';
   let lastError = null;
+  let closest = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const raw = await askGeminiPlan(topic, lang, apiKey, note, source, channel);
       const plan = parseScenePlan(raw);
       const scenes = plan.scenes;
       const total = scenes.reduce((sum, scene) => sum + wordCount(scene.narration), 0);
-      const minWords = 78;
-      const maxWords = 85;
-      if (total < minWords || total > maxWords) {
-        note = `The narration is ${total} spoken words. Return one JSON object with music_mood and 80 to 85 spoken words for a 40 to 50 second film. Never exceed 85. No dreams, no coincidences, no cheap twist. Each scene causes the next from concrete evidence, and the last scene makes the facts fit. No square-bracket tags. Scene 1 stays one core-claim sentence of 6 to 12 words at timestamp 0-2.`;
-        lastError = new DocumentaryError(`Senaryo ${total} kelime çıktı. 80-85 kelime bekleniyor.`);
-        continue;
+      const off = Math.abs(total - 84);
+      const usable = total >= 60 && total <= 140;
+      const hookWords = wordCount(scenes[0] && scenes[0].narration);
+      const hookSentences = narrationParts(scenes[0] && scenes[0].narration).length;
+      const hookOk = hookWords >= 6 && hookWords <= 14 && hookSentences <= 1;
+      if (usable && hookOk && (!closest || off < closest.off)) {
+        closest = { scenes, words: total, music_mood: plan.music_mood, off };
       }
-      const hookWords = wordCount(scenes[0].narration);
-      const hookSentences = narrationParts(scenes[0].narration).length;
-      if (hookWords < 6 || hookWords > 12 || hookSentences > 1) {
+      if (usable && hookOk && total >= 75 && total <= 100) {
+        return { scenes, words: total, music_mood: plan.music_mood };
+      }
+      if (!hookOk) {
         note = 'Scene 1 failed. Rewrite it as one sentence of 6 to 12 spoken words, timestamp 0-2. That sentence is the core claim. Scene 2 is the first cause, and each later scene is the next effect. Do not steal a twist from the ending.';
         lastError = new DocumentaryError('Açılış kancası zayıf kaldı. İlk cümle tek, sarsıcı ve yaklaşık 2 saniye olmalı.');
         continue;
       }
-      return { scenes, words: total, music_mood: plan.music_mood };
+      const gap = total < 84 ? (84 - total) : (total - 84);
+      note = total < 84
+        ? `The narration is ${total} spoken words. Add about ${gap} spoken words of the missing causal step and finish between 80 and 95 words.`
+        : `The narration is ${total} spoken words. Cut about ${gap} spoken words and finish between 80 and 95 words. Keep the cause and the lock ending.`;
+      lastError = new DocumentaryError(`Senaryo ${total} kelime çıktı. 80-95 kelime bekleniyor.`);
+      continue;
     } catch (err) {
       if (err && (err.statusCode === 401 || err.statusCode === 429 || err.statusCode === 503)) throw err;
       lastError = err;
       note = err && err.message ? err.message : 'Return valid JSON with 5 or 6 scenes.';
     }
   }
+  if (closest) return { scenes: closest.scenes, words: closest.words, music_mood: closest.music_mood };
   throw lastError || new DocumentaryError('Senaryo kurulamadı.');
 }
 
