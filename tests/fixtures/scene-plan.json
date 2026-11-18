@@ -1,0 +1,10 @@
+{
+  "music_mood": "mystery",
+  "scenes": [
+    { "narration": "The arrow stayed in his back after the shaft was taken.", "image_prompt": "close stone tip", "voice_tone": "urgent" },
+    { "narration": "Blood from four people was on his knife, so the fight began with him.", "image_prompt": "knife", "voice_tone": "tense" },
+    { "narration": "He stopped to eat, and that pause let the hunter catch him.", "image_prompt": "meal", "voice_tone": "quiet" },
+    { "narration": "The copper axe was left behind, so the motive was silence.", "image_prompt": "axe", "voice_tone": "firm" },
+    { "narration": "The ice hid the body, and the stone tip kept the crime.", "image_prompt": "ice", "voice_tone": "low" }
+  ]
+}

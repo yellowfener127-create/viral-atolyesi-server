@@ -8,7 +8,10 @@
   "scripts": {
     "start": "node server.js",
     "sync-gh": "node -e \"require('fs').copyFileSync('public/index.html','index.html')\"",
-    "local-downloader": "node local-downloader.js"
+    "local-downloader": "node local-downloader.js",
+    "test": "node --test tests/documentary-phase0.test.js",
+    "doc:measure": "node documentary-measure.js",
+    "doc:dry-run": "node documentary-dry-run.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
