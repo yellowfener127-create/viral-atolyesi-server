@@ -387,11 +387,6 @@ function withStyleLock(prompt, channel) {
   return String(prompt || '').replace(/[\s,.:;-]+$/g, '') + styleLockFor(channel);
 }
 
-function shockOpeningPrompt(prompt) {
-  const base = String(prompt || '').replace(/\s+/g, ' ').trim();
-  return `${base}. Extreme close-up filling the frame with one shocking unexplained detail, camera already inside the moment, no wide shot, no calm establishing view.`;
-}
-
 function cleanTimestamp(raw) {
   const text = String(raw || '').trim();
   const match = text.match(/(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)/);
@@ -958,7 +953,6 @@ function openingShockRules() {
     'Take that sentence from the most striking, mysterious, or frightening beat later in the story and say it first. It is a claim or a mystery that forces a question. It is never flat setup.',
     'Bad opening: "Grandpa left." Good opening: "The last message my grandfather left ruined my life."',
     'Scene 2 starts the story from the beginning and does not repeat the teaser. Later scenes stay in order.',
-    'Scene 1 image_prompt is an extreme close-up of one disturbing or unexplained detail. No landscape, no wide room, no calm overview. Wide-shot examples later in this prompt are for scene 2 onward.',
     'Scene 1 voice_tone is "urgent, hard, no pause at the start".'
   ].join('\n');
 }
@@ -1164,7 +1158,7 @@ async function buildPlan(topic, lang, apiKey, source, channel) {
       const hookWords = wordCount(scenes[0].narration);
       const hookSentences = narrationParts(scenes[0].narration).length;
       if (hookWords < 6 || hookWords > 12 || hookSentences > 1) {
-        note = 'Scene 1 failed the cold open. Rewrite it as exactly one sentence of 6 to 12 spoken words, timestamp 0-2. Pull it from the most shocking or mysterious beat and say it before the story starts. Scene 2 begins the story and does not repeat it. Scene 1 image_prompt is an extreme close-up, not a wide shot.';
+        note = 'Scene 1 failed the cold open. Rewrite it as exactly one sentence of 6 to 12 spoken words, timestamp 0-2. Pull it from the most shocking or mysterious beat and say it before the story starts. Scene 2 begins the story and does not repeat it.';
         lastError = new DocumentaryError('Açılış kancası zayıf kaldı. İlk cümle tek, sarsıcı ve yaklaşık 2 saniye olmalı.');
         continue;
       }
@@ -1262,8 +1256,7 @@ function buildPanFilter(width, height, duration, sceneIndex) {
   const durText = dur.toFixed(3);
   const aspect = width / Math.max(1, height);
   const frameAspect = OUT_W / OUT_H;
-  const opening = sceneIndex === 0;
-  const grow = opening ? 1.62 : 1.32;
+  const grow = 1.32;
   let scaledW;
   let scaledH;
   if (aspect >= frameAspect) {
@@ -1278,9 +1271,7 @@ function buildPanFilter(width, height, duration, sceneIndex) {
   const maxX = Math.max(0, scaledW - OUT_W);
   const maxY = Math.max(0, scaledH - OUT_H);
   const forward = sceneIndex % 2 === 0;
-  const progress = opening
-    ? `(1-exp(-8*t/${durText}))`
-    : `(t/${durText})*(t/${durText})*(3-2*(t/${durText}))`;
+  const progress = `(t/${durText})*(t/${durText})*(3-2*(t/${durText}))`;
   const slide = (span, goForward) => (
     goForward ? `(${span})*${progress}` : `(${span})*(1-${progress})`
   );
@@ -1652,8 +1643,7 @@ async function produceDocumentary({
         breathedFile
       );
       const photo = path.join(imageDir, `scene_${i}.jpg`);
-      const imagePrompt = i === 0 ? shockOpeningPrompt(scene.image_prompt) : scene.image_prompt;
-      await downloadPollinationsStill(imagePrompt, photo, selected);
+      await downloadPollinationsStill(scene.image_prompt, photo, selected);
       const segment = path.join(tmpDir, `scene_${i}.mp4`);
       await renderScene({
         ffmpegPath: ffmpeg,
