@@ -387,6 +387,11 @@ function withStyleLock(prompt, channel) {
   return String(prompt || '').replace(/[\s,.:;-]+$/g, '') + styleLockFor(channel);
 }
 
+function shockOpeningPrompt(prompt) {
+  const base = String(prompt || '').replace(/\s+/g, ' ').trim();
+  return `${base}. Extreme close-up filling the frame with one shocking unexplained detail, camera already inside the moment, no wide shot, no calm establishing view.`;
+}
+
 function cleanTimestamp(raw) {
   const text = String(raw || '').trim();
   const match = text.match(/(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)/);
@@ -946,6 +951,18 @@ function narrationPerformanceRules() {
   ].join('\n');
 }
 
+function openingShockRules() {
+  return [
+    'The first 3 seconds decide if the viewer stays. Do not open with a calm introduction.',
+    'Scene 1 is a cold-open shock teaser. timestamp_sec is exactly "0-2". Narration is ONE sentence, 6 to 12 spoken words, heard in about 2 seconds. End it with a period or a question mark, not an ellipsis.',
+    'Take that sentence from the most striking, mysterious, or frightening beat later in the story and say it first. It is a claim or a mystery that forces a question. It is never flat setup.',
+    'Bad opening: "Grandpa left." Good opening: "The last message my grandfather left ruined my life."',
+    'Scene 2 starts the story from the beginning and does not repeat the teaser. Later scenes stay in order.',
+    'Scene 1 image_prompt is an extreme close-up of one disturbing or unexplained detail. No landscape, no wide room, no calm overview. Wide-shot examples later in this prompt are for scene 2 onward.',
+    'Scene 1 voice_tone is "urgent, hard, no pause at the start".'
+  ].join('\n');
+}
+
 function therapyPlanPrompt(topic, language, retryNote) {
   return [
     'You are the director of a vertical documentary about dark psychology and a real psychological experiment.',
@@ -953,8 +970,8 @@ function therapyPlanPrompt(topic, language, retryNote) {
     `Topic: ${topic}`,
     `Narration language: ${language}.`,
     'Cover about 40 to 48 seconds, 90 to 110 spoken words, in 5 to 6 scenes.',
-    'timestamp_sec values are contiguous, start at 0, and look like "0-8".',
-    'Scene 1 is a strong hook that lands inside the first second.',
+    'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-9".',
+    openingShockRules(),
     'Tell the documented experiment: who was tested, what the setup was, and what it revealed. Do not invent a new study.',
     narrationPerformanceRules(),
     'image_prompt is a detailed English visual scene description, not a search keyword.',
@@ -978,12 +995,12 @@ function chaosPlanPrompt(story, language, retryNote) {
     'You are the director of a vertical horror and mystery documentary.',
     'Turn the source post into an original micro-documentary in a dark cinematic voice.',
     'Do not quote the post. Do not say Reddit, subreddit, or the author name.',
-    'Open on a concrete image. Scene 1 must land the hook inside the first 3 seconds.',
+    openingShockRules(),
     `Source title: ${story.title}`,
     `Source text: ${story.selftext}`,
     `Narration language: ${language}.`,
     'Cover about 32 to 42 seconds, 80 to 100 spoken words, in 5 to 6 scenes.',
-    'timestamp_sec values are contiguous, start at 0, and look like "0-7".',
+    'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-8".',
     narrationPerformanceRules(),
     'image_prompt is a detailed English visual scene description, not a search keyword.',
     'Describe the place, time of night, objects, weather, and camera framing in 25 to 55 words.',
@@ -1016,8 +1033,8 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
       `Topic: ${topic}`,
       `Narration language: ${language}.`,
       'Cover about 32 to 42 seconds, 80 to 100 spoken words, in 5 to 6 scenes.',
-      'timestamp_sec values are contiguous, start at 0, and look like "0-7".',
-      'Scene 1 is a strong hook that lands inside the first 3 seconds.',
+      'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-8".',
+      openingShockRules(),
       narrationPerformanceRules(),
       'image_prompt is a detailed English visual scene description, not a search keyword.',
       'Describe the place, century, objects, weather, and camera framing in 25 to 55 words.',
@@ -1125,7 +1142,7 @@ async function buildPlan(topic, lang, apiKey, source, channel) {
   const therapy = channel === 'therapy';
   let note = '';
   let lastError = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const raw = await askGeminiPlan(topic, lang, apiKey, note, source, channel);
       const plan = parseScenePlan(raw);
@@ -1135,13 +1152,20 @@ async function buildPlan(topic, lang, apiKey, source, channel) {
       const maxWords = therapy ? 125 : 115;
       if (total < minWords || total > maxWords) {
         note = therapy
-          ? `The narration is ${total} spoken words. Return one JSON object with music_mood and 90 to 110 spoken words for a sharp 40 to 48 second film. No square-bracket tags. At most two ellipses in the whole film. Keep the short sentences and sparse capital emphasis.`
-          : `The narration is ${total} spoken words. Return one JSON object with music_mood and 80 to 100 spoken words. No square-bracket tags. At most two ellipses in the whole film. Keep the short sentences and sparse capital emphasis.`;
+          ? `The narration is ${total} spoken words. Return one JSON object with music_mood and 90 to 110 spoken words for a sharp 40 to 48 second film. No square-bracket tags. At most two ellipses in the whole film. Keep the short sentences and sparse capital emphasis. Scene 1 stays one shocking sentence of 6 to 12 words at timestamp 0-2.`
+          : `The narration is ${total} spoken words. Return one JSON object with music_mood and 80 to 100 spoken words. No square-bracket tags. At most two ellipses in the whole film. Keep the short sentences and sparse capital emphasis. Scene 1 stays one shocking sentence of 6 to 12 words at timestamp 0-2.`;
         lastError = new DocumentaryError(
           therapy
             ? `Senaryo ${total} kelime çıktı. Daha keskin anlatım için 90-110 kelime bekleniyor.`
             : `Senaryo ${total} kelime çıktı. Daha keskin anlatım için 80-100 kelime bekleniyor.`
         );
+        continue;
+      }
+      const hookWords = wordCount(scenes[0].narration);
+      const hookSentences = narrationParts(scenes[0].narration).length;
+      if (hookWords < 6 || hookWords > 12 || hookSentences > 1) {
+        note = 'Scene 1 failed the cold open. Rewrite it as exactly one sentence of 6 to 12 spoken words, timestamp 0-2. Pull it from the most shocking or mysterious beat and say it before the story starts. Scene 2 begins the story and does not repeat it. Scene 1 image_prompt is an extreme close-up, not a wide shot.';
+        lastError = new DocumentaryError('Açılış kancası zayıf kaldı. İlk cümle tek, sarsıcı ve yaklaşık 2 saniye olmalı.');
         continue;
       }
       return { scenes, words: total, music_mood: plan.music_mood };
@@ -1238,7 +1262,8 @@ function buildPanFilter(width, height, duration, sceneIndex) {
   const durText = dur.toFixed(3);
   const aspect = width / Math.max(1, height);
   const frameAspect = OUT_W / OUT_H;
-  const grow = 1.32;
+  const opening = sceneIndex === 0;
+  const grow = opening ? 1.62 : 1.32;
   let scaledW;
   let scaledH;
   if (aspect >= frameAspect) {
@@ -1253,7 +1278,9 @@ function buildPanFilter(width, height, duration, sceneIndex) {
   const maxX = Math.max(0, scaledW - OUT_W);
   const maxY = Math.max(0, scaledH - OUT_H);
   const forward = sceneIndex % 2 === 0;
-  const progress = `(t/${durText})*(t/${durText})*(3-2*(t/${durText}))`;
+  const progress = opening
+    ? `(1-exp(-8*t/${durText}))`
+    : `(t/${durText})*(t/${durText})*(3-2*(t/${durText}))`;
   const slide = (span, goForward) => (
     goForward ? `(${span})*${progress}` : `(${span})*(1-${progress})`
   );
@@ -1598,8 +1625,8 @@ async function produceDocumentary({
     const sceneInfo = [];
     for (let i = 0; i < plan.scenes.length; i++) {
       const scene = plan.scenes[i];
-      const spoken = shapeNarration(scene.narration, scene.voice_tone);
-      const openingPause = spoken.startsWith('<break');
+      const spoken = shapeNarration(scene.narration, i === 0 ? 'urgent hard' : scene.voice_tone);
+      const openingPause = i === 0 ? false : spoken.startsWith('<break');
       const speech = await narrateScene({
         text: spoken,
         outDir: tmpDir,
@@ -1625,7 +1652,8 @@ async function produceDocumentary({
         breathedFile
       );
       const photo = path.join(imageDir, `scene_${i}.jpg`);
-      await downloadPollinationsStill(scene.image_prompt, photo, selected);
+      const imagePrompt = i === 0 ? shockOpeningPrompt(scene.image_prompt) : scene.image_prompt;
+      await downloadPollinationsStill(imagePrompt, photo, selected);
       const segment = path.join(tmpDir, `scene_${i}.mp4`);
       await renderScene({
         ffmpegPath: ffmpeg,
