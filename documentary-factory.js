@@ -949,11 +949,22 @@ function narrationPerformanceRules() {
 function openingShockRules() {
   return [
     'The first 3 seconds decide if the viewer stays. Do not open with a calm introduction.',
-    'Scene 1 is a cold-open shock teaser. timestamp_sec is exactly "0-2". Narration is ONE sentence, 6 to 12 spoken words, heard in about 2 seconds. End it with a period or a question mark, not an ellipsis.',
-    'Take that sentence from the most striking, mysterious, or frightening beat later in the story and say it first. It is a claim or a mystery that forces a question. It is never flat setup.',
-    'Bad opening: "Grandpa left." Good opening: "The last message my grandfather left ruined my life."',
-    'Scene 2 starts the story from the beginning and does not repeat the teaser. Later scenes stay in order.',
+    'Scene 1 is one sentence, 6 to 12 spoken words, timestamp 0-2. It states the core causal claim of this film. End it with a period or a question mark, not an ellipsis.',
+    'That claim is what the later scenes prove. It is not a side detail and not a twist stolen from the ending.',
+    'Bad opening: "Grandpa left." Good opening: "The last message he left is what ruined the house."',
+    'Scene 2 is the first cause. Each later scene is the next effect of the scene before it. Do not start a second story. Do not repeat the teaser word for word.',
     'Scene 1 voice_tone is "urgent, hard, no pause at the start".'
+  ].join('\n');
+}
+
+function causalDocumentaryRules() {
+  return [
+    'This film is 40 to 50 seconds. The whole narration is 80 to 85 spoken words. Never write more than 85.',
+    'Use 5 scenes. A breath sits between scenes so the tension can rise. Do not dump every fact in one breath.',
+    'No logic errors. No dreams. No absurd coincidences. No link that the evidence does not support.',
+    'Each beat causes the next. A leads to B through a concrete object, wound, record, or action. If a link is not supported, cut it.',
+    'Scene 1 states the core claim of this film, not a side detail. That one sentence is the story.',
+    'The last scene is the lock, not a twist. The final fact makes the earlier facts fit. Do not add a dream, a secret double, or a villain the evidence never caused.'
   ].join('\n');
 }
 
@@ -963,10 +974,10 @@ function therapyPlanPrompt(topic, language, retryNote) {
     'Write one plan in the same dark cinematic voice used for history and horror documentaries.',
     `Topic: ${topic}`,
     `Narration language: ${language}.`,
-    'Cover about 40 to 48 seconds, 90 to 110 spoken words, in 5 to 6 scenes.',
-    'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-9".',
+    causalDocumentaryRules(),
+    'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-10".',
     openingShockRules(),
-    'Tell the documented experiment: who was tested, what the setup was, and what it revealed. Do not invent a new study.',
+    'Tell the documented experiment: who was tested, what the setup was, and what it revealed. Do not invent a new study. Scene order is the experiment: who was tested, what was done to them, what they did because of that, what was measured. The method causes the result. Do not add a moral the study itself did not show.',
     narrationPerformanceRules(),
     'image_prompt is a detailed English visual scene description, not a search keyword.',
     'Describe the room, the test apparatus, the era, and the camera framing in 25 to 55 words.',
@@ -992,9 +1003,10 @@ function chaosPlanPrompt(story, language, retryNote) {
     openingShockRules(),
     `Source title: ${story.title}`,
     `Source text: ${story.selftext}`,
+    'Keep only source events that cause the next event. Drop dreams, omens, and coincidences. Do not invent a cause the source does not support.',
     `Narration language: ${language}.`,
-    'Cover about 32 to 42 seconds, 80 to 100 spoken words, in 5 to 6 scenes.',
-    'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-8".',
+    causalDocumentaryRules(),
+    'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-10".',
     narrationPerformanceRules(),
     'image_prompt is a detailed English visual scene description, not a search keyword.',
     'Describe the place, time of night, objects, weather, and camera framing in 25 to 55 words.',
@@ -1026,8 +1038,9 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
       'Write one plan that the editor, image generator, and voice actor must follow together.',
       `Topic: ${topic}`,
       `Narration language: ${language}.`,
-      'Cover about 32 to 42 seconds, 80 to 100 spoken words, in 5 to 6 scenes.',
-      'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-8".',
+      'Stay on one documented chain: a decision, a record, a place, or a physical force. A what-if still moves by that chain, not by legend or luck.',
+      causalDocumentaryRules(),
+      'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-10".',
       openingShockRules(),
       narrationPerformanceRules(),
       'image_prompt is a detailed English visual scene description, not a search keyword.',
@@ -1133,7 +1146,6 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
 }
 
 async function buildPlan(topic, lang, apiKey, source, channel) {
-  const therapy = channel === 'therapy';
   let note = '';
   let lastError = null;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -1142,23 +1154,17 @@ async function buildPlan(topic, lang, apiKey, source, channel) {
       const plan = parseScenePlan(raw);
       const scenes = plan.scenes;
       const total = scenes.reduce((sum, scene) => sum + wordCount(scene.narration), 0);
-      const minWords = therapy ? 80 : 70;
-      const maxWords = therapy ? 125 : 115;
+      const minWords = 78;
+      const maxWords = 85;
       if (total < minWords || total > maxWords) {
-        note = therapy
-          ? `The narration is ${total} spoken words. Return one JSON object with music_mood and 90 to 110 spoken words for a sharp 40 to 48 second film. No square-bracket tags. At most two ellipses in the whole film. Keep the short sentences and sparse capital emphasis. Scene 1 stays one shocking sentence of 6 to 12 words at timestamp 0-2.`
-          : `The narration is ${total} spoken words. Return one JSON object with music_mood and 80 to 100 spoken words. No square-bracket tags. At most two ellipses in the whole film. Keep the short sentences and sparse capital emphasis. Scene 1 stays one shocking sentence of 6 to 12 words at timestamp 0-2.`;
-        lastError = new DocumentaryError(
-          therapy
-            ? `Senaryo ${total} kelime çıktı. Daha keskin anlatım için 90-110 kelime bekleniyor.`
-            : `Senaryo ${total} kelime çıktı. Daha keskin anlatım için 80-100 kelime bekleniyor.`
-        );
+        note = `The narration is ${total} spoken words. Return one JSON object with music_mood and 80 to 85 spoken words for a 40 to 50 second film. Never exceed 85. No dreams, no coincidences, no cheap twist. Each scene causes the next from concrete evidence, and the last scene makes the facts fit. No square-bracket tags. Scene 1 stays one core-claim sentence of 6 to 12 words at timestamp 0-2.`;
+        lastError = new DocumentaryError(`Senaryo ${total} kelime çıktı. 80-85 kelime bekleniyor.`);
         continue;
       }
       const hookWords = wordCount(scenes[0].narration);
       const hookSentences = narrationParts(scenes[0].narration).length;
       if (hookWords < 6 || hookWords > 12 || hookSentences > 1) {
-        note = 'Scene 1 failed the cold open. Rewrite it as exactly one sentence of 6 to 12 spoken words, timestamp 0-2. Pull it from the most shocking or mysterious beat and say it before the story starts. Scene 2 begins the story and does not repeat it.';
+        note = 'Scene 1 failed. Rewrite it as one sentence of 6 to 12 spoken words, timestamp 0-2. That sentence is the core claim. Scene 2 is the first cause, and each later scene is the next effect. Do not steal a twist from the ending.';
         lastError = new DocumentaryError('Açılış kancası zayıf kaldı. İlk cümle tek, sarsıcı ve yaklaşık 2 saniye olmalı.');
         continue;
       }
