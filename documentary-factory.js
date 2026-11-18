@@ -373,10 +373,19 @@ function cleanImagePrompt(raw) {
     if (at >= 0 && at < cut) cut = at;
   }
   if (cut < text.length) text = text.slice(0, cut).replace(/[\s,.:;-]+$/g, '').trim();
-  if (text.length > 700) text = text.slice(0, 700).replace(/\s+\S*$/, '').trim();
+  if (text.length > 1400) text = text.slice(0, 1400).replace(/\s+\S*$/, '').trim();
   const words = text.split(/\s+/).filter((word) => word.length > 1);
   if (words.length < 8) return '';
   return text;
+}
+
+function imageDetailRules() {
+  return [
+    'image_prompt is one concrete English frame, not a search keyword and not a caption.',
+    'Write 80 to 120 words. Name the place, the era or the hour, the material under the light, the single light source, at least three objects and their condition, what sits closest to the lens, and how far the camera is.',
+    'If a person is present, they stay anonymous or in silhouette. No readable text, no logo, no famous face.',
+    'Do not add color grading or a style suffix. The editor locks the look.'
+  ].join('\n');
 }
 
 function styleLockFor(channel) {
@@ -979,11 +988,9 @@ function therapyPlanPrompt(topic, language, retryNote) {
     openingShockRules(),
     'Tell the documented experiment: who was tested, what the setup was, and what it revealed. Do not invent a new study. Scene order is the experiment: who was tested, what was done to them, what they did because of that, what was measured. The method causes the result. Do not add a moral the study itself did not show.',
     narrationPerformanceRules(),
-    'image_prompt is a detailed English visual scene description, not a search keyword.',
-    'Describe the room, the test apparatus, the era, and the camera framing in 25 to 55 words.',
+    imageDetailRules(),
     'Keep faces anonymous or in silhouette.',
-    'Example: "A 1971 basement corridor dressed as a prison, numbered doors, a single overhead bulb, a figure in silhouette behind frosted glass, low wide shot."',
-    'Do not add color grading or a style suffix. The editor locks the look.',
+    'Example: "A 1971 basement corridor dressed as a prison, seen from inside a cell door at chest height. Numbered steel doors recede on the left, paint chipped around the hinges. One bare bulb hangs close to the lens, its cord frayed, throwing a hard pool of light on cracked concrete and a dented tin cup in the foreground. A figure stands far back, only a silhouette behind frosted glass, one hand flat on the pane. Dust hangs in the bulb light."',
     'voice_tone is a short English direction for the narrator, such as "quiet, clinical, pause after the first sentence".',
     'music_mood is exactly one of mystery, epic, sad, science.',
     'mystery is the hidden design of the study. epic is pressure and rupture. sad is the harm left behind. science is the method and the evidence.',
@@ -1008,10 +1015,8 @@ function chaosPlanPrompt(story, language, retryNote) {
     causalDocumentaryRules(),
     'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-10".',
     narrationPerformanceRules(),
-    'image_prompt is a detailed English visual scene description, not a search keyword.',
-    'Describe the place, time of night, objects, weather, and camera framing in 25 to 55 words.',
-    'Example: "An empty motel corridor at 3 a.m., one flickering fluorescent tube, a wet footprint trail, a door ajar at the far end, low tracking shot."',
-    'Do not add color grading or a style suffix. The editor locks the look.',
+    imageDetailRules(),
+    'Example: "An empty motel corridor at 3 a.m., camera low and close to the wet carpet. One fluorescent tube flickers just above the lens, greenish, in a rusted housing. Wet footprints lead to a door ajar at the far end, the chain lock hanging open. A plastic ice bucket lies on its side in the foreground, melt water spreading toward the camera. A long strip of wallpaper has peeled down to the plaster. No person is in frame, only the dark gap of the open door."',
     'voice_tone is a short English direction for the narrator, such as "hushed, tense, pause after the first sentence".',
     'music_mood is exactly one of mystery, epic, sad, science.',
     'mystery is secrets and dread. epic is pursuit and rupture. sad is loss and aftermath. science is evidence and explanation.',
@@ -1043,10 +1048,8 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
       'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-10".',
       openingShockRules(),
       narrationPerformanceRules(),
-      'image_prompt is a detailed English visual scene description, not a search keyword.',
-      'Describe the place, century, objects, weather, and camera framing in 25 to 55 words.',
-      'Example: "A ruined Roman library at night, wet marble columns, scattered scorched scrolls, a single oil lamp, low wide shot through drifting smoke."',
-      'Do not add color grading or a style suffix. The editor locks the look.',
+      imageDetailRules(),
+      'Example: "A ruined Roman library at night, seen low through drifting smoke. Wet marble columns stand in a row, one cracked, soot caught in the fluting. Scorched scrolls lie in the foreground, edges curled, ash stuck to the stone. A single oil lamp burns on a fallen lectern, lighting only the nearest scroll and the grain of the marble. Rain has pooled in the cracks. No faces and no readable letters."',
       'voice_tone is a short English direction for the narrator, such as "mysterious, deep, dramatic pause at the beginning".',
       'music_mood is exactly one of mystery, epic, sad, science, chosen from the tone of the whole film.',
       'mystery is secrets and old history. epic is war and rupture. sad is collapse, famine, and disaster. science is evidence and explanation.',
