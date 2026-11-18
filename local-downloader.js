@@ -18,9 +18,17 @@ const { stampDay } = require('./documentary-job');
 const publishQueue = require('./publish-queue');
 
 const app = express();
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  next();
+});
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return callback(null, true);
+    if (!origin || origin === 'null') return callback(null, true);
+    let host = '';
+    try { host = new URL(origin).hostname.replace(/^\[|\]$/g, ''); } catch { host = ''; }
+    const local = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    if (local) return callback(null, true);
     return callback(null, false);
   }
 }));
