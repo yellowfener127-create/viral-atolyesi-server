@@ -42,9 +42,60 @@ function hasSeam(bytes, width, height) {
   return false;
 }
 
+function seamClusters(bytes, width, height, vertical) {
+  const lines = vertical ? width : height;
+  const span = vertical ? height : width;
+  const margin = Math.max(2, Math.floor(lines * 0.08));
+  const raw = [];
+  for (let i = 1; i < lines; i++) {
+    let jumps = 0;
+    for (let j = 0; j < span; j++) {
+      const here = bytes[vertical ? j * width + i : i * width + j];
+      const prev = bytes[vertical ? j * width + (i - 1) : (i - 1) * width + j];
+      if (Math.abs(here - prev) > 32) jumps += 1;
+    }
+    if (i > margin && i < lines - margin && jumps / span > 0.65) raw.push(i);
+  }
+  const clusters = [];
+  raw.forEach((pos) => {
+    const last = clusters[clusters.length - 1];
+    if (last && pos - last[last.length - 1] <= 8) last.push(pos);
+    else clusters.push([pos]);
+  });
+  return clusters;
+}
+
+function cleanGutter(bytes, width, height, vertical, cluster) {
+  const span = vertical ? height : width;
+  return cluster.some((pos) => {
+    let sum = 0;
+    let sum2 = 0;
+    for (let j = 0; j < span; j++) {
+      const value = bytes[vertical ? j * width + pos : pos * width + j];
+      sum += value;
+      sum2 += value * value;
+    }
+    const mean = sum / span;
+    const variance = sum2 / span - mean * mean;
+    return variance < 40 && (mean < 24 || mean > 235);
+  });
+}
+
+function isStacked(bytes, width, height) {
+  const list = bytes || [];
+  if (list.length < width * height || width < 16 || height < 16) return false;
+  const horizontal = seamClusters(list, width, height, false);
+  const vertical = seamClusters(list, width, height, true);
+  if (horizontal.length >= 2) return true;
+  if (horizontal.length && vertical.length) return true;
+  if (horizontal.some((cluster) => cleanGutter(list, width, height, false, cluster))) return true;
+  if (vertical.some((cluster) => cleanGutter(list, width, height, true, cluster))) return true;
+  return false;
+}
+
 function tooSimilar(left, right) {
   if (!left || !right) return false;
   return hamming(left, right) < 6;
 }
 
-module.exports = { averageHash, hamming, isFlat, tooSimilar, hasSeam };
+module.exports = { averageHash, hamming, isFlat, tooSimilar, hasSeam, isStacked };

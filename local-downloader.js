@@ -2525,8 +2525,34 @@ app.get('/documentary-jobs', (req, res) => {
   res.json({ jobs: listJobs(JOBS_ROOT) });
 });
 
+app.post('/story-reel-script', async (req, res) => {
+  const source = String(req.body?.story || '').trim();
+  if (source.length < 40) return res.status(400).json({ error: 'Hikâye en az birkaç cümle olsun.' });
+  if (source.length > 12000) return res.status(400).json({ error: 'Hikâye 12.000 karakterden kısa olsun.' });
+  const lang = String(req.body?.lang || 'tr').toLowerCase() === 'en' ? 'en' : 'tr';
+  const key = String(req.body?.gemini_api_key || req.body?.geminiApiKey || '').trim();
+  try {
+    const plan = await documentaryFactory.buildStoryReel(source, lang === 'tr' ? 'Turkish' : 'English', key);
+    return res.json({
+      ok: true,
+      words: plan.words,
+      music_mood: plan.music_mood,
+      scenes: plan.scenes.map((scene) => ({
+        narration: scene.narration,
+        image_prompt: scene.image_prompt,
+        voice_tone: scene.voice_tone,
+        anchor_words: scene.shots[0] ? scene.shots[0].anchor_words : ''
+      }))
+    });
+  } catch (e) {
+    return res.status(e && e.statusCode ? e.statusCode : 500).json({ error: (e && e.message) ? e.message : String(e) });
+  }
+});
+
 app.post('/documentary', async (req, res) => {
   res.setTimeout(25 * 60 * 1000);
+  const storyText = String(req.body?.story_text || req.body?.storyText || '').trim();
+  const scriptScenes = Array.isArray(req.body?.script_scenes) ? req.body.script_scenes : null;
   const topic = String(req.body?.topic || '').replace(/\s+/g, ' ').trim();
   const lang = String(req.body?.lang || 'en').toLowerCase() === 'tr' ? 'tr' : 'en';
   let channel = 'epoch';
@@ -2535,10 +2561,13 @@ app.post('/documentary', async (req, res) => {
   } catch (e) {
     return res.status(e && e.statusCode ? e.statusCode : 400).json({ error: (e && e.message) ? e.message : String(e) });
   }
-  if ((channel === 'epoch' || channel === 'therapy') && topic.length < 8) {
+  if (storyText && storyText.length < 40 && !scriptScenes) {
+    return res.status(400).json({ error: 'Hikâye en az birkaç cümle olsun.' });
+  }
+  if (!storyText && !scriptScenes && (channel === 'epoch' || channel === 'therapy') && topic.length < 8) {
     return res.status(400).json({ error: 'Konu en az birkaç kelime olsun.' });
   }
-  if (channel === 'chaos' && topic.length > 300) return res.status(400).json({ error: 'Arama 300 karakterden kısa olsun.' });
+  if (!storyText && !scriptScenes && channel === 'chaos' && topic.length > 300) return res.status(400).json({ error: 'Arama 300 karakterden kısa olsun.' });
   if (__docInProgress) return res.status(409).json({ error: 'Bir belgesel zaten üretiliyor.' });
   const hasFfmpeg = await existsOnPath('ffmpeg');
   const hasFfprobe = await existsOnPath('ffprobe');
@@ -2554,9 +2583,12 @@ app.post('/documentary', async (req, res) => {
   }
   try {
     const info = await documentaryFactory.produceDocumentary({
-      topic,
+      topic: topic || storyText.slice(0, 90),
       lang,
       channel,
+      storyText,
+      scriptScenes,
+      musicMood: String(req.body?.music_mood || ''),
       redditId: String(req.body?.reddit_id || req.body?.redditId || '').trim(),
       geminiKey: String(req.body?.gemini_api_key || req.body?.geminiApiKey || '').trim(),
       elevenKey: docKeys.resolveElevenKey(req.body?.elevenlabs_api_key || req.body?.elevenlabsApiKey),

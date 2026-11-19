@@ -11,6 +11,20 @@ const { maskKey } = require('../documentary-keys');
 const { hashValue, stageOutputReady, markStage } = require('../documentary-job');
 const { hamming, isFlat, tooSimilar } = require('../documentary-image');
 
+test('a pasted story is read before the reel prompt', () => {
+  const read = story.reelReadPrompt('She left the house. The door was locked from inside.');
+  assert.match(read, /Do not write a script/);
+  assert.match(read, /locked from inside/);
+  const prompt = story.reelPrompt({
+    shock: 'The door was locked from inside.',
+    ending: 'The key was still in her pocket.',
+    events: ['She left the house.', 'The door was locked from inside.']
+  }, 'Turkish', '');
+  assert.match(prompt, /already read the story/);
+  assert.match(prompt, /80 to 85/);
+  assert.match(prompt, /locked from inside/);
+});
+
 test('bible and script validators catch an empty mechanism and a dream ending', () => {
   assert.ok(story.validateBible({ scope: 'one knife', hook: 'The knife stayed', final_line: 'The knife named him', core_mechanism: '' }).includes('core_mechanism empty'));
   const bible = {
@@ -94,7 +108,7 @@ test('timeline locks a shot to its anchor and the last shot holds', () => {
 });
 
 test('a short picture cannot drop the last sentence', () => {
-  const { hasSeam } = require('../documentary-image');
+  const { hasSeam, isStacked } = require('../documentary-image');
   const scenes = [{
     narration: 'Physical evidence bridges the gap between empires. The echoes of Rome still whisper through the brick walls of Liqian.',
     image_prompt: 'wall',
@@ -118,6 +132,12 @@ test('a short picture cannot drop the last sentence', () => {
   seam.fill(210, 16 * 64);
   assert.equal(hasSeam(flat, 64, 32), false);
   assert.equal(hasSeam(seam, 64, 32), true);
+  const plain = Buffer.alloc(40 * 60, 90);
+  const stacked = Buffer.alloc(40 * 60, 90);
+  for (let y = 20; y < 22; y++) stacked.fill(250, y * 40, (y + 1) * 40);
+  for (let y = 40; y < 42; y++) stacked.fill(250, y * 40, (y + 1) * 40);
+  assert.equal(isStacked(plain, 40, 60), false);
+  assert.equal(isStacked(stacked, 40, 60), true);
   assert.equal(story.coverageReport('The echoes of Rome', [{ word: 'The' }, { word: 'echoes' }, { word: 'of' }, { word: 'Rome' }]).match, true);
   assert.equal(story.coverageReport('unique double-shield turtle', [{ word: 'unique' }, { word: 'double-shield' }, { word: 'turtle' }]).match, true);
   assert.equal(story.coverageReport('The echoes of Rome still whisper', [{ word: 'The' }, { word: 'echoes' }]).match, false);

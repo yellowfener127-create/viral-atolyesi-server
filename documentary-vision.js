@@ -37,13 +37,13 @@ function shotsToRedo(frames) {
 
 function visionPrompt(samples) {
   const lines = (samples || []).map((sample, index) => (
-    `Frame ${index + 1} is shot ${sample.shot}. Spoken line: ${sample.line}`
+    `Frame ${index + 1} is shot ${sample.shot}. Visual prompt: ${sample.prompt || ''}. Spoken line: ${sample.line}`
   ));
   return [
-    'Score each still against its spoken line.',
-    'Score 5 when the main object or action in the line is visible.',
-    'Score 1 when the picture shows something else.',
-    'Judge the noun and the action, not the color grade.',
+    'Score each still against its visual prompt.',
+    'Score 1 when the frame is a collage, a grid, a triptych, stacked copies, or split by black or white bars.',
+    'Score 1 when the main subject named in the visual prompt is missing or replaced by a different object.',
+    'Score 5 only when one photograph shows that subject.',
     'Return JSON only.',
     lines.join('\n')
   ].join('\n');

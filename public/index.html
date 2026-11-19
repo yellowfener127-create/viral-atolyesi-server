@@ -295,6 +295,7 @@
     <button class="nav-btn" data-page="mix" onclick="showPage('mix')">🎬 Mix &amp; Derleme</button>
     <button class="nav-btn" data-page="voice" onclick="showPage('voice')">🎙️ Voice Enjektör</button>
     <button class="nav-btn" data-page="doc" onclick="showPage('doc')">🎞️ Belgesel Fabrikası</button>
+    <button class="nav-btn" data-page="reel" onclick="showPage('reel')">📖 Hikâye Reels</button>
     <button class="nav-btn" data-page="tools" onclick="showPage('tools')">🛠️ Araçlar</button>
   </div>
   <div class="day-badge" id="dayBadge">📅 <strong>—</strong></div>
@@ -590,6 +591,70 @@
 </div>
 
 <!-- ARAÇLAR SAYFASI -->
+<div class="page" id="page-reel">
+<div class="wrap">
+  <div style="margin-bottom:18px">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;margin-bottom:6px">Hikâye Reels</div>
+    <div style="font-size:13px;color:var(--muted)">Ham hikâyeyi yapıştır. Gemini önce metni okur. Sonra o okumaya Reels promptu verilir ve hikâye 80–85 kelimelik senaryoya iner. Video, belgeselle aynı görüntü ve ses hattından üretilir.</div>
+  </div>
+  <div class="tool-card" style="max-width:920px;padding:0">
+    <div class="mcc-tabs" style="padding-top:16px">
+      <button type="button" class="mcc-tab active" id="reelTabStory" onclick="showReelStep('story')">1 · Hikâye</button>
+      <button type="button" class="mcc-tab" id="reelTabScript" onclick="showReelStep('script')">2 · Senaryo</button>
+      <button type="button" class="mcc-tab" id="reelTabMake" onclick="showReelStep('make')">3 · Üretim</button>
+    </div>
+    <div class="mcc-panel active" id="reel-story">
+      <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:6px;max-width:420px">Görüntü tarzı
+        <select class="tool-input" id="reelChannel">
+          <option value="epoch" selected>Epoch Lab — karanlık tarih</option>
+          <option value="chaos">Chaos Lab — korku / gizem</option>
+          <option value="therapy">Therapy Lab — karanlık psikoloji</option>
+        </select>
+      </label>
+      <div class="mcc-row" style="margin-top:10px">
+        <label style="font-size:12px;color:var(--muted)">Dil
+          <select class="tool-input" id="reelLang">
+            <option value="tr" selected>Türkçe</option>
+            <option value="en">İngilizce</option>
+          </select>
+        </label>
+      </div>
+      <div class="tool-title" style="margin-top:12px">Ham hikâye</div>
+      <textarea class="tool-input" id="reelStory" rows="12" maxlength="12000" placeholder="Vakayı buraya yapıştır. Sistem dışarıdan olay eklemez."></textarea>
+      <button class="tool-btn" type="button" id="reelWriteBtn" onclick="writeReelScript()" style="margin-top:12px">Senaryoyu yaz</button>
+      <div class="tool-result" id="reelWriteMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
+    </div>
+    <div class="mcc-panel" id="reel-script">
+      <div class="tool-desc">İlk cümle şok, sonra kronolojik özet, son cümle başa döner. 80–85 kelime.</div>
+      <div id="reelScriptView" style="margin-top:10px;font-size:14px;line-height:1.55;white-space:pre-wrap">Henüz senaryo yok.</div>
+      <div class="mcc-row" style="margin-top:12px">
+        <button class="tool-btn" type="button" onclick="showReelStep('story')">Hikâyeye dön</button>
+        <button class="tool-btn" type="button" onclick="writeReelScript()">Yeniden yaz</button>
+        <button class="tool-btn" type="button" onclick="showReelStep('make')">Bunu üret</button>
+      </div>
+    </div>
+    <div class="mcc-panel" id="reel-make">
+      <div class="mcc-row" style="align-items:flex-end">
+        <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:6px;min-width:280px">Anlatıcı Sesi Seç
+          <select class="tool-input" id="reelVoice" onchange="stopDocVoicePreview()">
+            <option value="pNInz6obpgDQGcFmaJgB" selected>Ses 1 - Adam (Tok & Derin)</option>
+            <option value="JBFqnCBsd6RMkjVDRZzb">Ses 2 - George (Sinematik Anlatıcı)</option>
+            <option value="nPczCjzI2devNBz1zQrb">Ses 3 - Brian (Derin & Tok)</option>
+            <option value="SAxJUlDKRc79XAyeWyMu">Ses 4 - Derin Hikâye</option>
+            <option value="fCxG8OHm4STbIsWe4aT9">Ses 5 - Harrison Gale (Kadifemsi & Derin)</option>
+            <option value="random">Rastgele Seç</option>
+          </select>
+        </label>
+        <button class="tool-btn" type="button" id="reelPreviewBtn" onclick="previewReelVoice()">5 sn dinle</button>
+      </div>
+      <div class="tool-desc" style="margin-top:10px">ElevenLabs anahtarı Belgesel Fabrikası kutusundaki kayıtlı anahtardır.</div>
+      <button class="tool-btn" type="button" id="reelBuildBtn" onclick="runReel()" style="margin-top:12px">Reels videosunu üret ve kaydet</button>
+      <div class="tool-result" id="reelMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
+    </div>
+  </div>
+</div>
+</div>
+
 <div class="page" id="page-tools">
 <div class="wrap">
   <div style="margin-bottom:24px">
@@ -2215,6 +2280,7 @@ function showPage(page) {
   if (btn) btn.classList.add('active');
   if (page === 'tools') refreshCrushLocalList();
   if (page === 'doc') { refreshDocElevenStatus(); refreshDocJobs(); }
+  if (page === 'reel') showReelStep(reelStep);
   if (page === 'voice') refreshVoiceElevenStatus();
 }
 
@@ -3445,6 +3511,149 @@ async function runDocumentary() {
   }
 }
 
+
+let reelPlan = null;
+let reelStep = "story";
+
+function showReelStep(step) {
+  reelStep = step === "script" || step === "make" ? step : "story";
+  ["story", "script", "make"].forEach((name) => {
+    const panel = document.getElementById("reel-" + name);
+    const tab = document.getElementById("reelTab" + name.charAt(0).toUpperCase() + name.slice(1));
+    if (panel) panel.classList.toggle("active", name === reelStep);
+    if (tab) tab.classList.toggle("active", name === reelStep);
+  });
+}
+
+function paintReelScript() {
+  const view = document.getElementById("reelScriptView");
+  if (!view) return;
+  if (!reelPlan || !reelPlan.scenes) {
+    view.textContent = "Henüz senaryo yok.";
+    return;
+  }
+  const lines = reelPlan.scenes.map((scene, index) => (index + 1) + ". " + scene.narration);
+  view.textContent = lines.join("\n\n") + "\n\nKelime: " + (reelPlan.words || "?");
+}
+
+async function writeReelScript() {
+  const btn = document.getElementById("reelWriteBtn");
+  const msg = document.getElementById("reelWriteMsg");
+  const story = String((document.getElementById("reelStory") || {}).value || "").trim();
+  if (story.length < 40) {
+    alert("Hikâyeyi birkaç cümleyle yapıştır.");
+    return;
+  }
+  const keys = geminiKeysInOrder();
+  if (!keys.length) {
+    alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
+    return;
+  }
+  const lang = (document.getElementById("reelLang") && document.getElementById("reelLang").value) === "en" ? "en" : "tr";
+  if (btn) { btn.disabled = true; btn.textContent = "Senaryo yazılıyor…"; }
+  if (msg) { msg.style.display = "block"; msg.textContent = "Gemini hikâyeyi okuyor. Ardından Reels promptuyla 80-85 kelimeye indirecek."; }
+  try {
+    let res;
+    let data = {};
+    for (let i = 0; i < keys.length; i++) {
+      res = await fetch(LOCAL_API + "/story-reel-script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ story: story, lang: lang, gemini_api_key: keys[i] })
+      });
+      data = await res.json().catch(() => ({}));
+      const errText = (data && data.error) ? data.error : "";
+      if ((res.ok && data.ok) || !docGeminiRetryable(res.status, errText) || i === keys.length - 1) break;
+      if (msg) msg.textContent = "Bu Gemini anahtarı dolu. Sıradaki anahtarla yeniden yazılıyor…";
+    }
+    if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
+    reelPlan = data;
+    paintReelScript();
+    showReelStep("script");
+    if (msg) msg.textContent = "Senaryo hazır. İkinci sayfada.";
+  } catch (e) {
+    if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Senaryoyu yaz"; }
+  }
+}
+
+async function previewReelVoice() {
+  const voice = document.getElementById("reelVoice");
+  const docVoice = document.getElementById("docVoice");
+  const previous = docVoice ? docVoice.value : "";
+  if (docVoice && voice) docVoice.value = voice.value;
+  try {
+    await previewDocVoice();
+    const from = document.getElementById("docVoicePreviewMsg");
+    const msg = document.getElementById("reelMsg");
+    if (msg && from) {
+      msg.style.display = "block";
+      msg.textContent = from.textContent || "";
+    }
+  } finally {
+    if (docVoice) docVoice.value = previous;
+  }
+}
+
+async function runReel() {
+  const btn = document.getElementById("reelBuildBtn");
+  const msg = document.getElementById("reelMsg");
+  if (!reelPlan || !Array.isArray(reelPlan.scenes) || reelPlan.scenes.length !== 5) {
+    alert("Önce hikâyeden senaryoyu yaz.");
+    showReelStep("story");
+    return;
+  }
+  const keys = geminiKeysInOrder();
+  if (!keys.length) {
+    alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
+    return;
+  }
+  const story = String((document.getElementById("reelStory") || {}).value || "").trim();
+  const channelEl = document.getElementById("reelChannel");
+  const channel = channelEl ? channelEl.value : "epoch";
+  const lang = (document.getElementById("reelLang") && document.getElementById("reelLang").value) === "en" ? "en" : "tr";
+  const voiceEl = document.getElementById("reelVoice");
+  const voiceIds = ["pNInz6obpgDQGcFmaJgB", "JBFqnCBsd6RMkjVDRZzb", "nPczCjzI2devNBz1zQrb", "SAxJUlDKRc79XAyeWyMu", "fCxG8OHm4STbIsWe4aT9"];
+  const picked = voiceEl ? String(voiceEl.value || "").trim() : "";
+  const voiceId = picked === "random" || voiceIds.indexOf(picked) >= 0 ? picked : "pNInz6obpgDQGcFmaJgB";
+  if (btn) { btn.disabled = true; btn.textContent = "Reels üretiliyor…"; }
+  if (msg) {
+    msg.style.display = "block";
+    msg.textContent = "Onaylanan senaryo, görseller, ses ve montaj sırayla çalışıyor.";
+  }
+  try {
+    let res;
+    let data = {};
+    for (let i = 0; i < keys.length; i++) {
+      res = await fetch(LOCAL_API + "/documentary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: String(reelPlan.scenes[0].narration || story).slice(0, 90),
+          story_text: story,
+          script_scenes: reelPlan.scenes,
+          music_mood: reelPlan.music_mood || "",
+          lang: lang,
+          channel: channel,
+          voice_id: voiceId,
+          gemini_api_key: keys[i],
+          elevenlabs_api_key: docElevenKeySaved()
+        })
+      });
+      data = await res.json().catch(() => ({}));
+      const errText = (data && data.error) ? data.error : "";
+      if ((res.ok && data.ok) || !docGeminiRetryable(res.status, errText) || i === keys.length - 1) break;
+      if (msg) msg.textContent = "Bu Gemini anahtarı dolu. Sıradaki anahtarla sürdürülüyor…";
+    }
+    if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
+    if (msg) msg.textContent = "Kaydedildi: " + (data.absPath || "");
+  } catch (e) {
+    if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Reels videosunu üret ve kaydet"; }
+  }
+}
 
 function showMccTab(id) {
   const key = String(id || "render");

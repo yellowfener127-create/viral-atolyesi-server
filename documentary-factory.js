@@ -15,7 +15,7 @@ const {
   ElevenLabsHookError
 } = require('./elevenlabs-hook');
 const { loadDocConfig } = require('./documentary-config');
-const { averageHash, isFlat, tooSimilar } = require('./documentary-image');
+const { averageHash, isFlat, tooSimilar, isStacked } = require('./documentary-image');
 const storyLib = require('./documentary-story');
 const { produceRecipe } = require('./documentary-run');
 
@@ -1249,6 +1249,20 @@ function imageCacheFile(prompt, seed) {
   return path.join(os.tmpdir(), 'va-doc-image-cache', `${hash}.jpg`);
 }
 
+function grayFrame(ffmpegPath, file, width, height) {
+  return new Promise((resolve) => {
+    const child = spawn(ffmpegPath || 'ffmpeg', [
+      '-v', 'error', '-i', file,
+      '-vf', `scale=${width}:${height}:flags=neighbor,format=gray`,
+      '-frames:v', '1', '-f', 'rawvideo', '-'
+    ], { windowsHide: true });
+    const chunks = [];
+    child.stdout.on('data', (chunk) => chunks.push(chunk));
+    child.on('close', () => resolve(Buffer.concat(chunks)));
+    child.on('error', () => resolve(Buffer.alloc(0)));
+  });
+}
+
 function grayFingerprint(ffmpegPath, file) {
   return new Promise((resolve) => {
     const child = spawn(ffmpegPath || 'ffmpeg', [
@@ -1276,8 +1290,9 @@ async function downloadPollinationsStill(prompt, dest, channel, seed, ffmpegPath
     if (fs.existsSync(cached) && fs.statSync(cached).size > 2048) {
       await fs.promises.copyFile(cached, dest);
       const cachedPixels = await grayFingerprint(ffmpegPath, dest);
+      const cachedGrid = await grayFrame(ffmpegPath, dest, 180, 320);
       const cachedHash = averageHash(cachedPixels);
-      if (!isFlat(cachedPixels) && !tooSimilar(lastImageHash, cachedHash)) {
+      if (!isFlat(cachedPixels) && !isStacked(cachedGrid, 180, 320) && !tooSimilar(lastImageHash, cachedHash)) {
         lastImageHash = cachedHash;
         console.log(`[belgesel] görsel=${path.basename(dest)} onbellek=1`);
         return dest;
@@ -1292,7 +1307,9 @@ async function downloadPollinationsStill(prompt, dest, channel, seed, ffmpegPath
         const size = fs.statSync(dest).size;
         if (size < 2048) throw new Error('Pollinations boş bir görsel yazdı.');
         const pixels = await grayFingerprint(ffmpegPath, dest);
+        const grid = await grayFrame(ffmpegPath, dest, 180, 320);
         if (isFlat(pixels)) throw new Error('Pollinations tek renk bir kare verdi.');
+        if (isStacked(grid, 180, 320)) throw new Error('Pollinations kolaj veya şeritli kare verdi.');
         const hash = averageHash(pixels);
         if (tooSimilar(lastImageHash, hash)) throw new Error('Pollinations bir önceki kareye çok benzedi.');
         lastImageHash = hash;
@@ -1907,6 +1924,53 @@ async function produceDocumentaryLegacy({
   }
 }
 
+function planFromReelScenes(list) {
+  const scenes = (Array.isArray(list) ? list : []).slice(0, 5).map((scene) => {
+    const narration = spokenHookText(scene && scene.narration);
+    const image = cleanImagePrompt(scene && (scene.image_prompt || scene.visual_prompt));
+    const anchor = String(scene && scene.anchor_words || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    return {
+      narration,
+      image_prompt: image,
+      voice_tone: String(scene && (scene.voice_tone || scene.voice_direction) || 'quiet, tense').slice(0, 160),
+      timestamp_sec: '',
+      shots: image ? [{ visual_prompt: image, anchor_words: anchor }] : []
+    };
+  }).filter((scene) => scene.narration && scene.image_prompt);
+  return {
+    scenes,
+    words: scenes.reduce((sum, scene) => sum + storyLib.wordCount(scene.narration), 0),
+    music_mood: 'mystery'
+  };
+}
+
+async function buildStoryReel(source, language, apiKey) {
+  const text = String(source || '').trim();
+  if (text.length < 40) throw new DocumentaryError('Hikâye en az birkaç cümle olsun.', 400);
+  let reading = null;
+  for (let pass = 0; pass < 2 && !reading; pass++) {
+    const rawReading = await askGeminiJson(apiKey, storyLib.reelReadPrompt(text), storyLib.REEL_READ_SCHEMA);
+    const events = Array.isArray(rawReading && rawReading.events) ? rawReading.events.map((item) => String(item || '').trim()).filter(Boolean) : [];
+    if (events.length >= 3 && String(rawReading.shock || '').trim() && String(rawReading.ending || '').trim()) {
+      reading = { shock: String(rawReading.shock).trim(), ending: String(rawReading.ending).trim(), events };
+    }
+  }
+  if (!reading) throw new DocumentaryError('Hikâye okunamadı. Metni biraz daha açık yapıştır.', 422);
+  let note = '';
+  let closest = null;
+  for (let turn = 0; turn < 3; turn++) {
+    const raw = await askGeminiJson(apiKey, storyLib.reelPrompt(reading, language, note), storyLib.REEL_SCHEMA);
+    const plan = planFromReelScenes(raw && raw.scenes);
+    plan.music_mood = /^(mystery|epic|sad|science)$/.test(String(raw && raw.music_mood)) ? raw.music_mood : 'mystery';
+    const issues = storyLib.reelIssues(plan.scenes);
+    if (!issues.length) return plan;
+    if (!closest || Math.abs(plan.words - 82) < Math.abs(closest.words - 82)) closest = plan;
+    note = issues.join('; ');
+  }
+  const leftover = storyLib.reelIssues(closest && closest.scenes);
+  throw new DocumentaryError(`Hikâye Reels ölçüsüne inemedi: ${leftover.join('; ') || 'senaryo yok'}.`, 422);
+}
+
 async function produceDocumentary(opts) {
   const config = loadDocConfig();
   if (config.STORY_PIPELINE === 'v1' && config.OUTPUT_LAYOUT === 'legacy') {
@@ -1919,6 +1983,8 @@ async function produceDocumentary(opts) {
     buildPlan,
     askGeminiJson,
     askGeminiVision,
+    buildStoryReel,
+    planFromReelScenes,
     spokenHookText,
     cleanImagePrompt,
     resolveDocVoice,
@@ -1939,6 +2005,8 @@ async function produceDocumentary(opts) {
 module.exports = {
   produceDocumentary,
   produceDocumentaryLegacy,
+  buildStoryReel,
+  planFromReelScenes,
   askGeminiJson,
   askGeminiVision,
   parseScenePlan,

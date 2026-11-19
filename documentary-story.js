@@ -175,6 +175,57 @@ function scriptPrompt(bible, language, shotsPerScene, note) {
   ].filter(Boolean).join('\n');
 }
 
+function reelReadPrompt(source) {
+  return [
+    'Read the source from the first word to the last. Do not write a script.',
+    'Return the events that are actually written, in the order they happen.',
+    'shock is the single most surprising result or mystery already in the source.',
+    'ending is the last real event.',
+    'Each event is one short sentence. Keep a name, number, or date only when the event cannot be understood without it.',
+    'Do not add a cause, a dream, a coincidence, a person, a place, or a date that the source does not contain.',
+    `Source:\n${source}`
+  ].join('\n');
+}
+
+function reelPrompt(reading, language, note) {
+  return [
+    'You already read the story. The reading below is the only material you may use.',
+    'Now write one spoken script for a 40 to 50 second vertical reel.',
+    'Do not add a dream, a coincidence, a character, a place, a number, a date, or a cause that the reading does not contain.',
+    `Narration language: ${language}.`,
+    'Five scenes. Aim for 80 to 85 spoken words. Never pass 85.',
+    'Scene 1 is one sentence of 6 to 12 words. It is spoken in the first 3 seconds and names the shock from the reading.',
+    'Scenes 2, 3 and 4 retell the reading in chronological order. Drop spare names and dates. Keep the details that hold the question open.',
+    'The last sentence closes the story and sends the viewer back to the opening sentence.',
+    'image_prompt is one English photograph of 40 to 70 words. It shows only what that scene says. One subject. No collage, no grid, no split screen.',
+    'anchor_words are 2 to 4 words copied from that scene narration.',
+    'voice_tone is a short English direction such as "quiet, tense".',
+    'music_mood is exactly one of mystery, epic, sad, science.',
+    'No square brackets and no stage directions.',
+    note ? `Fix: ${note}` : '',
+    `Reading:\n${JSON.stringify(reading)}`
+  ].filter(Boolean).join('\n');
+}
+
+function reelIssues(scenes) {
+  const list = Array.isArray(scenes) ? scenes : [];
+  const issues = [];
+  if (list.length !== 5) issues.push('five scenes');
+  const words = list.reduce((sum, scene) => sum + wordCount(scene && scene.narration), 0);
+  if (words < 70 || words > 85) issues.push(`word count ${words}`);
+  const opening = String(list[0] && list[0].narration || '');
+  const openingWords = wordCount(opening);
+  const openingSentences = opening.split(/[.!?]+/).map((part) => part.trim()).filter(Boolean).length;
+  if (openingSentences !== 1 || openingWords < 6 || openingWords > 14) issues.push('opening sentence');
+  list.forEach((scene, index) => {
+    const narration = String(scene && scene.narration || '');
+    if (!narration.trim()) issues.push(`empty scene ${index + 1}`);
+    if (/\[[^\]]+\]/.test(narration)) issues.push(`brackets in scene ${index + 1}`);
+    if (String(scene && scene.image_prompt || '').trim().length < 20) issues.push(`image ${index + 1}`);
+  });
+  return issues;
+}
+
 function criticPrompt(bible, script) {
   return [
     'You are a strict story editor. Return JSON only.',
@@ -263,8 +314,40 @@ module.exports = {
   biblePrompt,
   scriptPrompt,
   criticPrompt,
+  reelReadPrompt,
+  reelPrompt,
+  reelIssues,
   beatsOf,
   BIBLE_SCHEMA,
   SCRIPT_SCHEMA,
-  CRITIC_SCHEMA
+  CRITIC_SCHEMA,
+  REEL_READ_SCHEMA: {
+    type: 'OBJECT',
+    properties: {
+      shock: { type: 'STRING' },
+      ending: { type: 'STRING' },
+      events: { type: 'ARRAY', items: { type: 'STRING' } }
+    },
+    required: ['shock', 'ending', 'events']
+  },
+  REEL_SCHEMA: {
+    type: 'OBJECT',
+    properties: {
+      music_mood: { type: 'STRING' },
+      scenes: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            narration: { type: 'STRING' },
+            image_prompt: { type: 'STRING' },
+            voice_tone: { type: 'STRING' },
+            anchor_words: { type: 'STRING' }
+          },
+          required: ['narration', 'image_prompt', 'anchor_words']
+        }
+      }
+    },
+    required: ['music_mood', 'scenes']
+  }
 };

@@ -120,9 +120,13 @@ function logRun(row) {
 
 async function produceRecipe(opts, config, deps) {
   const selected = deps.resolveDocChannel(opts.channel);
+  const pastedStory = String(opts.storyText || '').trim();
+  const givenScenes = Array.isArray(opts.scriptScenes) ? opts.scriptScenes : null;
   let subject = String(opts.topic || '').replace(/\s+/g, ' ').trim();
   let reddit = null;
-  if (selected === 'chaos' && config.CHAOS_SOURCE !== 'original') {
+  if (pastedStory || givenScenes) {
+    if (subject.length < 8) subject = pastedStory.replace(/\s+/g, ' ').slice(0, 90);
+  } else if (selected === 'chaos' && config.CHAOS_SOURCE !== 'original') {
     reddit = await deps.pullChaosStory({ query: subject, redditId: opts.redditId, avoid: '' });
     subject = reddit.title;
   } else if (subject.length < 8) {
@@ -144,7 +148,20 @@ async function produceRecipe(opts, config, deps) {
   let plan = null;
   let critic = null;
   if (rank(from) <= rank('script') || !job.readJson(dir, 'script.json')) {
-    if (config.STORY_PIPELINE === 'v2') {
+    if (givenScenes || pastedStory) {
+      plan = givenScenes
+        ? deps.planFromReelScenes(givenScenes)
+        : await deps.buildStoryReel(pastedStory, langName, opts.geminiKey);
+      if (givenScenes && /^(mystery|epic|sad|science)$/.test(String(opts.musicMood || ''))) plan.music_mood = opts.musicMood;
+      const reelProblems = story.reelIssues(plan.scenes);
+      if (reelProblems.length) {
+        throw new deps.DocumentaryError(`Senaryo Reels ölçüsüne uymadı: ${reelProblems.join('; ')}.`, 422);
+      }
+      bible = { logline: subject, is_fiction: true, scope: subject, core_mechanism: 'the pasted story', hook: plan.scenes[0].narration, final_line: plan.scenes[4].narration };
+      critic = { pass: true, issues: [] };
+      job.writeJson(dir, 'bible.json', bible);
+      job.writeJson(dir, 'critic.json', critic);
+    } else if (config.STORY_PIPELINE === 'v2') {
       const built = await buildV2(deps, subject, langName, opts.geminiKey, selected, config);
       bible = built.bible;
       critic = built.critic;
@@ -245,7 +262,7 @@ async function produceRecipe(opts, config, deps) {
   const clock = timeline.buildTimeline(plan.scenes, sceneAudio);
   job.writeJson(dir, 'timeline.json', clock);
   const seedBase = crypto.createHash('sha256').update(path.basename(dir)).digest().readUInt32BE(0) % 100000;
-  const periodLock = ' Period-accurate objects only. No modern clothing, eyeglasses, pens, screens, digital interfaces, modern buildings, modern hats, collage, split screen, or two panels.';
+  const periodLock = ' One single photograph filling the whole vertical frame. No collage, no triptych, no grid, no stacked panels, no split screen, no black bars, no repeated picture. Period-accurate objects only. No modern clothing, eyeglasses, pens, screens, digital interfaces, modern buildings, or modern hats.';
   for (let i = 0; i < clock.shots.length; i++) {
     const shot = clock.shots[i];
     if (opts.onlyScene != null && shot.scene !== opts.onlyScene) continue;
@@ -259,7 +276,13 @@ async function produceRecipe(opts, config, deps) {
       const shotIndex = vision.shotAt(clock.shots, time);
       const shot = clock.shots[shotIndex];
       const scene = plan.scenes[shot.scene] || {};
-      return { index, time, shot: shotIndex, line: String(scene.narration || '').slice(0, 240) };
+      return {
+        index,
+        time,
+        shot: shotIndex,
+        line: String(scene.narration || '').slice(0, 180),
+        prompt: String(shot.visual_prompt || '').slice(0, 240)
+      };
     });
     const previewDir = path.join(dir, 'vision');
     fs.mkdirSync(previewDir, { recursive: true });
