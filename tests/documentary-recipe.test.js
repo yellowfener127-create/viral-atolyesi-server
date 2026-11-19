@@ -129,6 +129,11 @@ test('qc accepts a measured reel and rejects a quiet one', () => {
     lufs: -14, true_peak_db: -1.6, leading_silence_sec: 0.1, black_events: 0, freeze_events: 0
   }, { duration: [24, 70], shots: 15 });
   assert.equal(good.pass, true);
+  const held = judgeQc({
+    width: 1080, height: 1920, fps: 30, duration_sec: 47, has_audio: true,
+    lufs: -14.1, true_peak_db: -1.1, black_events: 0, freeze_events: 0
+  }, { duration: [24, 70], shots: 15, hardMax: 70 });
+  assert.equal(held.pass, true);
   const quiet = judgeQc({
     width: 1080, height: 1920, fps: 30, duration_sec: 42, has_audio: true,
     lufs: -24.3, true_peak_db: -4.6, black_events: 0, freeze_events: 0
