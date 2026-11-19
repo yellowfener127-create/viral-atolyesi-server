@@ -193,7 +193,7 @@ function reelPrompt(reading, language, note) {
     'Now write one spoken script for a 40 to 50 second vertical reel.',
     'Do not add a dream, a coincidence, a character, a place, a number, a date, or a cause that the reading does not contain.',
     `Narration language: ${language}.`,
-    'Five scenes. Aim for 80 to 85 spoken words. Never pass 85.',
+    'Five scenes. Count every spoken word. The five narrations together must be 80 to 85 words. Under 80 is wrong. Never pass 85.',
     'Scene 1 is one sentence of 6 to 12 words. It is spoken in the first 3 seconds and names the shock from the reading.',
     'Scenes 2, 3 and 4 retell the reading in chronological order. Drop spare names and dates. Keep the details that hold the question open.',
     'The last sentence closes the story and sends the viewer back to the opening sentence.',
@@ -220,6 +220,41 @@ function reelTranslatePrompt(scenes, targetLanguage) {
     'Do not add a scene, a fact, a name, or a cause.',
     'anchor_words are 2 to 4 words copied from that translated narration.',
     'No square brackets.',
+    lines.join('\n')
+  ].join('\n');
+}
+
+function reelRepairNote(issues, words) {
+  const rest = (issues || []).filter((item) => !String(item).startsWith('word count'));
+  const lines = [];
+  const count = Number(words);
+  if ((issues || []).some((item) => String(item).startsWith('word count')) && Number.isFinite(count)) {
+    if (count < 80) {
+      lines.push(`The narration is ${count} spoken words. Add ${80 - count} to ${85 - count} words inside scenes 2, 3 and 4 by unfolding events already in the reading. Land between 80 and 85. Do not add a new fact.`);
+    } else {
+      lines.push(`The narration is ${count} spoken words. Cut scenes 2, 3 and 4 until the total is between 80 and 85. Keep the shock and the last sentence.`);
+    }
+  }
+  if (rest.length) lines.push(`Also fix: ${rest.join('; ')}.`);
+  return lines.join(' ');
+}
+
+function reelLengthPrompt(scenes, words, language) {
+  const lines = (scenes || []).map((scene, index) => `${index + 1}. ${scene.narration}`);
+  const count = Number(words) || 0;
+  const direction = count > 85
+    ? `These five lines are ${count} words. Cut them to between 80 and 85 spoken words. Keep the shock and the last sentence.`
+    : `These five lines are ${count} words. Rewrite them to between 80 and 85 spoken words. Add the missing words in scenes 2, 3 and 4 by unfolding events already in the reading. Do not add a new fact.`;
+  return [
+    direction,
+    `Narration language: ${language}.`,
+    'Keep exactly five scenes. Scene 1 stays one sentence of 6 to 12 words.',
+    'The last sentence still sends the viewer back to the opening.',
+    'image_prompt is one English photograph of 40 to 70 words. One subject. No collage, no grid, no split screen.',
+    'anchor_words are 2 to 4 words copied from that scene narration.',
+    'voice_tone is a short English direction such as "quiet, tense".',
+    'music_mood is exactly one of mystery, epic, sad, science.',
+    'No square brackets and no stage directions.',
     lines.join('\n')
   ].join('\n');
 }
@@ -335,6 +370,8 @@ module.exports = {
   reelPrompt,
   reelSourceLanguage,
   reelTranslatePrompt,
+  reelRepairNote,
+  reelLengthPrompt,
   reelIssues,
   beatsOf,
   BIBLE_SCHEMA,

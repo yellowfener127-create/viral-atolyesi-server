@@ -1997,10 +1997,21 @@ async function buildStoryReel(source, language, apiKey) {
     const issues = storyLib.reelIssues(plan.scenes);
     if (!issues.length) return attachReelTranslation(plan, authored, apiKey);
     if (!closest || Math.abs(plan.words - 82) < Math.abs(closest.words - 82)) closest = plan;
-    note = issues.join('; ');
+    note = storyLib.reelRepairNote(issues, plan.words);
+  }
+  if (closest && closest.scenes && closest.scenes.length === 5) {
+    const raw = await askGeminiJson(apiKey, storyLib.reelLengthPrompt(closest.scenes, closest.words, authored), storyLib.REEL_SCHEMA);
+    const plan = planFromReelScenes(raw && raw.scenes);
+    plan.music_mood = closest.music_mood;
+    if (!storyLib.reelIssues(plan.scenes).length) return attachReelTranslation(plan, authored, apiKey);
+    if (Math.abs(plan.words - 82) < Math.abs(closest.words - 82)) closest = plan;
   }
   const leftover = storyLib.reelIssues(closest && closest.scenes);
-  throw new DocumentaryError(`Hikâye Reels ölçüsüne inemedi: ${leftover.join('; ') || 'senaryo yok'}.`, 422);
+  const words = closest && closest.words;
+  const detail = leftover.some((item) => String(item).startsWith('word count'))
+    ? `${words} kelime çıktı, 80-85 gerekli`
+    : (leftover.join('; ') || 'senaryo yok');
+  throw new DocumentaryError(`Hikâye Reels ölçüsüne inemedi: ${detail}.`, 422);
 }
 
 async function produceDocumentary(opts) {
