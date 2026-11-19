@@ -102,6 +102,14 @@ function assEscape(text) {
   return String(text || '').replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}').replace(/\r?\n/g, ' ').replace(/'/g, '\u2019');
 }
 
+function distinctHook(narration) {
+  const text = String(narration || '').replace(/\s+/g, ' ').trim();
+  const line = text.split(/[.!?]/)[0].trim();
+  if (!line) return '';
+  if (text.toLowerCase().indexOf(line.toLowerCase()) === 0) return '';
+  return line;
+}
+
 function buildAss(cues, hook) {
   const lines = [
     '[Script Info]',
@@ -128,4 +136,4 @@ function buildAss(cues, hook) {
   return lines.join('\n');
 }
 
-module.exports = { MOTIONS, motionFor, findAnchor, buildTimeline, chunkWords, buildAss, assTime };
+module.exports = { MOTIONS, motionFor, findAnchor, buildTimeline, chunkWords, buildAss, assTime, distinctHook };

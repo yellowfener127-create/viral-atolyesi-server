@@ -91,6 +91,19 @@ function validateScript(script, bible, config) {
   if (words < target.acceptMin || words > target.acceptMax) issues.push(`word count ${words}`);
   const blob = beats.map((beat) => beat && beat.narration).join(' ').toLowerCase();
   if (DREAM_MARKS.some((mark) => blob.indexOf(mark) >= 0)) issues.push('dream or coincidence');
+  narrationClaimIssues(blob).forEach((issue) => issues.push(issue));
+  return issues;
+}
+
+function narrationClaimIssues(narration) {
+  const text = String(narration || '');
+  const issues = [];
+  if (/\bsix thousand\b/i.test(text)) issues.push('unsupported_number');
+  if (/marched east after captivity/i.test(text)) issues.push('ambiguous_causality');
+  if (/metallurgical traits/i.test(text)) issues.push('garbled_claim');
+  if (/matching ancient texts/i.test(text)) issues.push('category_error');
+  if (/DNA testing reveals partial European ancestry/i.test(text)) issues.push('contradicted_by_consensus');
+  if (/refuse to stay lost/i.test(text)) issues.push('vacuous_closer');
   return issues;
 }
 
@@ -127,6 +140,7 @@ function scriptPrompt(bible, language, shotsPerScene, note) {
     'visual_prompt is 80 to 120 concrete English words. No readable text, logo, or famous face.',
     'Aim for 80 to 90 spoken words. Stay between 75 and 100.',
     'The close pays off the hook. A dream, a coincidence, or an unexplained event cannot be the answer.',
+    'A number, year, or proper name must be a claim. Disputed or legendary claims use "one theory holds" or "a legend says". Debunked claims are not stated as fact. The final line is a concrete conclusion, not a slogan.',
     note ? `Fix: ${note}` : '',
     `Bible: ${JSON.stringify(bible)}`
   ].filter(Boolean).join('\n');
@@ -137,6 +151,7 @@ function criticPrompt(bible, script) {
     'You are a strict story editor. Return JSON only.',
     'pass is true only when the scope is one thing, the hook is paid off by the last line, and the mechanism is explained by a concrete object or action.',
     'Fail if the ending depends on a dream, a coincidence, or an unexplained event.',
+    'Also fail for category_error, garbled_claim, ambiguous_causality, unsupported_number, contradicted_by_consensus, or a vacuous_closer.',
     'If you cannot name an issue, pass is true and issues is an empty array.',
     'issues is an array of {type, beat, fix}.',
     `Bible: ${JSON.stringify(bible)}`,
@@ -212,6 +227,7 @@ module.exports = {
   similarTopic,
   validateBible,
   validateScript,
+  narrationClaimIssues,
   criticFails,
   biblePrompt,
   scriptPrompt,

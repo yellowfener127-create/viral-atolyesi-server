@@ -1404,13 +1404,20 @@ function narrationParts(narration) {
 
 function pauseForSpan(part) {
   const text = String(part || '').trim();
-  if (/(?:\.{2,}|\u2026)\s*$/.test(text)) return 1.5;
-  if (/\.\s*$/.test(text)) return 1;
-  return 0.7;
+  if (/(?:\.{2,}|\u2026)\s*$/.test(text)) return 0.55;
+  if (/\?\s*$/.test(text)) return 0.52;
+  if (/[.!]\s*$/.test(text)) return 0.48;
+  if (/[,;:]\s*$/.test(text)) return 0.2;
+  return 0;
 }
 
 function sentenceSpans(words, narration) {
   const parts = narrationParts(narration);
+  const expected = parts.reduce((sum, part) => sum + part.split(/\s+/).filter(Boolean).length, 0);
+  if (!words.length || expected !== words.length) {
+    const end = Number(words[words.length - 1] && words[words.length - 1].end) || 0;
+    return [{ end, fromWord: 0, toWord: words.length, pause: 0 }];
+  }
   const spans = [];
   let index = 0;
   for (const part of parts) {
@@ -1424,10 +1431,6 @@ function sentenceSpans(words, narration) {
       toWord: index,
       pause: pauseForSpan(part)
     });
-  }
-  if (!spans.length || index !== words.length) {
-    const end = Number(words[words.length - 1] && words[words.length - 1].end) || 0;
-    return [{ end, fromWord: 0, toWord: words.length, pause: pauseForSpan(narration) }];
   }
   return spans;
 }
@@ -1892,6 +1895,8 @@ module.exports = {
   renderScene,
   voiceSettingsForTone,
   shapeNarration,
+  pauseForSpan,
+  sentenceSpans,
   cleanMusicMood,
   musicFileForMood,
   breatheSentences,

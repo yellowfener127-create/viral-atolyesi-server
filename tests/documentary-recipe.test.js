@@ -42,6 +42,26 @@ test('a critic with no named issue does not block the film', () => {
   assert.equal(story.criticFails(null), true);
 });
 
+test('the measured roman-legion narration fails and pauses stay at punctuation', () => {
+  const factory = require('../documentary-factory');
+  const timeline = require('../documentary-timeline');
+  const sample = 'What happened to six thousand Roman soldiers who simply vanished? A Roman legion marched east after captivity, settling at Liqian in ancient China. They left behind unique metallurgical traits and peculiar fish scale military formation. DNA testing reveals partial European ancestry matching ancient texts about foreign captive soldiers. History is not just written in books, it is etched into the very DNA of those who refuse to stay lost.';
+  const issues = story.narrationClaimIssues(sample);
+  ['unsupported_number', 'ambiguous_causality', 'garbled_claim', 'category_error', 'contradicted_by_consensus', 'vacuous_closer'].forEach((kind) => {
+    assert.ok(issues.includes(kind), kind);
+  });
+  assert.equal(factory.pauseForSpan('They vanished.'), 0.48);
+  assert.equal(factory.pauseForSpan('Who vanished?'), 0.52);
+  assert.equal(factory.pauseForSpan('soldiers who'), 0);
+  const mismatched = factory.sentenceSpans(
+    [{ word: 'only', start: 0, end: 0.4 }],
+    'only one word here.'
+  );
+  assert.equal(mismatched.length, 1);
+  assert.equal(mismatched[0].pause, 0);
+  assert.equal(timeline.distinctHook(sample), '');
+});
+
 test('timeline locks a shot to its anchor and the last shot holds', () => {
   const scenes = [{
     narration: 'The knife stayed in the lock.',

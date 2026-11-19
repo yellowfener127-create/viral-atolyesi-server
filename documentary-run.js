@@ -233,12 +233,14 @@ async function produceRecipe(opts, config, deps) {
   const clock = timeline.buildTimeline(plan.scenes, sceneAudio);
   job.writeJson(dir, 'timeline.json', clock);
   const seedBase = crypto.createHash('sha256').update(path.basename(dir)).digest().readUInt32BE(0) % 100000;
+  const periodLock = ' Period-accurate objects only. No modern clothing, eyeglasses, pens, screens, digital interfaces, modern buildings, or modern hats.';
   for (let i = 0; i < clock.shots.length; i++) {
     const shot = clock.shots[i];
     if (opts.onlyScene != null && shot.scene !== opts.onlyScene) continue;
     const photo = path.join(dir, 'images', `shot_${i}.jpg`);
     if (rank(from) > rank('images') && fs.existsSync(photo) && opts.onlyScene == null) continue;
-    await deps.downloadPollinationsStill(shot.visual_prompt, photo, selected, seedBase + i + 1, ffmpegBin);
+    const prompt = String(shot.visual_prompt || '') + (String(shot.visual_prompt || '').indexOf('Period-accurate') < 0 ? periodLock : '');
+    await deps.downloadPollinationsStill(prompt, photo, selected, seedBase + i + 1, ffmpegBin);
   }
   if (rank(from) <= rank('images') && deps.askGeminiVision) {
     const samples = vision.sampleTimes(clock.duration, 8).map((time, index) => {
@@ -272,7 +274,8 @@ async function produceRecipe(opts, config, deps) {
       for (const index of redo) {
         const shot = clock.shots[index];
         const photo = path.join(dir, 'images', `shot_${index}.jpg`);
-        await deps.downloadPollinationsStill(shot.visual_prompt, photo, selected, seedBase + index + 1 + 50000, ffmpegBin);
+        const again = String(shot.visual_prompt || '') + (String(shot.visual_prompt || '').indexOf('Period-accurate') < 0 ? periodLock : '');
+        await deps.downloadPollinationsStill(again, photo, selected, seedBase + index + 1 + 50000, ffmpegBin);
       }
       job.writeJson(dir, 'vision.json', { frames, redo });
       console.log(`[belgesel] vision kare=8 yeniden=${redo.length}`);
@@ -288,19 +291,14 @@ async function produceRecipe(opts, config, deps) {
   const segments = [];
   for (let i = 0; i < clock.shots.length; i++) {
     const shot = clock.shots[i];
-    const audio = sceneAudio[shot.scene];
     const segment = path.join(dir, 'images', `shot_${i}.mp4`);
     const duration = Math.max(0.4, (shot.end || 0) - (shot.start || 0) || ((shot.local_end || 0) - (shot.local_start || 0)));
-    const start = Math.max(0, shot.local_start || 0);
-    const end = Math.max(start + 0.2, shot.local_end || (start + duration));
     await ffmpeg(ffmpegBin, [
       '-y', '-loop', '1', '-framerate', '30', '-i', path.join(dir, 'images', `shot_${i}.jpg`),
-      '-i', audio.file,
       '-vf', motionFilter(duration, shot.motion) + cardTail(config.layout),
-      '-af', `atrim=start=${start.toFixed(3)}:end=${end.toFixed(3)},asetpts=PTS-STARTPTS,apad=whole_dur=${duration.toFixed(3)},aresample=44100`,
-      '-map', '0:v:0', '-map', '1:a:0', '-t', duration.toFixed(3),
+      '-t', duration.toFixed(3),
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', '30',
-      '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k',
+      '-an',
       '-movflags', '+faststart', segment
     ]);
     segments.push(segment);
@@ -313,9 +311,28 @@ async function produceRecipe(opts, config, deps) {
     await ffmpeg(ffmpegBin, [
       '-y', '-f', 'concat', '-safe', '0', '-i', listPath,
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', '30',
-      '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k', '-movflags', '+faststart', joined
+      '-an', '-movflags', '+faststart', joined
     ]);
   }
+  const audioList = path.join(dir, 'audio', 'list.txt');
+  fs.writeFileSync(audioList, sceneAudio.map((audio) => `file '${String(audio.file).replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
+  const narration = path.join(dir, 'audio', 'narration.mp3');
+  await ffmpeg(ffmpegBin, ['-y', '-f', 'concat', '-safe', '0', '-i', audioList, '-c:a', 'libmp3lame', '-b:a', '192k', narration]);
+  const withVoice = path.join(dir, 'with-voice.mp4');
+  await ffmpeg(ffmpegBin, [
+    '-y', '-i', joined, '-i', narration,
+    '-filter_complex', '[1:a]apad,aresample=44100[a]',
+    '-map', '0:v:0', '-map', '[a]',
+    '-c:v', 'copy', '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k',
+    '-shortest', '-movflags', '+faststart', withVoice
+  ]);
+  job.writeJson(dir, 'audio_debug.json', {
+    tts: 'per-scene',
+    assembly: 'one-track',
+    overlap_sec: 0,
+    shot_audio_trim: false,
+    hypothesis: 'H2'
+  });
   const cues = [];
   let cursor = 0;
   sceneAudio.forEach((audio) => {
@@ -324,13 +341,13 @@ async function produceRecipe(opts, config, deps) {
     });
     cursor += Number(audio.duration) || 0;
   });
-  const hook = String(plan.scenes[0] && plan.scenes[0].narration || '').split(/[.!?]/)[0];
+  const hook = timeline.distinctHook(plan.scenes[0] && plan.scenes[0].narration);
   const assFile = path.join(dir, 'subs.ass');
   fs.writeFileSync(assFile, timeline.buildAss(cues, hook), 'utf8');
   const escaped = assFile.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
   const graded = path.join(dir, 'graded.mp4');
   await ffmpeg(ffmpegBin, [
-    '-y', '-i', joined,
+    '-y', '-i', withVoice,
     '-vf', `eq=gamma=${Number(config.grade_gamma) || 1.06},noise=alls=${Number(config.grain) || 3}:allf=t,subtitles='${escaped}'`,
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', '30',
     '-c:a', 'copy', '-movflags', '+faststart', graded

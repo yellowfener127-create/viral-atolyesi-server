@@ -1,5 +1,13 @@
 # Değişiklikler
 
+## Roma lejyonu vakası
+
+- Konuşma artık shot sınırında kesilmez. Sahnelerin sesi tek iz olarak videoya bağlanır.
+- Duraklama yalnızca cümle sonuna konur: nokta 0.48 sn, soru 0.52 sn, üç nokta 0.55 sn. Cümle ortasına 0.7 sn eklenmez.
+- Kelime hizası anlatımla tutmazsa araya sessizlik konmaz.
+- İlk cümleyle aynı hook yazısı ikinci kez basılmaz.
+- Örnek Roma lejyonu anlatımı sayı, nedensellik, kanıt türü ve boş kapanış yüzünden reddedilir.
+
 ## Faz 0
 
 - Belgesel bayrakları tek modülde toplandı.
