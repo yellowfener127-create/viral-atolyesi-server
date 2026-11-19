@@ -197,7 +197,7 @@ function reelPrompt(reading, language, note) {
     'Scene 1 is one sentence of 6 to 12 words. It is spoken in the first 3 seconds and names the shock from the reading.',
     'Scenes 2, 3 and 4 retell the reading in chronological order. Drop spare names and dates. Keep the details that hold the question open.',
     'The last sentence closes the story and sends the viewer back to the opening sentence.',
-    'image_prompt is one English photograph of 40 to 70 words. It shows only what that scene says. One subject. No collage, no grid, no split screen.',
+    'image_prompt is one English photograph of 40 to 70 words. It shows only what that scene says. One subject. No collage, no grid, no split screen. Match the light to the scene. Do not force a dark grade. No neon and no candy colors.',
     'anchor_words are 2 to 4 words copied from that scene narration.',
     'voice_tone is a short English direction such as "quiet, tense".',
     'music_mood is exactly one of mystery, epic, sad, science.',

@@ -54,25 +54,22 @@ function buildTimeline(scenes, sceneAudio) {
     shots.push(...sceneShots);
     cursor += duration;
   });
-  if (shots.length) {
-    const last = shots[shots.length - 1];
-    last.local_end = Number(last.local_end) + 0;
-  }
-  let global = 0;
-  const sceneDuration = {};
-  sceneAudio.forEach((audio, index) => { sceneDuration[index] = Number(audio && audio.duration) || 0; });
-  const offsets = [];
-  scenes.forEach((_, index) => {
-    offsets[index] = global;
-    global += sceneDuration[index] || 0;
-  });
-  shots.forEach((shot) => {
-    shot.start = (offsets[shot.scene] || 0) + shot.local_start;
-    shot.end = (offsets[shot.scene] || 0) + shot.local_end;
-  });
-  if (shots.length) {
-    shots[shots.length - 1].end += 0.5;
-    global = shots[shots.length - 1].end;
+  const spoken = sceneAudio.reduce((sum, audio) => sum + (Number(audio && audio.duration) || 0), 0);
+  let global = spoken;
+  if (shots.length && spoken > 0) {
+    const slice = spoken / shots.length;
+    shots.forEach((shot, index) => {
+      shot.start = index * slice;
+      shot.end = index === shots.length - 1 ? spoken : (index + 1) * slice;
+      shot.local_start = 0;
+      shot.local_end = shot.end - shot.start;
+    });
+  } else {
+    shots.forEach((shot) => {
+      shot.start = 0;
+      shot.end = 0;
+    });
+    global = 0;
   }
   shots.sort((a, b) => a.start - b.start);
   shots.forEach((shot, index) => { shot.index = index; });

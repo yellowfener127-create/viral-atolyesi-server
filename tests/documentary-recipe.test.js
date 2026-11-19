@@ -103,10 +103,12 @@ test('timeline locks a shot to its anchor and the last shot holds', () => {
   }];
   const clock = timeline.buildTimeline(scenes, audio);
   assert.equal(clock.shots[0].start, 0);
-  assert.equal(clock.shots[1].start, 1.4);
-  assert.ok(clock.shots[clock.shots.length - 1].end >= 4.5);
+  assert.equal(clock.shots.length, 2);
+  assert.ok(Math.abs((clock.shots[0].end - clock.shots[0].start) - 2) < 0.001);
+  assert.ok(Math.abs((clock.shots[1].end - clock.shots[1].start) - 2) < 0.001);
+  assert.equal(clock.shots[1].end, 4);
   const covered = clock.shots.reduce((sum, shot) => sum + (shot.end - shot.start), 0);
-  assert.ok(covered >= 4.5);
+  assert.ok(Math.abs(covered - 4) < 0.001);
   const ass = timeline.buildAss(timeline.chunkWords(audio[0].words), 'The knife stayed');
   assert.match(ass, /Style: Hook/);
   assert.doesNotMatch(ass, /@/);
@@ -126,7 +128,11 @@ test('a short picture cannot drop the last sentence', () => {
   const words = scenes[0].narration.split(/\s+/).map((word, index) => ({ word, start: index * 0.4, end: index * 0.4 + 0.3 }));
   const clock = timeline.buildTimeline(scenes, [{ duration: 8, words }]);
   assert.equal(clock.shots[0].start, 0);
-  assert.ok(clock.shots[clock.shots.length - 1].end >= 8.5);
+  assert.equal(clock.shots.length, 3);
+  clock.shots.forEach((shot) => {
+    assert.ok(Math.abs((shot.end - shot.start) - (8 / 3)) < 0.001);
+  });
+  assert.ok(Math.abs(clock.shots[2].end - 8) < 0.001);
   const issues = story.narrationClaimIssues('Did a lost Roman legion really vanish into ancient China? One theory holds that prisoners marched east. Modern scientific investigation changed everything when DNA testing revealed isolated Mediterranean genetic markers. They built a fish-scale fort. Physical evidence bridges the gap between empires.');
   ['certainty_escalation', 'missing_consensus', 'unanswered_hook', 'unsupported_detail', 'vague_claim', 'misleading_evidence'].forEach((kind) => {
     assert.ok(issues.includes(kind), kind);

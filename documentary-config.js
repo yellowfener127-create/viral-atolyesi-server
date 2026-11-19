@@ -4,9 +4,9 @@
  * STORY_PIPELINE=v1 ve OUTPUT_LAYOUT=legacy eski üretimi çalıştırır.
  */
 const STYLE_SUFFIX = Object.freeze({
-  epoch: ', cinematic dark horror/mystery documentary still, moody chiaroscuro lighting, dramatic shadows, desaturated cold color palette, hyper-realistic, 8k resolution, film grain, grim atmosphere, no bright colors',
-  chaos: ', cinematic dark horror/mystery documentary still, moody chiaroscuro lighting, dramatic shadows, desaturated cold color palette, hyper-realistic, 8k resolution, film grain, grim atmosphere, no bright colors',
-  therapy: ', surreal psychological thriller cinematography, dark shadows, silhouette in fog, eerie minimalist lighting, cold blue and black tones, hyper-realistic, 8k resolution, film grain, no bright colors'
+  epoch: ', period documentary photograph, natural light for that place and hour, realistic muted colors, no neon, no candy colors, no cartoon saturation, hyper-realistic, film grain',
+  chaos: ', cinematic documentary photograph, light that matches the place and the hour, realistic muted colors, no neon, no candy colors, no cartoon saturation, hyper-realistic, film grain',
+  therapy: ', restrained documentary photograph, natural or clinical light that matches the room, realistic muted colors, no neon, no candy colors, no cartoon saturation, hyper-realistic, film grain'
 });
 
 const DOC_CONFIG = Object.freeze({

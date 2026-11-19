@@ -377,12 +377,16 @@ function buildCaptionFilter(words, duration, fontFile) {
   ]).join(',');
 }
 
-const STYLE_LOCK = ', cinematic dark horror/mystery documentary still, moody chiaroscuro lighting, dramatic shadows, desaturated cold color palette, hyper-realistic, 8k resolution, film grain, grim atmosphere, no bright colors';
-const THERAPY_STYLE_LOCK = ', surreal psychological thriller cinematography, dark shadows, silhouette in fog, eerie minimalist lighting, cold blue and black tones, hyper-realistic, 8k resolution, film grain, no bright colors';
+const STYLE_LOCK = ', period documentary photograph, natural light for that place and hour, realistic muted colors, no neon, no candy colors, no cartoon saturation, hyper-realistic, film grain';
+const THERAPY_STYLE_LOCK = ', restrained documentary photograph, natural or clinical light that matches the room, realistic muted colors, no neon, no candy colors, no cartoon saturation, hyper-realistic, film grain';
+const CHAOS_STYLE_LOCK = ', cinematic documentary photograph, light that matches the place and the hour, realistic muted colors, no neon, no candy colors, no cartoon saturation, hyper-realistic, film grain';
 const STYLE_MARKS = [
   'cinematic dark horror/mystery documentary still',
   'cinematic dark historical documentary still',
-  'surreal psychological thriller cinematography'
+  'surreal psychological thriller cinematography',
+  'period documentary photograph',
+  'restrained documentary photograph',
+  'cinematic documentary photograph'
 ];
 
 function cleanImagePrompt(raw) {
@@ -407,14 +411,17 @@ function cleanImagePrompt(raw) {
 function imageDetailRules() {
   return [
     'image_prompt is one concrete English frame, not a search keyword and not a caption.',
-    'Write 80 to 120 words. Name the place, the era or the hour, the material under the light, the single light source, at least three objects and their condition, what sits closest to the lens, and how far the camera is.',
+    'Write 80 to 120 words. Name the place, the era or the hour, the light that belongs there, at least three objects and their condition, what sits closest to the lens, and how far the camera is. Daylight, overcast, fire, candle, and a plain work lamp are allowed when the scene calls for them. Do not force night. Avoid neon, candy colors, and a cheerful advertisement look.',
     'If a person is present, they stay anonymous or in silhouette. No readable text, no logo, no famous face.',
     'Do not add color grading or a style suffix. The editor locks the look.'
   ].join('\n');
 }
 
 function styleLockFor(channel) {
-  return resolveDocChannel(channel) === 'therapy' ? THERAPY_STYLE_LOCK : STYLE_LOCK;
+  const name = resolveDocChannel(channel);
+  if (name === 'therapy') return THERAPY_STYLE_LOCK;
+  if (name === 'chaos') return CHAOS_STYLE_LOCK;
+  return STYLE_LOCK;
 }
 
 function withStyleLock(prompt, channel) {
