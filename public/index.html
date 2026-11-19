@@ -3198,7 +3198,7 @@ const DOC_ELEVEN_KEY = "doc_elevenlabs_api_key";
 function docElevenKeySaved() {
   const input = document.getElementById("docElevenKey");
   const typed = String((input && input.value) || "").trim();
-  if (/^[A-Za-z0-9_-]{20,256}$/.test(typed)) return typed;
+  if (/^sk_[A-Za-z0-9_-]{16,240}$/.test(typed)) return typed;
   return "";
 }
 
@@ -3228,7 +3228,7 @@ async function refreshDocElevenStatus() {
 async function saveDocElevenKey() {
   const input = document.getElementById("docElevenKey");
   const key = String((input && input.value) || "").trim();
-  if (key && !/^[A-Za-z0-9_-]{20,256}$/.test(key)) {
+  if (key && !/^sk_[A-Za-z0-9_-]{16,240}$/.test(key)) {
     alert("Anahtar biçimi geçersiz. sk_ ile başlayan ElevenLabs anahtarını yapıştır.");
     return;
   }

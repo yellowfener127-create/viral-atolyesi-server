@@ -116,6 +116,9 @@ test('eight frames mark only shots under 3 for one redo', () => {
 
 test('keys are masked and a finished stage can be skipped', () => {
   assert.equal(maskKey('sk_live_1234567890abcd'), '****abcd');
+  const { usableElevenKey } = require('../documentary-keys');
+  assert.equal(usableElevenKey('sk_live_1234567890abcd'), true);
+  assert.equal(usableElevenKey('a1b2c3d4e5f6789012345678abcdef12'), false);
   assert.equal(maskKey('short'), '');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-job-'));
   const hash = hashValue({ topic: 'knife' });

@@ -24,10 +24,14 @@ function writeStore(data) {
   fs.writeFileSync(FILE, body, { mode: 0o600 });
 }
 
+function usableElevenKey(value) {
+  return /^sk_[A-Za-z0-9_-]{16,240}$/.test(String(value || '').trim());
+}
+
 function saveElevenKey(value) {
   const text = String(value || '').trim();
-  if (text && !/^[A-Za-z0-9_-]{20,256}$/.test(text)) {
-    const error = new Error('Anahtar biçimi geçersiz.');
+  if (text && !usableElevenKey(text)) {
+    const error = new Error('ElevenLabs anahtarı sk_ ile başlamalı. Anahtar kimliğini değil, oluştururken gösterilen anahtarı yapıştır.');
     error.statusCode = 400;
     throw error;
   }
@@ -39,13 +43,27 @@ function saveElevenKey(value) {
 }
 
 function publicKeys() {
-  return { elevenlabs: maskKey(readStore().elevenlabs) };
+  const saved = String(readStore().elevenlabs || '').trim();
+  return { elevenlabs: usableElevenKey(saved) ? maskKey(saved) : '' };
 }
 
 function resolveElevenKey(bodyKey) {
   const body = String(bodyKey || '').trim();
-  if (body) return body;
-  return String(readStore().elevenlabs || '').trim();
+  if (usableElevenKey(body)) return body;
+  if (body) {
+    const error = new Error('ElevenLabs anahtarı sk_ ile başlamalı. Anahtar kimliğini değil, oluştururken gösterilen anahtarı yapıştır.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const saved = String(readStore().elevenlabs || '').trim();
+  if (usableElevenKey(saved)) return saved;
+  if (saved) {
+    const next = readStore();
+    delete next.elevenlabs;
+    writeStore(next);
+    console.warn('Belgesel ElevenLabs kaydı sk_ anahtarı değil. .env anahtarı kullanılacak.');
+  }
+  return '';
 }
 
-module.exports = { maskKey, saveElevenKey, publicKeys, resolveElevenKey };
+module.exports = { maskKey, usableElevenKey, saveElevenKey, publicKeys, resolveElevenKey };
