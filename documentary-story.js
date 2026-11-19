@@ -96,12 +96,18 @@ function validateScript(script, bible, config) {
 }
 
 function spokenTokens(text) {
-  return String(text || '').toLowerCase().replace(/[^a-z0-9']+/g, ' ').trim().split(/\s+/).filter(Boolean);
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[\u2018\u2019\u02bc]/g, "'")
+    .replace(/[^a-z0-9']+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
 }
 
 function coverageReport(scriptText, alignmentWords) {
   const scriptWords = spokenTokens(scriptText);
-  const aligned = (alignmentWords || []).map((item) => spokenTokens(item && item.word ? item.word : item)[0] || '').filter(Boolean);
+  const aligned = (alignmentWords || []).flatMap((item) => spokenTokens(item && item.word ? item.word : item));
   const match = scriptWords.length === aligned.length && scriptWords.every((word, index) => word === aligned[index]);
   return {
     script_words: scriptWords.length,

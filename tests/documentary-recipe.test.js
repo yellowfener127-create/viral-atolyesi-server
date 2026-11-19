@@ -119,6 +119,7 @@ test('a short picture cannot drop the last sentence', () => {
   assert.equal(hasSeam(flat, 64, 32), false);
   assert.equal(hasSeam(seam, 64, 32), true);
   assert.equal(story.coverageReport('The echoes of Rome', [{ word: 'The' }, { word: 'echoes' }, { word: 'of' }, { word: 'Rome' }]).match, true);
+  assert.equal(story.coverageReport('unique double-shield turtle', [{ word: 'unique' }, { word: 'double-shield' }, { word: 'turtle' }]).match, true);
   assert.equal(story.coverageReport('The echoes of Rome still whisper', [{ word: 'The' }, { word: 'echoes' }]).match, false);
 });
 
