@@ -1653,7 +1653,7 @@ async function askGeminiJson(apiKey, prompt, schema) {
       }
       if (thinking) generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
       try {
-        const res = await geminiFetch(key, { contents: [{ parts: [{ text: prompt }] }], generationConfig }, 60000, model);
+        const res = await geminiFetch(key, { contents: [{ parts: [{ text: prompt }] }], generationConfig }, thinking ? 150000 : 90000, model);
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           const detail = geminiErrorMessage(data);
@@ -1693,9 +1693,14 @@ async function askGeminiJson(apiKey, prompt, schema) {
           lastError = err;
           continue;
         }
+        const timedOut = err.name === 'TimeoutError' || err.name === 'AbortError' || /timeout|aborted/i.test(String(err.message || ''));
         console.log(`[belgesel] gemini json model=${model} ${geminiFailReason(err)}`);
         lastError = new DocumentaryError(geminiFailText(err), 503);
-        if (attempt === 0) {
+        if (timedOut && thinking) {
+          thinking = false;
+          continue;
+        }
+        if (!timedOut && attempt === 0) {
           await new Promise((resolve) => setTimeout(resolve, 1200));
           continue;
         }
