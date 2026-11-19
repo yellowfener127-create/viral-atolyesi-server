@@ -1,5 +1,13 @@
 # Değişiklikler
 
+## Roma lejyonu, son cümle
+
+- Video sesten kısa kaldığında konuşma artık kesilmiyor; eksik görüntü son kareyle uzatılıyor.
+- Shot'lar zaman sırasına diziliyor ve her sahne sıfırıncı saniyeden başlıyor.
+- Cümle sonu duraklaması modelin kendi boşluğunun üstüne eklenmiyor.
+- Senaryodaki kelime seslendirmede yoksa iş yayın klasörüne yazılmıyor.
+- Sahte `0-2` zaman aralığı kaldırıldı. 45 saniyenin üstü kalite kapısında beklemeye alınıyor.
+
 ## Roma lejyonu vakası
 
 - Konuşma artık shot sınırında kesilmez. Sahnelerin sesi tek iz olarak videoya bağlanır.

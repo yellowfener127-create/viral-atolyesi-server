@@ -69,7 +69,7 @@ function scenesFromBeats(beats, deps) {
       narration,
       image_prompt: shots[0] ? shots[0].visual_prompt : '',
       voice_tone: beat.voice_direction || beat.voice_tone || 'deep documentary',
-      timestamp_sec: '0-2',
+      timestamp_sec: '',
       shots
     };
   }).filter((scene) => scene.narration && scene.image_prompt);
@@ -221,6 +221,18 @@ async function produceRecipe(opts, config, deps) {
     fs.writeFileSync(audioJson, JSON.stringify(row));
     sceneAudio.push(row);
   }
+  const coverage = story.coverageReport(
+    plan.scenes.map((scene) => scene.narration).join(' '),
+    sceneAudio.flatMap((audio) => audio.words || [])
+  );
+  coverage.audio_duration = sceneAudio.reduce((sum, audio) => sum + (Number(audio.duration) || 0), 0);
+  job.writeJson(dir, 'coverage.json', coverage);
+  if (!coverage.match) {
+    job.markStage(dir, 'tts', { state: 'needs_review', error: 'coverage' });
+    const error = new deps.DocumentaryError('Seslendirme senaryodaki kelimelerin tamamını kapsamıyor. Yayın klasörüne alınmadı.', 422);
+    error.needsReview = true;
+    throw error;
+  }
   job.markStage(dir, 'tts', { state: 'done' });
 
   plan.scenes.forEach((scene) => {
@@ -233,7 +245,7 @@ async function produceRecipe(opts, config, deps) {
   const clock = timeline.buildTimeline(plan.scenes, sceneAudio);
   job.writeJson(dir, 'timeline.json', clock);
   const seedBase = crypto.createHash('sha256').update(path.basename(dir)).digest().readUInt32BE(0) % 100000;
-  const periodLock = ' Period-accurate objects only. No modern clothing, eyeglasses, pens, screens, digital interfaces, modern buildings, or modern hats.';
+  const periodLock = ' Period-accurate objects only. No modern clothing, eyeglasses, pens, screens, digital interfaces, modern buildings, modern hats, collage, split screen, or two panels.';
   for (let i = 0; i < clock.shots.length; i++) {
     const shot = clock.shots[i];
     if (opts.onlyScene != null && shot.scene !== opts.onlyScene) continue;
@@ -318,20 +330,36 @@ async function produceRecipe(opts, config, deps) {
   fs.writeFileSync(audioList, sceneAudio.map((audio) => `file '${String(audio.file).replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
   const narration = path.join(dir, 'audio', 'narration.mp3');
   await ffmpeg(ffmpegBin, ['-y', '-f', 'concat', '-safe', '0', '-i', audioList, '-c:a', 'libmp3lame', '-b:a', '192k', narration]);
+  const voiceDur = Number((await runCapture(ffprobe, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', narration])).stdout) || 0;
+  const pictureDur = Number((await runCapture(ffprobe, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', joined])).stdout) || 0;
+  let picture = joined;
+  let target = Math.max(pictureDur, voiceDur);
+  if (voiceDur > pictureDur + 0.05) {
+    target = voiceDur + 0.5;
+    picture = path.join(dir, 'picture-held.mp4');
+    await ffmpeg(ffmpegBin, [
+      '-y', '-i', joined,
+      '-vf', `tpad=stop_mode=clone:stop_duration=${(target - pictureDur).toFixed(3)}`,
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', '30', '-an',
+      '-movflags', '+faststart', picture
+    ]);
+  }
+  const fadeAt = Math.max(0, voiceDur - 0.2).toFixed(3);
   const withVoice = path.join(dir, 'with-voice.mp4');
   await ffmpeg(ffmpegBin, [
-    '-y', '-i', joined, '-i', narration,
-    '-filter_complex', '[1:a]apad,aresample=44100[a]',
+    '-y', '-i', picture, '-i', narration,
+    '-filter_complex', `[1:a]afade=t=out:st=${fadeAt}:d=0.2,apad=whole_dur=${target.toFixed(3)},aresample=44100[a]`,
     '-map', '0:v:0', '-map', '[a]',
+    '-t', target.toFixed(3),
     '-c:v', 'copy', '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k',
-    '-shortest', '-movflags', '+faststart', withVoice
+    '-movflags', '+faststart', withVoice
   ]);
   job.writeJson(dir, 'audio_debug.json', {
     tts: 'per-scene',
     assembly: 'one-track',
     overlap_sec: 0,
     shot_audio_trim: false,
-    hypothesis: 'H2'
+    hypothesis: 'H3'
   });
   const cues = [];
   let cursor = 0;
@@ -381,7 +409,8 @@ async function produceRecipe(opts, config, deps) {
   const measure = await measureFile(current, { ffmpeg: ffmpegBin, ffprobe });
   const qc = judgeQc(measure, {
     duration: config.duration_range[selected],
-    shots: clock.shots.length
+    shots: clock.shots.length,
+    hardMax: config.hard_max_duration
   });
   job.writeJson(dir, 'qc.json', { pass: qc.pass, issues: qc.issues, measure });
   const metadata = buildMetadata({ channel: selected, topic: subject, bible, scriptWords: plan.words });

@@ -12,6 +12,8 @@ function judgeQc(measure, options) {
   if (row.leading_silence_sec != null && row.leading_silence_sec > 0.3) issues.push('leading_silence');
   if (row.black_events) issues.push('black');
   if (row.freeze_events) issues.push('freeze');
+  const hardMax = Number(options && options.hardMax) || 0;
+  if (hardMax && duration > hardMax) issues.push('hard_max');
   const shots = Number(options && options.shots) || 0;
   if (shots && duration && shots < duration / 3) issues.push('shot_count');
   return { pass: issues.length === 0, issues };

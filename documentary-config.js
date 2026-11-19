@@ -35,7 +35,8 @@ const DOC_CONFIG = Object.freeze({
     captionYMin: 1100,
     captionYMax: 1270
   }),
-  music_volume: 0.07
+  music_volume: 0.07,
+  hard_max_duration: 45
 });
 
 function pick(env, name, fallback, allowed) {

@@ -95,6 +95,22 @@ function validateScript(script, bible, config) {
   return issues;
 }
 
+function spokenTokens(text) {
+  return String(text || '').toLowerCase().replace(/[^a-z0-9']+/g, ' ').trim().split(/\s+/).filter(Boolean);
+}
+
+function coverageReport(scriptText, alignmentWords) {
+  const scriptWords = spokenTokens(scriptText);
+  const aligned = (alignmentWords || []).map((item) => spokenTokens(item && item.word ? item.word : item)[0] || '').filter(Boolean);
+  const match = scriptWords.length === aligned.length && scriptWords.every((word, index) => word === aligned[index]);
+  return {
+    script_words: scriptWords.length,
+    alignment_words: aligned.length,
+    caption_words: aligned.length,
+    match
+  };
+}
+
 function narrationClaimIssues(narration) {
   const text = String(narration || '');
   const issues = [];
@@ -104,6 +120,13 @@ function narrationClaimIssues(narration) {
   if (/matching ancient texts/i.test(text)) issues.push('category_error');
   if (/DNA testing reveals partial European ancestry/i.test(text)) issues.push('contradicted_by_consensus');
   if (/refuse to stay lost/i.test(text)) issues.push('vacuous_closer');
+  if (/physical evidence bridges the gap/i.test(text)) issues.push('misleading_evidence');
+  if (/changed everything/i.test(text)) issues.push('certainty_escalation');
+  if (/fish-scale fort/i.test(text)) issues.push('unsupported_detail');
+  if (/isolated Mediterranean genetic markers/i.test(text)) issues.push('vague_claim');
+  if (/marched east after the Battle of Carrhae to settle/i.test(text)) issues.push('incomplete_chain');
+  if (/really vanish/i.test(text) && /physical evidence bridges/i.test(text)) issues.push('unanswered_hook');
+  if (/one theory holds/i.test(text) && /changed everything/i.test(text)) issues.push('missing_consensus');
   return issues;
 }
 
@@ -227,6 +250,8 @@ module.exports = {
   similarTopic,
   validateBible,
   validateScript,
+  spokenTokens,
+  coverageReport,
   narrationClaimIssues,
   criticFails,
   biblePrompt,

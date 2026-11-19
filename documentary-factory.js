@@ -967,7 +967,7 @@ function narrationPerformanceRules() {
 function openingShockRules() {
   return [
     'The first 3 seconds decide if the viewer stays. Do not open with a calm introduction.',
-    'Scene 1 is one sentence, 6 to 12 spoken words, timestamp 0-2. It states the core causal claim of this film. End it with a period or a question mark, not an ellipsis.',
+    'Scene 1 is one sentence, 6 to 12 spoken words. It states the core causal claim of this film. End it with a period or a question mark, not an ellipsis. Do not write timestamps.',
     'That claim is what the later scenes prove. It is not a side detail and not a twist stolen from the ending.',
     'Bad opening: "Grandpa left." Good opening: "The last message he left is what ruined the house."',
     'Scene 2 is the first cause. Each later scene is the next effect of the scene before it. Do not start a second story. Do not repeat the teaser word for word.',
@@ -993,7 +993,7 @@ function therapyPlanPrompt(topic, language, retryNote) {
     `Topic: ${topic}`,
     `Narration language: ${language}.`,
     causalDocumentaryRules(),
-    'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-10".',
+    'Do not write timestamps. Duration is measured from the recording.',
     openingShockRules(),
     'Tell the documented experiment: who was tested, what the setup was, and what it revealed. Do not invent a new study. Say "research suggests" for the finding. Scene order is the experiment: who was tested, what was done to them, what they did because of that, what was measured. The method causes the result. Do not add a moral the study itself did not show.',
     narrationPerformanceRules(),
@@ -1007,7 +1007,7 @@ function therapyPlanPrompt(topic, language, retryNote) {
     'Do not ask for famous living people, logos, or copyrighted film stills.',
     'No markdown and no commentary.',
     retryNote ? `Fix: ${retryNote}` : '',
-    'Return only a JSON object with music_mood and a scenes array. Each scene has timestamp_sec, narration, image_prompt, and voice_tone.'
+    'Return only a JSON object with music_mood and a scenes array. Each scene has narration, image_prompt, and voice_tone.',
   ].filter(Boolean).join('\n');
 }
 
@@ -1023,7 +1023,7 @@ function chaosPlanPrompt(story, language, retryNote) {
     'Premise only. Invent new characters and a new order of events. Do not copy sentences from the source.',
     `Narration language: ${language}.`,
     causalDocumentaryRules(),
-    'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-10".',
+    'Do not write timestamps. Duration is measured from the recording.',
     narrationPerformanceRules(),
     imageDetailRules(),
     'Example: "An empty motel corridor at 3 a.m., camera low and close to the wet carpet. One fluorescent tube flickers just above the lens, greenish, in a rusted housing. Wet footprints lead to a door ajar at the far end, the chain lock hanging open. A plastic ice bucket lies on its side in the foreground, melt water spreading toward the camera. A long strip of wallpaper has peeled down to the plaster. No person is in frame, only the dark gap of the open door."',
@@ -1034,7 +1034,7 @@ function chaosPlanPrompt(story, language, retryNote) {
     'Do not ask for famous living people, logos, or copyrighted film stills. Keep faces anonymous.',
     'No markdown and no commentary.',
     retryNote ? `Fix: ${retryNote}` : '',
-    'Return only a JSON object with music_mood and a scenes array. Each scene has timestamp_sec, narration, image_prompt, and voice_tone.'
+    'Return only a JSON object with music_mood and a scenes array. Each scene has narration, image_prompt, and voice_tone.',
   ].filter(Boolean).join('\n');
 }
 
@@ -1055,7 +1055,7 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
       `Narration language: ${language}.`,
       'Stay on one documented chain: a decision, a record, a place, or a physical force. A what-if still moves by that chain, not by legend or luck.',
       causalDocumentaryRules(),
-      'timestamp_sec values are contiguous and start at 0. Scene 1 is "0-2". Later scenes look like "2-10".',
+      'Do not write timestamps. Duration is measured from the recording.',
       openingShockRules(),
       narrationPerformanceRules(),
       imageDetailRules(),
@@ -1067,7 +1067,7 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
       'Do not ask for famous living people, logos, or copyrighted film stills.',
       'No markdown and no commentary.',
       retryNote ? `Fix: ${retryNote}` : '',
-      'Return only a JSON object with music_mood and a scenes array. Each scene has timestamp_sec, narration, image_prompt, and voice_tone.'
+      'Return only a JSON object with music_mood and a scenes array. Each scene has narration, image_prompt, and voice_tone.',
     ].filter(Boolean).join('\n');
   const schema = {
     type: 'OBJECT',
@@ -1083,7 +1083,7 @@ async function askGeminiPlan(topic, lang, apiKey, retryNote, source, channel) {
             image_prompt: { type: 'STRING' },
             voice_tone: { type: 'STRING' }
           },
-          required: ['timestamp_sec', 'narration', 'image_prompt', 'voice_tone']
+          required: ['narration', 'image_prompt', 'voice_tone']
         }
       }
     },
@@ -1180,7 +1180,7 @@ async function buildPlan(topic, lang, apiKey, source, channel) {
         return { scenes, words: total, music_mood: plan.music_mood };
       }
       if (!hookOk) {
-        note = 'Scene 1 failed. Rewrite it as one sentence of 6 to 12 spoken words, timestamp 0-2. That sentence is the core claim. Scene 2 is the first cause, and each later scene is the next effect. Do not steal a twist from the ending.';
+        note = 'Scene 1 failed. Rewrite it as one sentence of 6 to 12 spoken words. That sentence is the core claim. Scene 2 is the first cause, and each later scene is the next effect. Do not steal a twist from the ending. Do not write timestamps.';
         lastError = new DocumentaryError('Açılış kancası zayıf kaldı. İlk cümle tek, sarsıcı ve yaklaşık 2 saniye olmalı.');
         continue;
       }
@@ -1426,6 +1426,7 @@ function sentenceSpans(words, narration) {
     index += count;
     if (!slice.length) continue;
     spans.push({
+      start: Number(slice[0].start) || 0,
       end: Number(slice[slice.length - 1].end) || 0,
       fromWord: index - slice.length,
       toWord: index,
@@ -1453,16 +1454,18 @@ async function breatheSentences(ffmpegPath, ffprobePath, src, words, narration, 
   let from = 0;
   let shift = 0;
   spans.forEach((span, i) => {
-    const pause = Number(span.pause) > 0 ? Number(span.pause) : 0.7;
-    const end = Math.max(from + 0.05, span.end);
+    const pause = Number(span.pause) || 0;
+    const begin = i === 0 ? Math.min(from, Number(span.start) || 0) : Math.max(from, Number(span.start) || from);
+    const end = Math.max(begin + 0.05, span.end);
     filters.push(
-      `[s${i}]atrim=start=${from.toFixed(3)}:end=${end.toFixed(3)},asetpts=PTS-STARTPTS,apad=pad_dur=${pause.toFixed(3)}[p${i}]`
+      `[s${i}]atrim=start=${begin.toFixed(3)}:end=${end.toFixed(3)},asetpts=PTS-STARTPTS,apad=pad_dur=${pause.toFixed(3)}[p${i}]`
     );
+    const delta = shift - begin;
     for (let w = span.fromWord; w < span.toWord; w++) {
-      nextWords[w].start = Math.max(0, (Number(nextWords[w].start) || 0) + shift);
-      nextWords[w].end = Math.max(0, (Number(nextWords[w].end) || 0) + shift);
+      nextWords[w].start = Math.max(0, (Number(nextWords[w].start) || 0) + delta);
+      nextWords[w].end = Math.max(0, (Number(nextWords[w].end) || 0) + delta);
     }
-    shift += pause;
+    shift += (end - begin) + pause;
     from = end;
   });
   filters.push(`${spans.map((_, i) => `[p${i}]`).join('')}concat=n=${spans.length}:v=0:a=1[out]`);

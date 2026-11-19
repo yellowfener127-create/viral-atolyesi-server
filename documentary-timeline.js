@@ -31,23 +31,27 @@ function buildTimeline(scenes, sceneAudio) {
       const fallback = words[Math.min(words.length - 1, Math.floor((words.length * shotIndex) / listed.length))] || null;
       return hit || fallback;
     });
+    const sceneShots = [];
     listed.forEach((shot, shotIndex) => {
       const localStart = anchors[shotIndex] ? Number(anchors[shotIndex].start) || 0 : (duration * shotIndex) / listed.length;
-      shots.push({
+      sceneShots.push({
         scene: sceneIndex,
-        index: shots.length,
+        index: 0,
         visual_prompt: shot.visual_prompt || scene.image_prompt,
         anchor_words: shot.anchor_words || '',
-        motion: motionFor(shots.length),
+        motion: motionFor(shots.length + sceneShots.length),
         local_start: localStart,
         global_hint: cursor + localStart
       });
     });
-    shots.filter((shot) => shot.scene === sceneIndex).sort((a, b) => a.local_start - b.local_start).forEach((shot, order, list) => {
-      const next = list[order + 1];
+    sceneShots.sort((a, b) => a.local_start - b.local_start);
+    if (sceneShots.length) sceneShots[0].local_start = 0;
+    sceneShots.forEach((shot, order) => {
+      const next = sceneShots[order + 1];
       shot.local_end = next ? next.local_start : duration;
       if (shot.local_end <= shot.local_start) shot.local_end = Math.min(duration, shot.local_start + 0.4);
     });
+    shots.push(...sceneShots);
     cursor += duration;
   });
   if (shots.length) {
@@ -67,9 +71,11 @@ function buildTimeline(scenes, sceneAudio) {
     shot.end = (offsets[shot.scene] || 0) + shot.local_end;
   });
   if (shots.length) {
-    shots[shots.length - 1].end += 0.4;
+    shots[shots.length - 1].end += 0.5;
     global = shots[shots.length - 1].end;
   }
+  shots.sort((a, b) => a.start - b.start);
+  shots.forEach((shot, index) => { shot.index = index; });
   return { shots, duration: global };
 }
 
@@ -77,8 +83,8 @@ function chunkWords(words) {
   const cues = [];
   const list = words || [];
   for (let i = 0; i < list.length;) {
-    const size = Math.min(3, list.length - i, (list.length - i) % 3 === 1 ? 2 : 3);
-    const take = Math.max(1, Math.min(3, size));
+    let take = 1;
+    while (take < 3 && i + take < list.length && !/[.!?…]$/.test(String(list[i + take - 1].word || ''))) take += 1;
     const slice = list.slice(i, i + take);
     cues.push({
       text: slice.map((item) => item.word).join(' '),

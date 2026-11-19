@@ -83,12 +83,43 @@ test('timeline locks a shot to its anchor and the last shot holds', () => {
     ]
   }];
   const clock = timeline.buildTimeline(scenes, audio);
-  assert.equal(clock.shots[0].start, 0.2);
+  assert.equal(clock.shots[0].start, 0);
   assert.equal(clock.shots[1].start, 1.4);
-  assert.ok(clock.shots[1].end >= 4.4);
+  assert.ok(clock.shots[clock.shots.length - 1].end >= 4.5);
+  const covered = clock.shots.reduce((sum, shot) => sum + (shot.end - shot.start), 0);
+  assert.ok(covered >= 4.5);
   const ass = timeline.buildAss(timeline.chunkWords(audio[0].words), 'The knife stayed');
   assert.match(ass, /Style: Hook/);
   assert.doesNotMatch(ass, /@/);
+});
+
+test('a short picture cannot drop the last sentence', () => {
+  const { hasSeam } = require('../documentary-image');
+  const scenes = [{
+    narration: 'Physical evidence bridges the gap between empires. The echoes of Rome still whisper through the brick walls of Liqian.',
+    image_prompt: 'wall',
+    shots: [
+      { visual_prompt: 'gap', anchor_words: 'gap' },
+      { visual_prompt: 'empires', anchor_words: 'empires' },
+      { visual_prompt: 'Liqian', anchor_words: 'Liqian' }
+    ]
+  }];
+  const words = scenes[0].narration.split(/\s+/).map((word, index) => ({ word, start: index * 0.4, end: index * 0.4 + 0.3 }));
+  const clock = timeline.buildTimeline(scenes, [{ duration: 8, words }]);
+  assert.equal(clock.shots[0].start, 0);
+  assert.ok(clock.shots[clock.shots.length - 1].end >= 8.5);
+  const issues = story.narrationClaimIssues('Did a lost Roman legion really vanish into ancient China? One theory holds that prisoners marched east. Modern scientific investigation changed everything when DNA testing revealed isolated Mediterranean genetic markers. They built a fish-scale fort. Physical evidence bridges the gap between empires.');
+  ['certainty_escalation', 'missing_consensus', 'unanswered_hook', 'unsupported_detail', 'vague_claim', 'misleading_evidence'].forEach((kind) => {
+    assert.ok(issues.includes(kind), kind);
+  });
+  const flat = Buffer.alloc(64 * 32, 40);
+  const seam = Buffer.alloc(64 * 32, 30);
+  seam.fill(180, 15 * 64, 16 * 64);
+  seam.fill(210, 16 * 64);
+  assert.equal(hasSeam(flat, 64, 32), false);
+  assert.equal(hasSeam(seam, 64, 32), true);
+  assert.equal(story.coverageReport('The echoes of Rome', [{ word: 'The' }, { word: 'echoes' }, { word: 'of' }, { word: 'Rome' }]).match, true);
+  assert.equal(story.coverageReport('The echoes of Rome still whisper', [{ word: 'The' }, { word: 'echoes' }]).match, false);
 });
 
 test('qc accepts a measured reel and rejects a quiet one', () => {
