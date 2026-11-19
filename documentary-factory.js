@@ -1944,6 +1944,37 @@ function planFromReelScenes(list) {
   };
 }
 
+async function attachReelTranslation(plan, authored, apiKey) {
+  const target = authored === 'Turkish' ? 'English' : 'Turkish';
+  let translated = null;
+  for (let pass = 0; pass < 2 && !translated; pass++) {
+    const raw = await askGeminiJson(apiKey, storyLib.reelTranslatePrompt(plan.scenes, target), storyLib.REEL_TRANSLATE_SCHEMA);
+    const lines = Array.isArray(raw && raw.scenes) ? raw.scenes : [];
+    if (lines.length !== plan.scenes.length) continue;
+    if (lines.some((line) => !String(line && line.narration || '').trim() || /\[[^\]]+\]/.test(String(line.narration)))) continue;
+    translated = plan.scenes.map((scene, index) => {
+      const narration = spokenHookText(lines[index].narration);
+      const anchor = String(lines[index].anchor_words || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      return {
+        narration,
+        image_prompt: scene.image_prompt,
+        voice_tone: scene.voice_tone,
+        timestamp_sec: '',
+        shots: [{ visual_prompt: scene.image_prompt, anchor_words: anchor }]
+      };
+    });
+  }
+  if (!translated) throw new DocumentaryError('Senaryonun diğer dili yazılamadı. Tekrar dene.', 422);
+  const turkish = authored === 'Turkish' ? plan.scenes : translated;
+  const english = authored === 'English' ? plan.scenes : translated;
+  return {
+    ...plan,
+    source_lang: authored === 'Turkish' ? 'tr' : 'en',
+    scenes_tr: turkish,
+    scenes_en: english
+  };
+}
+
 async function buildStoryReel(source, language, apiKey) {
   const text = String(source || '').trim();
   if (text.length < 40) throw new DocumentaryError('Hikâye en az birkaç cümle olsun.', 400);
@@ -1956,14 +1987,15 @@ async function buildStoryReel(source, language, apiKey) {
     }
   }
   if (!reading) throw new DocumentaryError('Hikâye okunamadı. Metni biraz daha açık yapıştır.', 422);
+  const authored = storyLib.reelSourceLanguage(text) === 'tr' ? 'Turkish' : 'English';
   let note = '';
   let closest = null;
   for (let turn = 0; turn < 3; turn++) {
-    const raw = await askGeminiJson(apiKey, storyLib.reelPrompt(reading, language, note), storyLib.REEL_SCHEMA);
+    const raw = await askGeminiJson(apiKey, storyLib.reelPrompt(reading, authored, note), storyLib.REEL_SCHEMA);
     const plan = planFromReelScenes(raw && raw.scenes);
     plan.music_mood = /^(mystery|epic|sad|science)$/.test(String(raw && raw.music_mood)) ? raw.music_mood : 'mystery';
     const issues = storyLib.reelIssues(plan.scenes);
-    if (!issues.length) return plan;
+    if (!issues.length) return attachReelTranslation(plan, authored, apiKey);
     if (!closest || Math.abs(plan.words - 82) < Math.abs(closest.words - 82)) closest = plan;
     note = issues.join('; ');
   }

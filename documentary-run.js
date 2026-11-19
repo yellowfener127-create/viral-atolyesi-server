@@ -153,9 +153,17 @@ async function produceRecipe(opts, config, deps) {
         ? deps.planFromReelScenes(givenScenes)
         : await deps.buildStoryReel(pastedStory, langName, opts.geminiKey);
       if (givenScenes && /^(mystery|epic|sad|science)$/.test(String(opts.musicMood || ''))) plan.music_mood = opts.musicMood;
-      const reelProblems = story.reelIssues(plan.scenes);
-      if (reelProblems.length) {
-        throw new deps.DocumentaryError(`Senaryo Reels ölçüsüne uymadı: ${reelProblems.join('; ')}.`, 422);
+      if (!givenScenes) {
+        const reelProblems = story.reelIssues(plan.scenes);
+        if (reelProblems.length) {
+          throw new deps.DocumentaryError(`Senaryo Reels ölçüsüne uymadı: ${reelProblems.join('; ')}.`, 422);
+        }
+        if (plan.scenes_tr && plan.scenes_en) {
+          plan.scenes = /Turkish/i.test(langName) ? plan.scenes_tr : plan.scenes_en;
+        }
+      }
+      if (!plan.scenes || plan.scenes.length !== 5) {
+        throw new deps.DocumentaryError('Senaryo 5 sahneden oluşmalı.', 422);
       }
       bible = { logline: subject, is_fiction: true, scope: subject, core_mechanism: 'the pasted story', hook: plan.scenes[0].narration, final_line: plan.scenes[4].narration };
       critic = { pass: true, issues: [] };

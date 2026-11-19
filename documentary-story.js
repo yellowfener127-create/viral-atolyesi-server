@@ -207,6 +207,23 @@ function reelPrompt(reading, language, note) {
   ].filter(Boolean).join('\n');
 }
 
+function reelSourceLanguage(text) {
+  const marks = (String(text || '').match(/[İıĞğÜüŞşÖöÇç]/g) || []).length;
+  return marks >= 2 ? 'tr' : 'en';
+}
+
+function reelTranslatePrompt(scenes, targetLanguage) {
+  const lines = (scenes || []).map((scene, index) => `${index + 1}. ${scene.narration}`);
+  return [
+    `Translate each narration into ${targetLanguage}.`,
+    'Keep the same five scenes, the same order, and the same facts.',
+    'Do not add a scene, a fact, a name, or a cause.',
+    'anchor_words are 2 to 4 words copied from that translated narration.',
+    'No square brackets.',
+    lines.join('\n')
+  ].join('\n');
+}
+
 function reelIssues(scenes) {
   const list = Array.isArray(scenes) ? scenes : [];
   const issues = [];
@@ -316,11 +333,30 @@ module.exports = {
   criticPrompt,
   reelReadPrompt,
   reelPrompt,
+  reelSourceLanguage,
+  reelTranslatePrompt,
   reelIssues,
   beatsOf,
   BIBLE_SCHEMA,
   SCRIPT_SCHEMA,
   CRITIC_SCHEMA,
+  REEL_TRANSLATE_SCHEMA: {
+    type: 'OBJECT',
+    properties: {
+      scenes: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            narration: { type: 'STRING' },
+            anchor_words: { type: 'STRING' }
+          },
+          required: ['narration', 'anchor_words']
+        }
+      }
+    },
+    required: ['scenes']
+  },
   REEL_READ_SCHEMA: {
     type: 'OBJECT',
     properties: {

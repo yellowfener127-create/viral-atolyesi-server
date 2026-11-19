@@ -2533,16 +2533,19 @@ app.post('/story-reel-script', async (req, res) => {
   const key = String(req.body?.gemini_api_key || req.body?.geminiApiKey || '').trim();
   try {
     const plan = await documentaryFactory.buildStoryReel(source, lang === 'tr' ? 'Turkish' : 'English', key);
+    const pack = (scene) => ({
+      narration: scene.narration,
+      image_prompt: scene.image_prompt,
+      voice_tone: scene.voice_tone,
+      anchor_words: scene.shots && scene.shots[0] ? scene.shots[0].anchor_words : ''
+    });
     return res.json({
       ok: true,
       words: plan.words,
+      source_lang: plan.source_lang,
       music_mood: plan.music_mood,
-      scenes: plan.scenes.map((scene) => ({
-        narration: scene.narration,
-        image_prompt: scene.image_prompt,
-        voice_tone: scene.voice_tone,
-        anchor_words: scene.shots[0] ? scene.shots[0].anchor_words : ''
-      }))
+      scenes_tr: (plan.scenes_tr || []).map(pack),
+      scenes_en: (plan.scenes_en || []).map(pack)
     });
   } catch (e) {
     return res.status(e && e.statusCode ? e.statusCode : 500).json({ error: (e && e.message) ? e.message : String(e) });

@@ -23,6 +23,9 @@ test('a pasted story is read before the reel prompt', () => {
   assert.match(prompt, /already read the story/);
   assert.match(prompt, /80 to 85/);
   assert.match(prompt, /locked from inside/);
+  assert.equal(story.reelSourceLanguage('The door was locked from inside after she left the house.'), 'en');
+  assert.equal(story.reelSourceLanguage('Kapı içeriden kilitliydi ve anahtar hâlâ cebindeydi.'), 'tr');
+  assert.match(story.reelTranslatePrompt([{ narration: 'The door was locked.' }], 'Turkish'), /Translate each narration into Turkish/);
 });
 
 test('bible and script validators catch an empty mechanism and a dream ending', () => {

@@ -612,7 +612,7 @@
         </select>
       </label>
       <div class="mcc-row" style="margin-top:10px">
-        <label style="font-size:12px;color:var(--muted)">Dil
+        <label style="font-size:12px;color:var(--muted)">Videoda okunacak dil
           <select class="tool-input" id="reelLang">
             <option value="tr" selected>Türkçe</option>
             <option value="en">İngilizce</option>
@@ -625,8 +625,17 @@
       <div class="tool-result" id="reelWriteMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
     </div>
     <div class="mcc-panel" id="reel-script">
-      <div class="tool-desc">İlk cümle şok, sonra kronolojik özet, son cümle başa döner. 80–85 kelime.</div>
-      <div id="reelScriptView" style="margin-top:10px;font-size:14px;line-height:1.55;white-space:pre-wrap">Henüz senaryo yok.</div>
+      <div class="tool-desc">Aynı senaryo iki kartta. Biri diğerinin çevirisi. 80–85 kelime, yazıldığı dilde sayılır.</div>
+      <div id="reelScriptCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:10px">
+        <div class="tool-card" style="padding:14px">
+          <div class="tool-title" style="font-size:14px">Türkçe</div>
+          <div id="reelScriptTr" style="margin-top:8px;font-size:14px;line-height:1.55;white-space:pre-wrap">Henüz senaryo yok.</div>
+        </div>
+        <div class="tool-card" style="padding:14px">
+          <div class="tool-title" style="font-size:14px">English</div>
+          <div id="reelScriptEn" style="margin-top:8px;font-size:14px;line-height:1.55;white-space:pre-wrap">No script yet.</div>
+        </div>
+      </div>
       <div class="mcc-row" style="margin-top:12px">
         <button class="tool-btn" type="button" onclick="showReelStep('story')">Hikâyeye dön</button>
         <button class="tool-btn" type="button" onclick="writeReelScript()">Yeniden yaz</button>
@@ -3512,15 +3521,20 @@ function showReelStep(step) {
   });
 }
 
-function paintReelScript() {
-  const view = document.getElementById("reelScriptView");
+function paintReelCard(id, scenes, empty) {
+  const view = document.getElementById(id);
   if (!view) return;
-  if (!reelPlan || !reelPlan.scenes) {
-    view.textContent = "Henüz senaryo yok.";
+  if (!scenes || !scenes.length) {
+    view.textContent = empty;
     return;
   }
-  const lines = reelPlan.scenes.map((scene, index) => (index + 1) + ". " + scene.narration);
-  view.textContent = lines.join("\n\n") + "\n\nKelime: " + (reelPlan.words || "?");
+  const words = scenes.reduce((sum, scene) => sum + String(scene.narration || "").trim().split(/\s+/).filter(Boolean).length, 0);
+  view.textContent = scenes.map((scene, index) => (index + 1) + ". " + scene.narration).join("\n\n") + "\n\nKelime: " + words;
+}
+
+function paintReelScript() {
+  paintReelCard("reelScriptTr", reelPlan && reelPlan.scenes_tr, "Henüz senaryo yok.");
+  paintReelCard("reelScriptEn", reelPlan && reelPlan.scenes_en, "No script yet.");
 }
 
 async function writeReelScript() {
@@ -3586,7 +3600,9 @@ async function previewReelVoice() {
 async function runReel() {
   const btn = document.getElementById("reelBuildBtn");
   const msg = document.getElementById("reelMsg");
-  if (!reelPlan || !Array.isArray(reelPlan.scenes) || reelPlan.scenes.length !== 5) {
+  const lang = (document.getElementById("reelLang") && document.getElementById("reelLang").value) === "en" ? "en" : "tr";
+  const spokenScenes = lang === "en" ? (reelPlan && reelPlan.scenes_en) : (reelPlan && reelPlan.scenes_tr);
+  if (!reelPlan || !Array.isArray(spokenScenes) || spokenScenes.length !== 5) {
     alert("Önce hikâyeden senaryoyu yaz.");
     showReelStep("story");
     return;
@@ -3599,7 +3615,6 @@ async function runReel() {
   const story = String((document.getElementById("reelStory") || {}).value || "").trim();
   const channelEl = document.getElementById("reelChannel");
   const channel = channelEl ? channelEl.value : "epoch";
-  const lang = (document.getElementById("reelLang") && document.getElementById("reelLang").value) === "en" ? "en" : "tr";
   const voiceEl = document.getElementById("reelVoice");
   const voiceIds = ["pNInz6obpgDQGcFmaJgB", "JBFqnCBsd6RMkjVDRZzb", "nPczCjzI2devNBz1zQrb", "SAxJUlDKRc79XAyeWyMu", "fCxG8OHm4STbIsWe4aT9"];
   const picked = voiceEl ? String(voiceEl.value || "").trim() : "";
@@ -3617,9 +3632,9 @@ async function runReel() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          topic: String(reelPlan.scenes[0].narration || story).slice(0, 90),
+          topic: String(spokenScenes[0].narration || story).slice(0, 90),
           story_text: story,
-          script_scenes: reelPlan.scenes,
+          script_scenes: spokenScenes,
           music_mood: reelPlan.music_mood || "",
           lang: lang,
           channel: channel,
