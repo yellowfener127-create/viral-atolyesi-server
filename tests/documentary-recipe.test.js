@@ -35,6 +35,13 @@ test('bible and script validators catch an empty mechanism and a dream ending', 
   assert.ok(issues.includes('dream or coincidence'));
 });
 
+test('a critic with no named issue does not block the film', () => {
+  assert.equal(story.criticFails({ pass: false, issues: [] }), false);
+  assert.equal(story.criticFails({ pass: true, issues: [] }), false);
+  assert.equal(story.criticFails({ pass: false, issues: [{ type: 'dream', fix: 'remove the dream' }] }), true);
+  assert.equal(story.criticFails(null), true);
+});
+
 test('timeline locks a shot to its anchor and the last shot holds', () => {
   const scenes = [{
     narration: 'The knife stayed in the lock.',

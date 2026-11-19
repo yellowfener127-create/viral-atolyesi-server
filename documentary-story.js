@@ -95,9 +95,9 @@ function validateScript(script, bible, config) {
 }
 
 function criticFails(critic) {
-  if (!critic || critic.pass !== true) return true;
+  if (!critic || typeof critic !== 'object') return true;
   const issues = Array.isArray(critic.issues) ? critic.issues : [];
-  return issues.some((issue) => /dream|coincidence|unexplained|scope|hook/i.test(String(issue && (issue.type || issue.fix) || issue)));
+  return issues.some((issue) => /dream|coincidence|unexplained|scope|hook/i.test(String((issue && (issue.type || issue.fix)) || issue)));
 }
 
 function biblePrompt(topic, channel, language) {
@@ -137,6 +137,7 @@ function criticPrompt(bible, script) {
     'You are a strict story editor. Return JSON only.',
     'pass is true only when the scope is one thing, the hook is paid off by the last line, and the mechanism is explained by a concrete object or action.',
     'Fail if the ending depends on a dream, a coincidence, or an unexplained event.',
+    'If you cannot name an issue, pass is true and issues is an empty array.',
     'issues is an array of {type, beat, fix}.',
     `Bible: ${JSON.stringify(bible)}`,
     `Script: ${JSON.stringify(script)}`
