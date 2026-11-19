@@ -768,9 +768,14 @@ function backendUrl(path) {
   const p = path.startsWith("/") ? path : "/" + path;
   return BACKEND_ORIGIN + p;
 }
-const LOCAL_API = (location.protocol === "file:")
-  ? LOCAL_API + ""
-  : (location.protocol + "//" + location.host + "/local-api");
+const LOCAL_API = (function () {
+  const host = String(location.hostname || "");
+  const loopback = host === "localhost" || host === "127.0.0.1" || host === "::1";
+  if ((location.protocol === "http:" || location.protocol === "https:") && loopback) {
+    return location.protocol + "//" + location.host + "/local-api";
+  }
+  return "http://127.0.0.1:8787";
+})();
 
 function pickOne(arr) {
   if (!arr || !arr.length) return "";

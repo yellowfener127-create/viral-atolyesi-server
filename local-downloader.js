@@ -25,10 +25,15 @@ app.use((req, res, next) => {
 app.use(cors({
   origin(origin, callback) {
     if (!origin || origin === 'null') return callback(null, true);
-    let host = '';
-    try { host = new URL(origin).hostname.replace(/^\[|\]$/g, ''); } catch { host = ''; }
+    let parsed = null;
+    try { parsed = new URL(origin); } catch { parsed = null; }
+    const host = parsed ? parsed.hostname.replace(/^\[|\]$/g, '') : '';
     const local = host === 'localhost' || host === '127.0.0.1' || host === '::1';
-    if (local) return callback(null, true);
+    const page = parsed && (
+      parsed.origin === 'https://yellowfener127-create.github.io' ||
+      parsed.origin === 'https://viral-atolyesi-server.onrender.com'
+    );
+    if (local || page) return callback(null, true);
     return callback(null, false);
   }
 }));
