@@ -563,6 +563,7 @@
           <option value="JBFqnCBsd6RMkjVDRZzb">Ses 2 - George (Sinematik Anlatıcı)</option>
           <option value="nPczCjzI2devNBz1zQrb">Ses 3 - Brian (Derin & Tok)</option>
           <option value="SAxJUlDKRc79XAyeWyMu">Ses 4 - Derin Hikâye</option>
+          <option value="fCxG8OHm4STbIsWe4aT9">Ses 5 - Harrison Gale (Kadifemsi & Derin)</option>
           <option value="random">Rastgele Seç</option>
         </select>
       </label>
@@ -3366,7 +3367,7 @@ async function runDocumentary() {
   const redditId = topicBox && topicBox.dataset.redditId ? String(topicBox.dataset.redditId) : "";
   const lang = (document.getElementById("docLang") && document.getElementById("docLang").value) === "tr" ? "tr" : "en";
   const voiceEl = document.getElementById("docVoice");
-  const docVoiceIds = ["pNInz6obpgDQGcFmaJgB", "JBFqnCBsd6RMkjVDRZzb", "nPczCjzI2devNBz1zQrb", "SAxJUlDKRc79XAyeWyMu"];
+  const docVoiceIds = ["pNInz6obpgDQGcFmaJgB", "JBFqnCBsd6RMkjVDRZzb", "nPczCjzI2devNBz1zQrb", "SAxJUlDKRc79XAyeWyMu", "fCxG8OHm4STbIsWe4aT9"];
   const pickedVoice = voiceEl ? String(voiceEl.value || "").trim() : "";
   const voiceId = pickedVoice === "random" || docVoiceIds.indexOf(pickedVoice) >= 0 ? pickedVoice : "pNInz6obpgDQGcFmaJgB";
   if (channel !== "chaos" && topic.length < 8) {
