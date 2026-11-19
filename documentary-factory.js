@@ -159,9 +159,23 @@ function geminiFailReason(err) {
   return `${name} ${code} ${msg}`.replace(/\s+/g, ' ').trim().slice(0, 220);
 }
 
+function geminiCauseCode(err) {
+  const seen = new Set();
+  const stack = [err];
+  while (stack.length) {
+    const cur = stack.pop();
+    if (!cur || typeof cur !== 'object' || seen.has(cur)) continue;
+    seen.add(cur);
+    if (cur.code) return String(cur.code);
+    if (cur.cause) stack.push(cur.cause);
+    if (Array.isArray(cur.errors)) stack.push(...cur.errors);
+  }
+  return '';
+}
+
 function geminiFailText(err) {
   const name = String(err && err.name || '');
-  const code = err && err.cause && err.cause.code ? String(err.cause.code) : '';
+  const code = geminiCauseCode(err);
   if (name === 'TimeoutError' || name === 'AbortError' || /timeout|aborted/i.test(String(err && err.message || ''))) {
     return 'Gemini süre dolmadan cevap yazmadı. Tekrar dene.';
   }
@@ -1629,31 +1643,62 @@ async function askGeminiJson(apiKey, prompt, schema) {
   let lastError = new DocumentaryError('Gemini şu an meşgul. Birkaç saniye bekleyip yeniden üret.', 503);
   for (let modelIndex = 0; modelIndex < models.length; modelIndex++) {
     const model = models[modelIndex];
+    let schemaOn = true;
+    let thinking = true;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const generationConfig = { maxOutputTokens: 8192, responseMimeType: 'application/json', responseSchema: schema };
-      if (attempt === 0) generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
+      const generationConfig = { maxOutputTokens: 8192 };
+      if (schemaOn) {
+        generationConfig.responseMimeType = 'application/json';
+        generationConfig.responseSchema = schema;
+      }
+      if (thinking) generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
       try {
         const res = await geminiFetch(key, { contents: [{ parts: [{ text: prompt }] }], generationConfig }, 60000, model);
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           const detail = geminiErrorMessage(data);
+          console.log(`[belgesel] gemini json model=${model} http=${res.status} ${detail}`);
           if (geminiIsQuota(res.status, detail)) throw new DocumentaryError(quotaMessage(JSON.stringify(data).slice(0, 500)), 429);
           if (res.status === 401 || res.status === 403) throw new DocumentaryError('Gemini API anahtarı geçersiz. Araçlar listesinden başka bir anahtar seç.', 401);
           if (res.status === 404) break;
-          lastError = new DocumentaryError(geminiFailText({ statusCode: res.status, message: detail }), 503);
+          if (res.status === 400 && (schemaOn || thinking)) {
+            schemaOn = false;
+            thinking = false;
+            continue;
+          }
+          lastError = new DocumentaryError(
+            geminiIsDemand(res.status, detail)
+              ? 'Gemini şu an meşgul. Birkaç saniye bekleyip yeniden üret.'
+              : `Gemini yanıt vermedi (${res.status}).`,
+            503
+          );
           if (attempt === 0) {
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+            await new Promise((resolve) => setTimeout(resolve, 1200));
             continue;
           }
           break;
         }
         const parsed = parseJsonLoose(visibleGeminiText(data));
-        if (!parsed) throw new DocumentaryError('Gemini JSON döndürmedi.');
+        if (!parsed) {
+          schemaOn = false;
+          thinking = false;
+          lastError = new DocumentaryError('Gemini JSON döndürmedi.');
+          continue;
+        }
+        if (model !== models[0]) console.log(`[belgesel] gemini json model=${model}`);
         return parsed;
       } catch (err) {
         if (err && (err.statusCode === 401 || err.statusCode === 429)) throw err;
-        lastError = err instanceof DocumentaryError ? err : new DocumentaryError(err && err.message ? err.message : 'Gemini yanıt vermedi.', 503);
-        if (attempt === 0) continue;
+        if (err instanceof DocumentaryError) {
+          lastError = err;
+          continue;
+        }
+        console.log(`[belgesel] gemini json model=${model} ${geminiFailReason(err)}`);
+        lastError = new DocumentaryError(geminiFailText(err), 503);
+        if (attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+          continue;
+        }
       }
     }
   }
