@@ -418,14 +418,14 @@ async function produceRecipe(opts, config, deps) {
   await deps.mixMusicBed(ffmpegBin, ffprobe, graded, music.file, mixed);
   let current = mixed;
   if (config.loudnorm !== false) {
-    const probe = await runCapture(ffmpegBin, ['-hide_banner', '-i', mixed, '-af', 'loudnorm=I=-14:TP=-1.5:LRA=7:print_format=json', '-f', 'null', '-']);
+    const probe = await runCapture(ffmpegBin, ['-hide_banner', '-i', mixed, '-af', 'loudnorm=I=-14:TP=-2.5:LRA=7:print_format=json', '-f', 'null', '-']);
     const match = probe.stderr.match(/\{[\s\S]*"input_i"[\s\S]*\}/);
     const finalFile = path.join(dir, 'final.mp4');
     if (match) {
       const measured = JSON.parse(match[0]);
       await ffmpeg(ffmpegBin, [
         '-y', '-i', mixed,
-        '-af', `loudnorm=I=-14:TP=-1.5:LRA=7:measured_I=${measured.input_i}:measured_TP=${measured.input_tp}:measured_LRA=${measured.input_lra}:measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}:linear=true,alimiter=limit=0.841:attack=5:release=50:level=false`,
+        '-af', `loudnorm=I=-14:TP=-2.5:LRA=7:measured_I=${measured.input_i}:measured_TP=${measured.input_tp}:measured_LRA=${measured.input_lra}:measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}:linear=true,alimiter=limit=0.750:attack=5:release=50:level=false`,
         '-c:v', 'copy', '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k', '-movflags', '+faststart',
         finalFile
       ]);

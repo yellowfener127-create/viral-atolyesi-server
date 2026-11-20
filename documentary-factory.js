@@ -508,7 +508,7 @@ function parseJsonLoose(text) {
 }
 
 const MUSIC_MOODS = Object.freeze(['mystery', 'epic', 'sad', 'science']);
-const MUSIC_VOLUME = 0.07;
+const MUSIC_VOLUME = 0.05;
 const MUSIC_DIR = path.join(__dirname, 'assets', 'music');
 const MUSIC_EXTS = new Set(['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac']);
 const MOOD_HINTS = Object.freeze({

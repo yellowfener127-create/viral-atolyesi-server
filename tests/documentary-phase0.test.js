@@ -13,7 +13,7 @@ test('config defaults keep the current pipeline', () => {
   assert.equal(config.shots_per_scene, 3);
   assert.equal(config.subtitles, 'ass');
   assert.equal(config.loudnorm, true);
-  assert.equal(config.music_volume, 0.07);
+  assert.equal(config.music_volume, 0.05);
   assert.deepEqual(config.duration_range.epoch, [24, 70]);
   assert.deepEqual(config.duration_aim, [40, 50]);
   assert.equal(DOC_CONFIG.TTS_MODEL, 'eleven_multilingual_v2');

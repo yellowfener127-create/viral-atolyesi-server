@@ -35,7 +35,7 @@ const DOC_CONFIG = Object.freeze({
     captionYMin: 1100,
     captionYMax: 1270
   }),
-  music_volume: 0.07,
+  music_volume: 0.05,
   hard_max_duration: 70
 });
 
