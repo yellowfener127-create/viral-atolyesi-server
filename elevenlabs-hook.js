@@ -164,16 +164,27 @@ function safeFileName(name) {
 async function readErrorBody(res) {
   const raw = await res.text();
   const clipped = raw.replace(/\s+/g, ' ').trim().slice(0, 500);
+  let detailStatus = '';
+  let detailMessage = '';
   try {
     const data = JSON.parse(raw);
     const detail = data && data.detail;
-    if (typeof detail === 'string') return detail;
-    if (detail && typeof detail.message === 'string') return detail.message;
-    if (Array.isArray(detail) && detail[0] && detail[0].msg) return String(detail[0].msg);
+    if (typeof detail === 'string') detailMessage = detail;
+    else if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+      detailStatus = String(detail.status || detail.code || '');
+      detailMessage = String(detail.message || '');
+    } else if (Array.isArray(detail) && detail[0] && detail[0].msg) {
+      detailMessage = String(detail[0].msg);
+    }
   } catch {
     /* JSON değilse düz metin döner */
   }
-  return clipped || `HTTP ${res.status}`;
+  return {
+    status: res.status,
+    detailStatus,
+    detailMessage,
+    text: detailMessage || clipped || `HTTP ${res.status}`
+  };
 }
 
 function wordsFromAlignment(text, alignment) {
@@ -275,7 +286,12 @@ async function synthesizeHookAligned(input) {
 
     if (!res.ok) {
       const detail = await readErrorBody(res);
-      throw new ElevenLabsHookError(`ElevenLabs ${res.status}: ${detail}`, { status: res.status });
+      console.warn(`[elevenlabs] http=${detail.status} detail.status=${detail.detailStatus || '-'} detail.message=${detail.detailMessage || detail.text} model_id=${modelId} anahtar=****${String(apiKey).slice(-4)}`);
+      throw new ElevenLabsHookError(`ElevenLabs ${detail.status}: ${detail.text}`, {
+        status: detail.status,
+        detailStatus: detail.detailStatus,
+        detailMessage: detail.detailMessage
+      });
     }
 
     const data = await res.json();
@@ -381,9 +397,14 @@ async function synthesizeSpeechAligned(input) {
       }
       if (!res.ok) {
         const detail = await readErrorBody(res);
-        const error = new ElevenLabsHookError(`ElevenLabs ${res.status}: ${detail}`, { status: res.status });
-        const retry = res.status === 429 || res.status >= 500;
-        const quota = /quota|credits remaining|exceeds your quota/i.test(detail);
+        console.warn(`[elevenlabs] http=${detail.status} detail.status=${detail.detailStatus || '-'} detail.message=${detail.detailMessage || detail.text} model_id=${modelId} anahtar=****${String(apiKey).slice(-4)}`);
+        const error = new ElevenLabsHookError(`ElevenLabs ${detail.status}: ${detail.text}`, {
+          status: detail.status,
+          detailStatus: detail.detailStatus,
+          detailMessage: detail.detailMessage
+        });
+        const retry = detail.status === 429 || detail.status >= 500;
+        const quota = /quota|credits remaining|exceeds your quota/i.test(detail.text);
         if (!retry || quota || attempt === 2) throw error;
         await new Promise((resolve) => setTimeout(resolve, 1000 * (2 ** attempt)));
         lastError = error;

@@ -224,7 +224,9 @@ async function produceRecipe(opts, config, deps) {
       if (!deps.isVoiceFallbackError(err) || narratorVoice.id === deps.DOC_VOICES.adam) throw err;
       const failed = narratorVoice;
       narratorVoice = deps.resolveDocVoice(deps.DOC_VOICES.adam);
-      voiceWarning = `${failed.label} bu hesapta API ile kullanılamadı. Üretim ${narratorVoice.label} ile sürdürüldü.`;
+      const detailStatus = String(err.details && err.details.detailStatus || '');
+      const detailMessage = String(err.details && err.details.detailMessage || '');
+      voiceWarning = `${failed.label} kullanılamadı. HTTP ${err.details && err.details.status || '?'}${detailStatus ? ` detail.status=${detailStatus}` : ''}. ${detailMessage} Üretim ${narratorVoice.label} ile sürdürüldü.`;
       request.voiceId = narratorVoice.id;
       return deps.synthesizeSpeechAligned(request);
     }
@@ -423,7 +425,7 @@ async function produceRecipe(opts, config, deps) {
       const measured = JSON.parse(match[0]);
       await ffmpeg(ffmpegBin, [
         '-y', '-i', mixed,
-        '-af', `loudnorm=I=-14:TP=-1.5:LRA=7:measured_I=${measured.input_i}:measured_TP=${measured.input_tp}:measured_LRA=${measured.input_lra}:measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}:linear=true`,
+        '-af', `loudnorm=I=-14:TP=-1.5:LRA=7:measured_I=${measured.input_i}:measured_TP=${measured.input_tp}:measured_LRA=${measured.input_lra}:measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}:linear=true,alimiter=limit=0.841:attack=5:release=50:level=false`,
         '-c:v', 'copy', '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k', '-movflags', '+faststart',
         finalFile
       ]);

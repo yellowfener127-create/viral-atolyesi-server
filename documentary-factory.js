@@ -1649,9 +1649,12 @@ async function previewDocumentaryVoice({ narrator, lang, elevenKey, ffmpegPath, 
     return { filePath: cached, narrator: voice, source: 'tts' };
   } catch (err) {
     if (isVoiceFallbackError(err)) {
+      const status = Number(err.details && err.details.status) || 402;
+      const detailStatus = String(err.details && err.details.detailStatus || '-');
+      const detailMessage = String(err.details && err.details.detailMessage || err.message || '');
       throw new DocumentaryError(
-        `${voice.label} (${voice.id}) bu hesapta API ile kullanılamadı. 5 saniyelik örnek çalınamadı.`,
-        402
+        `${voice.label} (${voice.id}) kullanılamadı. HTTP ${status}. detail.status=${detailStatus}. ${detailMessage}`,
+        status
       );
     }
     if (/quota|credits remaining|exceeds your quota/i.test(String(err && err.message || ''))) {
@@ -1837,7 +1840,8 @@ async function produceDocumentaryLegacy({
         .trim()
         .slice(0, 180);
       narratorVoice = resolveDocVoice(fallbackId);
-      voiceWarning = `${failed.label} (${failed.id}) bu hesapta API ile kullanılamadı. Üretim ${narratorVoice.label} ile sürdürüldü.`;
+      const detailStatus = String(err.details && err.details.detailStatus || '');
+      voiceWarning = `${failed.label} (${failed.id}) kullanılamadı. HTTP ${err.details && err.details.status || '?'}${detailStatus ? ` detail.status=${detailStatus}` : ''}. ${detail} Üretim ${narratorVoice.label} ile sürdürüldü.`;
       console.warn(`[belgesel] uyarı: ${voiceWarning} neden=${detail}`);
       request.voiceId = narratorVoice.id;
       console.log(`[belgesel] ElevenLabs voice_id=${request.voiceId} anahtar=${documentaryKey ? 'arayuz' : 'env'} yedek=1`);
