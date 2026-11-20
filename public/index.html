@@ -645,7 +645,7 @@
     <div class="mcc-panel" id="reel-make">
       <div class="mcc-row" style="align-items:flex-end">
         <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:6px;min-width:280px">Anlatıcı Sesi Seç
-          <select class="tool-input" id="reelVoice" onchange="stopDocVoicePreview()">
+          <select class="tool-input" id="reelVoice" onchange="stopDocVoicePreview(); var box = document.getElementById('reelVoiceId'); if (box) box.value = '';">
             <option value="pNInz6obpgDQGcFmaJgB" selected>Ses 1 - Adam (Tok & Derin)</option>
             <option value="JBFqnCBsd6RMkjVDRZzb">Ses 2 - George (Sinematik Anlatıcı)</option>
             <option value="nPczCjzI2devNBz1zQrb">Ses 3 - Brian (Derin & Tok)</option>
@@ -654,6 +654,10 @@
             <option value="random">Rastgele Seç</option>
           </select>
         </label>
+        <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:6px;min-width:220px">Kendi ses ID
+          <input class="tool-input" id="reelVoiceId" maxlength="40" placeholder="ElevenLabs ses ID" autocomplete="off" spellcheck="false" />
+        </label>
+        <button class="tool-btn" type="button" style="width:auto" onclick="addReelVoice()">Ekle</button>
         <button class="tool-btn" type="button" id="reelPreviewBtn" onclick="previewReelVoice()">5 sn dinle</button>
       </div>
       <div class="tool-desc" style="margin-top:10px">ElevenLabs anahtarı Belgesel Fabrikası kutusundaki kayıtlı anahtardır.</div>
@@ -3525,6 +3529,7 @@ let reelPlan = null;
 let reelStep = "story";
 
 function showReelStep(step) {
+  paintReelCustomVoices();
   reelStep = step === "script" || step === "make" ? step : "story";
   ["story", "script", "make"].forEach((name) => {
     const panel = document.getElementById("reel-" + name);
@@ -3592,21 +3597,118 @@ async function writeReelScript() {
   }
 }
 
-async function previewReelVoice() {
-  const voice = document.getElementById("reelVoice");
-  const docVoice = document.getElementById("docVoice");
-  const previous = docVoice ? docVoice.value : "";
-  if (docVoice && voice) docVoice.value = voice.value;
+const REEL_BUILTIN_VOICES = ["pNInz6obpgDQGcFmaJgB", "JBFqnCBsd6RMkjVDRZzb", "nPczCjzI2devNBz1zQrb", "SAxJUlDKRc79XAyeWyMu", "fCxG8OHm4STbIsWe4aT9"];
+
+function reelVoiceOk(id) {
+  return /^[A-Za-z0-9]{10,40}$/.test(String(id || "").trim());
+}
+
+function reelCustomVoices() {
   try {
-    await previewDocVoice();
-    const from = document.getElementById("docVoicePreviewMsg");
-    const msg = document.getElementById("reelMsg");
-    if (msg && from) {
-      msg.style.display = "block";
-      msg.textContent = from.textContent || "";
+    const list = JSON.parse(localStorage.getItem("reel_custom_voices") || "[]");
+    return Array.isArray(list) ? list.map((id) => String(id || "").trim()).filter(reelVoiceOk) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function paintReelCustomVoices(selectId) {
+  const select = document.getElementById("reelVoice");
+  if (!select) return;
+  reelCustomVoices().forEach((id) => {
+    if (id === "auq43ws1oslv0tO4BDa7" || select.querySelector('option[value="' + id + '"]')) return;
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = "Özel ses " + id.slice(0, 4) + "…" + id.slice(-4);
+    select.appendChild(option);
+  });
+  if (selectId && select.querySelector('option[value="' + selectId + '"]')) select.value = selectId;
+}
+
+function rememberReelVoice(id) {
+  const voiceId = String(id || "").trim();
+  if (!reelVoiceOk(voiceId) || voiceId === "auq43ws1oslv0tO4BDa7" || REEL_BUILTIN_VOICES.indexOf(voiceId) >= 0) return;
+  const next = reelCustomVoices().filter((item) => item !== voiceId);
+  next.push(voiceId);
+  localStorage.setItem("reel_custom_voices", JSON.stringify(next.slice(-12)));
+  paintReelCustomVoices(voiceId);
+}
+
+function reelSelectedVoiceId() {
+  const typed = String((document.getElementById("reelVoiceId") || {}).value || "").trim();
+  if (typed) return typed;
+  const select = document.getElementById("reelVoice");
+  return select ? String(select.value || "").trim() : "";
+}
+
+function addReelVoice() {
+  const msg = document.getElementById("reelMsg");
+  const typed = String((document.getElementById("reelVoiceId") || {}).value || "").trim();
+  if (msg) msg.style.display = "block";
+  if (typed === "auq43ws1oslv0tO4BDa7") {
+    if (msg) msg.textContent = "Bu ses kimliği eklenemez.";
+    return;
+  }
+  if (!reelVoiceOk(typed)) {
+    if (msg) msg.textContent = "Ses ID 10-40 harf ve rakam olmalı.";
+    return;
+  }
+  rememberReelVoice(typed);
+  const box = document.getElementById("reelVoiceId");
+  if (box) box.value = "";
+  if (msg) msg.textContent = "Ses eklendi. Üretim ve 5 saniyelik dinleme bu kimliği kullanır.";
+}
+
+async function previewReelVoice() {
+  const btn = document.getElementById("reelPreviewBtn");
+  const msg = document.getElementById("reelMsg");
+  const picked = reelSelectedVoiceId();
+  if (msg) msg.style.display = "block";
+  if (docPreviewAudio && !docPreviewAudio.paused) {
+    stopDocVoicePreview();
+    if (btn) btn.textContent = "5 sn dinle";
+    if (msg) msg.textContent = "Örnek durduruldu.";
+    return;
+  }
+  if (picked === "random") {
+    if (msg) msg.textContent = "5 saniye dinlemek için listeden tek bir anlatıcı seç.";
+    return;
+  }
+  if (picked === "auq43ws1oslv0tO4BDa7" || !reelVoiceOk(picked)) {
+    if (msg) msg.textContent = "Ses ID 10-40 harf ve rakam olmalı.";
+    return;
+  }
+  rememberReelVoice(picked);
+  const lang = (document.getElementById("reelLang") && document.getElementById("reelLang").value) === "en" ? "en" : "tr";
+  if (btn) { btn.disabled = true; btn.textContent = "Hazırlanıyor…"; }
+  if (msg) msg.textContent = "Seçili sesin 5 saniyelik örneği hazırlanıyor.";
+  try {
+    const res = await fetch(LOCAL_API + "/documentary-voice-preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voice_id: picked, lang: lang, elevenlabs_api_key: docElevenKeySaved() })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
     }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    if (docPreviewAudio && docPreviewAudio._url) URL.revokeObjectURL(docPreviewAudio._url);
+    const audio = new Audio(url);
+    audio._url = url;
+    docPreviewAudio = audio;
+    const finish = () => { if (docPreviewAudio === audio && btn) btn.textContent = "5 sn dinle"; };
+    audio.ontimeupdate = () => { if (audio.currentTime >= 5) { audio.pause(); finish(); } };
+    audio.onended = finish;
+    await audio.play();
+    if (btn) btn.textContent = "Durdur";
+    if (msg) msg.textContent = "Seçili anlatıcı konuşuyor. Örnek 5 saniyede durur.";
+  } catch (e) {
+    if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
+    if (btn) btn.textContent = "5 sn dinle";
   } finally {
-    if (docVoice) docVoice.value = previous;
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -3628,10 +3730,13 @@ async function runReel() {
   const story = String((document.getElementById("reelStory") || {}).value || "").trim();
   const channelEl = document.getElementById("reelChannel");
   const channel = channelEl ? channelEl.value : "epoch";
-  const voiceEl = document.getElementById("reelVoice");
-  const voiceIds = ["pNInz6obpgDQGcFmaJgB", "JBFqnCBsd6RMkjVDRZzb", "nPczCjzI2devNBz1zQrb", "SAxJUlDKRc79XAyeWyMu", "fCxG8OHm4STbIsWe4aT9"];
-  const picked = voiceEl ? String(voiceEl.value || "").trim() : "";
-  const voiceId = picked === "random" || voiceIds.indexOf(picked) >= 0 ? picked : "pNInz6obpgDQGcFmaJgB";
+  const picked = reelSelectedVoiceId();
+  if (picked === "auq43ws1oslv0tO4BDa7" || (picked !== "random" && !reelVoiceOk(picked))) {
+    alert("Ses ID 10-40 harf ve rakam olmalı.");
+    return;
+  }
+  rememberReelVoice(picked);
+  const voiceId = picked;
   if (btn) { btn.disabled = true; btn.textContent = "Reels üretiliyor…"; }
   if (msg) {
     msg.style.display = "block";

@@ -27,6 +27,12 @@ test('a pasted story is read before the reel prompt', () => {
   assert.match(prompt, /returns to the tension of the first sentence/);
   assert.match(read, /person name/);
   assert.doesNotMatch(story.biblePrompt('Mary Celeste', 'chaos', 'English'), /Do not invent a name/);
+  const factory = require('../documentary-factory');
+  const custom = factory.resolveDocVoice('AbCdEfGhIj1234567890');
+  assert.equal(custom.id, 'AbCdEfGhIj1234567890');
+  assert.equal(custom.choice, 'custom');
+  assert.equal(factory.resolveDocVoice('').id, 'pNInz6obpgDQGcFmaJgB');
+  assert.throws(() => factory.resolveDocVoice('nope'));
   assert.equal(story.reelSourceLanguage('The door was locked from inside after she left the house.'), 'en');
   assert.equal(story.reelSourceLanguage('Kapı içeriden kilitliydi ve anahtar hâlâ cebindeydi.'), 'tr');
   assert.match(story.reelTranslatePrompt([{ narration: 'The door was locked.' }], 'Turkish'), /Translate each narration into Turkish/);

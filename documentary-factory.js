@@ -85,11 +85,15 @@ function resolveDocVoice(choice) {
     id = DOC_VOICES.story;
   } else if (key === 'harrison' || key === 'gale' || key === 'velvet' || key === 'ses5' || key === '5') {
     id = DOC_VOICES.harrison;
+  } else if (/^[A-Za-z0-9]{10,40}$/.test(raw)) {
+    id = raw;
   }
-  if (!id || !DOC_VOICE_LABELS[id]) {
-    throw new DocumentaryError('Belgesel için listeden bir anlatıcı seç.', 400);
-  }
-  return { id, label: DOC_VOICE_LABELS[id], choice: pickedAtRandom ? 'random' : DOC_VOICE_KEYS[id] };
+  if (!id) throw new DocumentaryError('Belgesel için listeden bir anlatıcı seç.', 400);
+  return {
+    id,
+    label: DOC_VOICE_LABELS[id] || 'Özel ses',
+    choice: pickedAtRandom ? 'random' : (DOC_VOICE_KEYS[id] || 'custom')
+  };
 }
 
 function documentaryVoiceFromRequest(body) {
