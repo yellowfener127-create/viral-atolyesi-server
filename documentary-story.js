@@ -142,30 +142,18 @@ function criticFails(critic) {
   return issues.some((issue) => /dream|coincidence|unexplained|scope|hook/i.test(String((issue && (issue.type || issue.fix)) || issue)));
 }
 
-function documentaryEditorRules() {
-  return [
-    'You edit short vertical mystery and true-crime films. The narration is spoken aloud and shown as captions.',
-    'Use the person names, place names, ship or location names, dates, and clock times already in the material. Fit them into the sentence so the line still reads aloud. Do not invent a name, a place, a date, a time, or a detail that the material does not contain.',
-    'The first sentence points straight at the sharpest result or contradiction. It includes at least one concrete name, place, or time from the material. One sentence, 6 to 14 spoken words.',
-    'Sentences stay short, clear, and easy to speak. Do not repeat a stock phrase. Connect the events in a logical order.',
-    'The last sentence closes the story on a clear knot and returns to the tension of the first sentence. It adds no new fact.'
-  ].join('\n');
-}
-
 function biblePrompt(topic, channel, language) {
   return [
     'Write a story bible for one vertical documentary. Return JSON only.',
     `Channel: ${channel}. Language: ${language}.`,
     `Topic: ${topic}`,
-    documentaryEditorRules(),
     'scope is one main thing. Title, narration, and pictures stay on that one thing.',
     'core_mechanism is the physical chain: who did what, with which object, and what changed. Empty or unknown is invalid.',
-    'hook is that first sentence: the sharpest result or contradiction, with one concrete name, place, or time. final_line closes the knot and returns to that tension.',
-    'Keep every person, place, date, and time the topic already names. Do not add one it does not name.',
+    'hook is the promise of the first two seconds. final_line pays that promise off.',
     'is_fiction is true unless you include a sources array of real URLs.',
     'Do not accuse a real living person. Therapy uses "research suggests" and does not invent a study.',
-    'Chaos keeps the names, places, dates, and times in the source. Do not invent a person or a cause. Do not copy sentences. Do not name Reddit or the author. No dream and no coincidence as the answer.',
-    'forbidden lists scope changes, invented names, and unanswered questions.'
+    'Chaos uses the premise only: new characters, new order, no copied sentences, no dream, no coincidence as the answer.',
+    'forbidden lists title spoilers, scope changes, new characters, and unanswered questions.'
   ].join('\n');
 }
 
@@ -175,14 +163,13 @@ function scriptPrompt(bible, language, shotsPerScene, note) {
     `Language: ${language}.`,
     `Shots per beat: ${shotsPerScene}.`,
     'Beats in order: hook, setup, escalation, twist, close.',
-    documentaryEditorRules(),
-    'No square brackets.',
+    'Hook is one sentence, 6 to 7 spoken words, no spoiler, no square brackets.',
     'Each beat has narration (1 or 2 sentences), voice_direction, and shots.',
     'Each shot has visual_prompt, anchor_words that appear in the narration, location_id, and character_ids.',
     'visual_prompt is 80 to 120 concrete English words. No readable text, logo, or famous face.',
     'Aim for 80 to 90 spoken words. Stay between 75 and 100.',
-    'The close pays off the hook and returns to its tension. A dream, a coincidence, or an unexplained event cannot be the answer.',
-    'Use the names, years, places, and times already in the bible. Do not drop them and do not add one the bible does not contain. A disputed claim is not stated as proven fact. The final line is a concrete conclusion, not a slogan.',
+    'The close pays off the hook. A dream, a coincidence, or an unexplained event cannot be the answer.',
+    'A number, year, or proper name must be a claim. Disputed or legendary claims use "one theory holds" or "a legend says". Debunked claims are not stated as fact. The final line is a concrete conclusion, not a slogan.',
     note ? `Fix: ${note}` : '',
     `Bible: ${JSON.stringify(bible)}`
   ].filter(Boolean).join('\n');
@@ -194,7 +181,7 @@ function reelReadPrompt(source) {
     'Return the events that are actually written, in the order they happen.',
     'shock is the single most surprising result or mystery already in the source.',
     'ending is the last real event.',
-    'Each event is one short sentence. Keep a name, number, or date only when the event cannot be understood without it.',
+    'Each event is one short sentence. Keep every person name, place name, ship or location name, date, and clock time the source uses.',
     'Do not add a cause, a dream, a coincidence, a person, a place, or a date that the source does not contain.',
     `Source:\n${source}`
   ].join('\n');
@@ -207,9 +194,10 @@ function reelPrompt(reading, language, note) {
     'Do not add a dream, a coincidence, a character, a place, a number, a date, or a cause that the reading does not contain.',
     `Narration language: ${language}.`,
     'Five scenes. Count every spoken word. The five narrations together must be 80 to 85 words. Under 80 is wrong. Never pass 85.',
-    'Scene 1 is one sentence of 6 to 12 words. It is spoken in the first 3 seconds and names the shock from the reading.',
-    'Scenes 2, 3 and 4 retell the reading in chronological order. Drop spare names and dates. Keep the details that hold the question open.',
-    'The last sentence closes the story and sends the viewer back to the opening sentence.',
+    'Use the person names, place names, ship or location names, dates, and clock times already in the reading. Fit them into the sentence so the line still reads aloud. Do not invent a name, a place, a date, a time, or a detail that the reading does not contain.',
+    'Scene 1 is one sentence of 6 to 14 words. It is spoken in the first 3 seconds. It points straight at the sharpest result or contradiction and includes at least one concrete name, place, or time from the reading.',
+    'Scenes 2, 3 and 4 retell the reading in chronological order. Sentences stay short, clear, and easy to speak. Do not repeat a stock phrase.',
+    'The last sentence closes the story on a clear knot and returns to the tension of the first sentence. It adds no new fact.',
     'image_prompt is one English photograph of 40 to 70 words. It shows only what that scene says. One subject. No collage, no grid, no split screen. Match the light to the scene. Do not force a dark grade. No neon and no candy colors.',
     'anchor_words are 2 to 4 words copied from that scene narration.',
     'voice_tone is a short English direction such as "quiet, tense".',
@@ -243,9 +231,9 @@ function reelRepairNote(issues, words) {
   const count = Number(words);
   if ((issues || []).some((item) => String(item).startsWith('word count')) && Number.isFinite(count)) {
     if (count < 80) {
-      lines.push(`The narration is ${count} spoken words. Add ${80 - count} to ${85 - count} words inside scenes 2, 3 and 4 by unfolding events already in the reading. Land between 80 and 85. Do not add a new fact.`);
+      lines.push(`The narration is ${count} spoken words. Add ${80 - count} to ${85 - count} words inside scenes 2, 3 and 4 by unfolding events already in the reading. Land between 80 and 85. Do not add a new fact. Keep every name, place, date, and time.`);
     } else {
-      lines.push(`The narration is ${count} spoken words. Cut scenes 2, 3 and 4 until the total is between 80 and 85. Keep the shock and the last sentence.`);
+      lines.push(`The narration is ${count} spoken words. Cut scenes 2, 3 and 4 until the total is between 80 and 85. Keep the shock, the last sentence, and every name, place, date, and time.`);
     }
   }
   if (rest.length) lines.push(`Also fix: ${rest.join('; ')}.`);
@@ -261,8 +249,9 @@ function reelLengthPrompt(scenes, words, language) {
   return [
     direction,
     `Narration language: ${language}.`,
-    'Keep exactly five scenes. Scene 1 stays one sentence of 6 to 12 words.',
-    'The last sentence still sends the viewer back to the opening.',
+    'Keep exactly five scenes. Scene 1 stays one sentence of 6 to 14 words and still includes one concrete name, place, or time.',
+    'Keep every person name, place name, date, and clock time. Do not invent one.',
+    'The last sentence still closes the knot and returns to the tension of the first sentence.',
     'image_prompt is one English photograph of 40 to 70 words. One subject. No collage, no grid, no split screen.',
     'anchor_words are 2 to 4 words copied from that scene narration.',
     'voice_tone is a short English direction such as "quiet, tense".',
@@ -376,7 +365,6 @@ module.exports = {
   coverageReport,
   narrationClaimIssues,
   criticFails,
-  documentaryEditorRules,
   biblePrompt,
   scriptPrompt,
   criticPrompt,
