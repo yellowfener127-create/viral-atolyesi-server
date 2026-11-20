@@ -992,11 +992,11 @@ function narrationPerformanceRules() {
 
 function openingShockRules() {
   return [
+    storyLib.documentaryEditorRules(),
     'The first 3 seconds decide if the viewer stays. Do not open with a calm introduction.',
-    'Scene 1 is one sentence, 6 to 12 spoken words. It states the core causal claim of this film. End it with a period or a question mark, not an ellipsis. Do not write timestamps.',
-    'That claim is what the later scenes prove. It is not a side detail and not a twist stolen from the ending.',
-    'Bad opening: "Grandpa left." Good opening: "The last message he left is what ruined the house."',
-    'Scene 2 is the first cause. Each later scene is the next effect of the scene before it. Do not start a second story. Do not repeat the teaser word for word.',
+    'End scene 1 with a period or a question mark, not an ellipsis. Do not write timestamps.',
+    'Later scenes show how that result happened, in order. Do not start a second story. Do not repeat the first sentence word for word.',
+    'Bad opening: "Grandpa left." Good opening: "In 1974 the note in the kitchen is what emptied the house."',
     'Scene 1 voice_tone is "urgent, hard, no pause at the start".'
   ].join('\n');
 }
@@ -1008,7 +1008,7 @@ function causalDocumentaryRules() {
     'No logic errors. No dreams. No absurd coincidences. No link that the evidence does not support.',
     'Each beat causes the next. A leads to B through a concrete object, wound, record, or action. If a link is not supported, cut it.',
     'Scene 1 states the core claim of this film, not a side detail. That one sentence is the story.',
-    'The last scene is the lock, not a twist. The final fact makes the earlier facts fit. Do not add a dream, a secret double, or a villain the evidence never caused.'
+    'The last scene is the lock, not a new twist. The final sentence returns to the tension of the first sentence. Do not add a dream, a secret double, or a villain the evidence never caused.'
   ].join('\n');
 }
 
@@ -1046,7 +1046,7 @@ function chaosPlanPrompt(story, language, retryNote) {
     `Source title: ${story.title}`,
     `Source text: ${story.selftext}`,
     'Keep only source events that cause the next event. Drop dreams, omens, and coincidences. Do not invent a cause the source does not support.',
-    'Premise only. Invent new characters and a new order of events. Do not copy sentences from the source.',
+    'Keep the person names, place names, dates, and times written in the source. Do not invent replacements. Do not copy sentences from the source.',
     `Narration language: ${language}.`,
     causalDocumentaryRules(),
     'Do not write timestamps. Duration is measured from the recording.',
@@ -1206,7 +1206,7 @@ async function buildPlan(topic, lang, apiKey, source, channel) {
         return { scenes, words: total, music_mood: plan.music_mood };
       }
       if (!hookOk) {
-        note = 'Scene 1 failed. Rewrite it as one sentence of 6 to 12 spoken words. That sentence is the core claim. Scene 2 is the first cause, and each later scene is the next effect. Do not steal a twist from the ending. Do not write timestamps.';
+        note = 'Scene 1 failed. Rewrite it as one sentence of 6 to 14 spoken words. Point it at the sharpest result or contradiction and include one concrete name, place, or time from the material. Later scenes show how it happened. The last sentence returns to that tension. Do not write timestamps.';
         lastError = new DocumentaryError('Açılış kancası zayıf kaldı. İlk cümle tek, sarsıcı ve yaklaşık 2 saniye olmalı.');
         continue;
       }

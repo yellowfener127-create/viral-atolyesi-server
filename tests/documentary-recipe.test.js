@@ -11,6 +11,16 @@ const { maskKey } = require('../documentary-keys');
 const { hashValue, stageOutputReady, markStage } = require('../documentary-job');
 const { hamming, isFlat, tooSimilar } = require('../documentary-image');
 
+test('documentary narration keeps the names and returns to the opening', () => {
+  const prompt = story.scriptPrompt({ hook: 'The Mary Celeste was empty', final_line: 'The ship was still empty' }, 'Turkish', 3, '');
+  assert.match(prompt, /Do not invent a name/);
+  assert.match(prompt, /returns to the tension of the first sentence/);
+  assert.match(prompt, /6 to 14/);
+  const bible = story.biblePrompt('Mary Celeste', 'chaos', 'English');
+  assert.match(bible, /Do not invent a name/);
+  assert.doesNotMatch(bible, /new characters/);
+});
+
 test('a pasted story is read before the reel prompt', () => {
   const read = story.reelReadPrompt('She left the house. The door was locked from inside.');
   assert.match(read, /Do not write a script/);
