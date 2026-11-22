@@ -11,6 +11,9 @@ STYLE_MARKS = (
     "cinematic dark horror/mystery documentary still",
     "cinematic dark historical documentary still",
     "surreal psychological thriller cinematography",
+    "period documentary photograph",
+    "restrained documentary photograph",
+    "cinematic documentary photograph",
 )
 STYLE_LOCK = (
     ", cinematic dark horror/mystery documentary still, moody chiaroscuro lighting, "

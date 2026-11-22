@@ -272,7 +272,7 @@ async function produceRecipe(opts, config, deps) {
   const clock = timeline.buildTimeline(plan.scenes, sceneAudio);
   job.writeJson(dir, 'timeline.json', clock);
   const seedBase = crypto.createHash('sha256').update(path.basename(dir)).digest().readUInt32BE(0) % 100000;
-  const periodLock = ' One single photograph filling the whole vertical frame. No collage, no triptych, no grid, no stacked panels, no split screen, no black bars, no repeated picture. Period-accurate objects only. No modern clothing, eyeglasses, pens, screens, digital interfaces, modern buildings, or modern hats.';
+  const periodLock = ' One single photograph filling the whole vertical frame. One subject, one moment. Period-accurate objects only. No modern clothing, eyeglasses, pens, screens, digital interfaces, or modern hats.';
   for (let i = 0; i < clock.shots.length; i++) {
     const shot = clock.shots[i];
     if (opts.onlyScene != null && shot.scene !== opts.onlyScene) continue;

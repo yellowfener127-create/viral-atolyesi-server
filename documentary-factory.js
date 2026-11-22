@@ -1286,17 +1286,30 @@ function grayFingerprint(ffmpegPath, file) {
   });
 }
 
+function asSinglePhotograph(text) {
+  return String(text || '')
+    .replace(/\bno collage\b[,.]?/gi, ' ')
+    .replace(/\bno triptych\b[,.]?/gi, ' ')
+    .replace(/\bno grid\b[,.]?/gi, ' ')
+    .replace(/\bno stacked panels\b[,.]?/gi, ' ')
+    .replace(/\bno split screen\b[,.]?/gi, ' ')
+    .replace(/\bno black bars\b[,.]?/gi, ' ')
+    .replace(/\bno repeated picture\b[,.]?/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 async function downloadPollinationsStill(prompt, dest, channel, seed, ffmpegPath) {
-  const locked = withStyleLock(prompt, channel);
   const baseSeed = Number.isFinite(Number(seed)) ? Number(seed) : 0;
   const promptFile = path.join(path.dirname(dest), `prompt_${path.basename(dest, path.extname(dest))}.txt`);
   await fs.promises.mkdir(path.dirname(dest), { recursive: true });
-  await fs.promises.writeFile(promptFile, locked, 'utf8');
   const script = path.join(__dirname, 'pollinations_image.py');
   const bins = process.platform === 'win32' ? [['py', ['-3']], ['python', []]] : [['python3', []], ['python', []]];
   let lastErr = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 6; attempt++) {
     const usedSeed = baseSeed + (attempt * 997);
+    const locked = withStyleLock(asSinglePhotograph(prompt) + (attempt ? ' One continuous vertical photograph.' : ''), channel);
+    await fs.promises.writeFile(promptFile, locked, 'utf8');
     const cached = imageCacheFile(locked, usedSeed);
     if (fs.existsSync(cached) && fs.statSync(cached).size > 2048) {
       await fs.promises.copyFile(cached, dest);
