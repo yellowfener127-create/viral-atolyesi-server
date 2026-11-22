@@ -52,6 +52,20 @@ function countEvents(stderr, marker) {
   return (String(stderr || '').match(new RegExp(marker, 'g')) || []).length;
 }
 
+function countFreezes(stderr, duration) {
+  const starts = [];
+  const pattern = /freeze_start:\s*(-?\d+(?:\.\d+)?)/g;
+  const text = String(stderr || '');
+  let match = pattern.exec(text);
+  while (match) {
+    starts.push(Number(match[1]));
+    match = pattern.exec(text);
+  }
+  const limit = Number(duration) || 0;
+  if (!limit) return starts.length;
+  return starts.filter((start) => start < limit - 1.2).length;
+}
+
 async function measureFile(filePath, bins) {
   const ffmpeg = (bins && bins.ffmpeg) || 'ffmpeg';
   const ffprobe = (bins && bins.ffprobe) || 'ffprobe';
@@ -69,7 +83,7 @@ async function measureFile(filePath, bins) {
     ...parseProbe(probe.stdout),
     ...parseEbur128(loud.stderr),
     black_events: countEvents(black.stderr, 'black_start'),
-    freeze_events: countEvents(freeze.stderr, 'freeze_start')
+    freeze_events: countFreezes(freeze.stderr, parseProbe(probe.stdout).duration_sec)
   };
 }
 
@@ -93,4 +107,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { measureFile, parseProbe, parseEbur128, countEvents };
+module.exports = { measureFile, parseProbe, parseEbur128, countEvents, countFreezes };

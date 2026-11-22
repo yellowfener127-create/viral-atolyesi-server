@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadDocConfig, DOC_CONFIG } = require('../documentary-config');
-const { parseEbur128, parseProbe, countEvents } = require('../documentary-measure');
+const { parseEbur128, parseProbe, countEvents, countFreezes } = require('../documentary-measure');
 const { dryRunPlan } = require('../documentary-dry-run');
 const fixture = require('./fixtures/scene-plan.json');
 
@@ -30,6 +30,8 @@ test('ebur128 and probe parsers read a sample report', () => {
   const loud = parseEbur128('I: -70.0 LUFS\nSummary:\n    I:         -26.4 LUFS\n    LRA:         8.2 LU\n    Peak:        -3.1 dBFS\n');
   assert.equal(loud.lufs, -26.4);
   assert.equal(loud.true_peak_db, -3.1);
+  assert.equal(countFreezes('lavfi.freezedetect.freeze_start: 38.133333', 38.8), 0);
+  assert.equal(countFreezes('lavfi.freezedetect.freeze_start: 10.0', 38.8), 1);
   const probe = parseProbe(JSON.stringify({
     format: { duration: '42.5' },
     streams: [
