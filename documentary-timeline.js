@@ -15,6 +15,33 @@ function findAnchor(words, anchor) {
   return null;
 }
 
+function fitImageCount(scenes, total) {
+  const list = (scenes || []).filter(Boolean);
+  const budget = Math.max(1, Math.round(Number(total) || 10));
+  if (!list.length) return list;
+  const base = Math.floor(budget / list.length);
+  let extra = budget % list.length;
+  list.forEach((scene) => {
+    const have = (Array.isArray(scene.shots) ? scene.shots : []).filter((shot) => shot && (shot.visual_prompt || scene.image_prompt));
+    const seed = have.length ? have : [{ visual_prompt: scene.image_prompt, anchor_words: '' }];
+    const want = base + (extra > 0 ? 1 : 0);
+    if (extra > 0) extra -= 1;
+    const next = [];
+    for (let i = 0; i < want; i++) {
+      const src = seed[Math.min(i, seed.length - 1)] || {};
+      const prompt = src.visual_prompt || scene.image_prompt || '';
+      const padded = i >= seed.length;
+      next.push({
+        visual_prompt: padded ? `${prompt} A later moment in the same place, camera a step closer.` : prompt,
+        anchor_words: padded ? '' : String(src.anchor_words || ''),
+        character_ids: Array.isArray(src.character_ids) ? src.character_ids : []
+      });
+    }
+    scene.shots = next.filter((shot) => shot.visual_prompt);
+  });
+  return list;
+}
+
 function buildTimeline(scenes, sceneAudio) {
   const shots = [];
   let cursor = 0;
@@ -22,10 +49,16 @@ function buildTimeline(scenes, sceneAudio) {
     const audio = sceneAudio[sceneIndex] || { words: [], duration: 0 };
     const words = audio.words || [];
     const duration = Number(audio.duration) || 0;
-    const listed = Array.isArray(scene.shots) && scene.shots.length ? scene.shots : [{
-      visual_prompt: scene.image_prompt,
-      anchor_words: words[0] ? words[0].word : ''
-    }];
+    const listed = Array.isArray(scene.shots)
+      ? scene.shots.filter((shot) => shot && (shot.visual_prompt || scene.image_prompt))
+      : [{
+        visual_prompt: scene.image_prompt,
+        anchor_words: words[0] ? words[0].word : ''
+      }];
+    if (!listed.length) {
+      cursor += duration;
+      return;
+    }
     const anchors = listed.map((shot, shotIndex) => {
       const hit = findAnchor(words, shot.anchor_words);
       const fallback = words[Math.min(words.length - 1, Math.floor((words.length * shotIndex) / listed.length))] || null;
@@ -139,4 +172,4 @@ function buildAss(cues, hook) {
   return lines.join('\n');
 }
 
-module.exports = { MOTIONS, motionFor, findAnchor, buildTimeline, chunkWords, buildAss, assTime, distinctHook };
+module.exports = { MOTIONS, motionFor, findAnchor, fitImageCount, buildTimeline, chunkWords, buildAss, assTime, distinctHook };

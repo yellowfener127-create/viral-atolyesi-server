@@ -117,6 +117,19 @@ test('timeline locks a shot to its anchor and the last shot holds', () => {
   assert.ok(Math.abs((clock.shots[0].end - clock.shots[0].start) - 2) < 0.001);
   assert.ok(Math.abs((clock.shots[1].end - clock.shots[1].start) - 2) < 0.001);
   assert.equal(clock.shots[1].end, 4);
+  const packed = [1, 2, 3, 4, 5].map(() => ({
+    image_prompt: 'house',
+    shots: [
+      { visual_prompt: 'door', anchor_words: 'door' },
+      { visual_prompt: 'hall', anchor_words: 'hall' },
+      { visual_prompt: 'yard', anchor_words: 'yard' }
+    ]
+  }));
+  timeline.fitImageCount(packed, 10);
+  assert.equal(packed.reduce((sum, scene) => sum + scene.shots.length, 0), 10);
+  assert.equal(packed[0].shots.length, 2);
+  assert.equal(packed[0].shots[0].visual_prompt, 'door');
+  assert.equal(packed[0].shots[1].visual_prompt, 'hall');
   const covered = clock.shots.reduce((sum, shot) => sum + (shot.end - shot.start), 0);
   assert.ok(Math.abs(covered - 4) < 0.001);
   const ass = timeline.buildAss(timeline.chunkWords(audio[0].words), 'The knife stayed');
@@ -168,17 +181,23 @@ test('qc accepts a measured reel and rejects a quiet one', () => {
   const good = judgeQc({
     width: 1080, height: 1920, fps: 30, duration_sec: 42, has_audio: true,
     lufs: -14, true_peak_db: -1.6, leading_silence_sec: 0.1, black_events: 0, freeze_events: 0
-  }, { duration: [24, 70], shots: 15 });
+  }, { duration: [24, 70], shots: 10, imageCount: 10 });
   assert.equal(good.pass, true);
   const held = judgeQc({
     width: 1080, height: 1920, fps: 30, duration_sec: 47, has_audio: true,
     lufs: -14.1, true_peak_db: -1.1, black_events: 0, freeze_events: 0
-  }, { duration: [24, 70], shots: 15, hardMax: 70 });
+  }, { duration: [24, 70], shots: 10, imageCount: 10, hardMax: 70 });
   assert.equal(held.pass, true);
+  const crowded = judgeQc({
+    width: 1080, height: 1920, fps: 30, duration_sec: 42, has_audio: true,
+    lufs: -14, true_peak_db: -1.6, black_events: 0, freeze_events: 0
+  }, { duration: [24, 70], shots: 15, imageCount: 10 });
+  assert.equal(crowded.pass, false);
+  assert.ok(crowded.issues.includes('shot_count'));
   const quiet = judgeQc({
     width: 1080, height: 1920, fps: 30, duration_sec: 42, has_audio: true,
     lufs: -24.3, true_peak_db: -4.6, black_events: 0, freeze_events: 0
-  }, { duration: [24, 70], shots: 15 });
+  }, { duration: [24, 70], shots: 10, imageCount: 10 });
   assert.equal(quiet.pass, false);
   assert.ok(quiet.issues.includes('lufs'));
 });

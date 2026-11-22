@@ -13,7 +13,8 @@ const DOC_CONFIG = Object.freeze({
   STORY_PIPELINE: 'v2',
   OUTPUT_LAYOUT: 'jobs',
   CHAOS_SOURCE: 'reddit_premise',
-  shots_per_scene: 3,
+  shots_per_scene: 2,
+  image_count: 10,
   layout: 'fullbleed',
   subtitles: 'ass',
   loudnorm: true,
@@ -56,7 +57,8 @@ function loadDocConfig(env) {
     layout: pick(source, 'DOC_LAYOUT', DOC_CONFIG.layout, ['card', 'fullbleed']),
     subtitles: pick(source, 'DOC_SUBTITLES', DOC_CONFIG.subtitles, ['ass', 'drawtext']),
     TTS_MODEL: pick(source, 'TTS_MODEL', DOC_CONFIG.TTS_MODEL),
-    shots_per_scene: numberOr(source.DOC_SHOTS, DOC_CONFIG.shots_per_scene, 1, 3),
+    shots_per_scene: numberOr(source.DOC_SHOTS, DOC_CONFIG.shots_per_scene, 1, 2),
+    image_count: DOC_CONFIG.image_count,
     loudnorm: source.DOC_LOUDNORM === '0' ? false : DOC_CONFIG.loudnorm
   });
 }

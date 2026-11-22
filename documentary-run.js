@@ -265,10 +265,8 @@ async function produceRecipe(opts, config, deps) {
   plan.scenes.forEach((scene) => {
     const shots = Array.isArray(scene.shots) ? scene.shots.filter((shot) => shot && shot.visual_prompt) : [];
     scene.shots = shots.length ? shots : [{ visual_prompt: scene.image_prompt, anchor_words: '' }];
-    while (scene.shots.length < config.shots_per_scene) {
-      scene.shots.push({ visual_prompt: scene.image_prompt, anchor_words: '' });
-    }
   });
+  timeline.fitImageCount(plan.scenes, config.image_count || 10);
   const clock = timeline.buildTimeline(plan.scenes, sceneAudio);
   job.writeJson(dir, 'timeline.json', clock);
   const seedBase = crypto.createHash('sha256').update(path.basename(dir)).digest().readUInt32BE(0) % 100000;
@@ -443,6 +441,7 @@ async function produceRecipe(opts, config, deps) {
   const qc = judgeQc(measure, {
     duration: config.duration_range[selected],
     shots: clock.shots.length,
+    imageCount: config.image_count || 10,
     hardMax: config.hard_max_duration
   });
   job.writeJson(dir, 'qc.json', { pass: qc.pass, issues: qc.issues, measure });

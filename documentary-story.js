@@ -162,6 +162,7 @@ function scriptPrompt(bible, language, shotsPerScene, note) {
     'Write the spoken script from this bible only. Do not add a new fact.',
     `Language: ${language}.`,
     `Shots per beat: ${shotsPerScene}.`,
+    'The whole film has exactly 10 shots and never an 11th. Five beats, two different photographs on each beat.',
     'Beats in order: hook, setup, escalation, twist, close.',
     'Hook is one sentence, 6 to 7 spoken words, no spoiler, no square brackets.',
     'Each beat has narration (1 or 2 sentences), voice_direction, and shots.',
