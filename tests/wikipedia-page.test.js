@@ -102,7 +102,9 @@ test('marked stories stay in the json file', () => {
   const unmarked = wiki.saveUsedStory({ id: 'brandes2001', title: 'Bernd Brandes', marked: false }, file);
   assert.equal(unmarked.stories[0].video, true);
   assert.equal(unmarked.stories[0].marked, false);
+  assert.equal(wiki.saveOpenPage('https://en.wikipedia.org/wiki/List_of_unusual_deaths', file).open, 'https://en.wikipedia.org/wiki/List_of_unusual_deaths');
   const removed = wiki.saveUsedStory({ id: 'brandes2001', remove: true }, file);
+  assert.equal(wiki.readOpenPage(file), 'https://en.wikipedia.org/wiki/List_of_unusual_deaths');
   assert.equal(removed.stories.length, 0);
   assert.equal(wiki.readUsedStories(file).length, 0);
   fs.rmSync(file, { force: true });

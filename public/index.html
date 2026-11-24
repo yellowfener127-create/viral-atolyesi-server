@@ -2364,6 +2364,9 @@ let wikiRows = [];
 let wikiPageTitle = "";
 let wikiUsed = [];
 let wikiLinks = [];
+let wikiOpenQuery = "";
+let wikiBooted = false;
+let wikiLoading = false;
 
 function wikiEsc(text) {
   return String(text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -2398,17 +2401,35 @@ function wireWikiTable() {
   });
 }
 
-function openWikiReader() {
+async function openWikiReader() {
   paintWikiPicks();
   wireWikiTable();
-  loadWikiUsed().catch(() => {});
+  try { await loadWikiUsed(); } catch (e) {}
+  if (wikiBooted || wikiLoading || wikiRows.length || !wikiOpenQuery) {
+    wikiBooted = true;
+    return;
+  }
+  wikiBooted = true;
+  const input = document.getElementById("wikiQuery");
+  if (input && !String(input.value || "").trim()) input.value = wikiOpenQuery;
+  if (!input || String(input.value || "").trim() === wikiOpenQuery) loadWikiPage(wikiOpenQuery);
 }
 
 async function loadWikiUsed() {
   const res = await fetch(LOCAL_API + "/wikipedia/used");
   const data = await res.json().catch(() => ({}));
   wikiUsed = Array.isArray(data.stories) ? data.stories : [];
+  if (data && data.open) wikiOpenQuery = String(data.open).trim();
   if (wikiRows.length) renderWikiRows();
+}
+
+function rememberWikiOpen(query) {
+  wikiOpenQuery = query;
+  fetch(LOCAL_API + "/wikipedia/open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query: query })
+  }).catch(() => {});
 }
 
 async function loadWikiPage(title) {
@@ -2420,6 +2441,8 @@ async function loadWikiPage(title) {
     if (msg) msg.textContent = "Bir Wikipedia başlığı veya linki yaz.";
     return;
   }
+  if (wikiLoading) return;
+  wikiLoading = true;
   if (btn) { btn.disabled = true; btn.textContent = "Getiriliyor…"; }
   if (msg) msg.textContent = "Wikipedia okunuyor.";
   try {
@@ -2440,9 +2463,11 @@ async function loadWikiPage(title) {
     }
     renderWikiLinks();
     renderWikiRows();
+    rememberWikiOpen(query);
   } catch (e) {
     if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
   } finally {
+    wikiLoading = false;
     if (btn) { btn.disabled = false; btn.textContent = "Listeyi getir"; }
   }
 }

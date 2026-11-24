@@ -380,25 +380,58 @@ function storyId(page, section, name, date) {
   return crypto.createHash('sha1').update([page, section, name, date].join('\n')).digest('hex').slice(0, 16);
 }
 
-function readUsedStories(file) {
+function readWikiStore(file) {
   const target = file || USED_FILE;
-  if (!fs.existsSync(target)) return [];
+  if (!fs.existsSync(target)) return { stories: [], open: '' };
   try {
     const data = JSON.parse(fs.readFileSync(target, 'utf8'));
     const list = Array.isArray(data) ? data : data.stories;
-    return Array.isArray(list) ? list : [];
+    return {
+      stories: Array.isArray(list) ? list : [],
+      open: String((data && data.open) || '').trim().slice(0, 500)
+    };
   } catch {
-    return [];
+    return { stories: [], open: '' };
   }
 }
 
-function writeUsedStories(list, file) {
+function writeWikiStore(store, file) {
   const target = file || USED_FILE;
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  const body = JSON.stringify({ stories: list.slice(-MAX_USED) }, null, 2);
+  const body = JSON.stringify({
+    open: String((store && store.open) || '').trim().slice(0, 500),
+    stories: ((store && store.stories) || []).slice(-MAX_USED)
+  }, null, 2);
   const tmp = `${target}.tmp`;
   fs.writeFileSync(tmp, body);
   fs.renameSync(tmp, target);
+}
+
+function readUsedStories(file) {
+  return readWikiStore(file).stories;
+}
+
+function readOpenPage(file) {
+  return readWikiStore(file).open;
+}
+
+function saveOpenPage(query, file) {
+  const open = String(query || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  if (!open) {
+    const error = new Error('Açık kalacak Wikipedia linki gerekli.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const store = readWikiStore(file);
+  store.open = open;
+  writeWikiStore(store, file);
+  return { ok: true, open };
+}
+
+function writeUsedStories(list, file) {
+  const store = readWikiStore(file);
+  store.stories = list;
+  writeWikiStore(store, file);
 }
 
 function saveUsedStory(entry, file) {
@@ -445,6 +478,8 @@ module.exports = {
   parseWikitext,
   fetchWikipedia,
   readUsedStories,
+  readOpenPage,
+  saveOpenPage,
   saveUsedStory,
   storyId
 };

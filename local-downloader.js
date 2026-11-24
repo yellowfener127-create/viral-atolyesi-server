@@ -3338,7 +3338,15 @@ app.post('/wikipedia/page', async (req, res) => {
 });
 
 app.get('/wikipedia/used', (req, res) => {
-  res.json({ ok: true, stories: wikiPages.readUsedStories() });
+  res.json({ ok: true, open: wikiPages.readOpenPage(), stories: wikiPages.readUsedStories() });
+});
+
+app.post('/wikipedia/open', (req, res) => {
+  try {
+    return res.json(wikiPages.saveOpenPage(req.body?.query || req.body?.url || req.body?.title));
+  } catch (e) {
+    return res.status(e && e.statusCode ? e.statusCode : 500).json({ error: (e && e.message) ? e.message : 'Link kaydedilemedi.' });
+  }
 });
 
 app.post('/wikipedia/used', (req, res) => {
