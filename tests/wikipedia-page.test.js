@@ -61,6 +61,27 @@ test('a wikitable becomes name, date, place and story rows', () => {
   assert.equal(first.id, wiki.storyId('List of unusual deaths in the 21st century', '2000s', first.name, first.date));
 });
 
+test('a sortname cell keeps the person and the place', () => {
+  const page = wiki.parseWikitext(`
+{| class="wikitable"
+|-
+! Date
+! Person(s)
+! Missing from
+! Circumstances
+|-
+| 2 February 2000
+! scope="row"| {{sortname|Khadzhi-Murat|Yandiev}}
+| [[Grozny]], Russia
+| Last seen alive on 2 February 2000.
+|}
+`, 'Missing');
+  assert.equal(page.rows[0].name, 'Khadzhi-Murat Yandiev');
+  assert.equal(page.rows[0].date, '2 February 2000');
+  assert.equal(page.rows[0].place, 'Grozny, Russia');
+  assert.match(page.rows[0].story, /Last seen/);
+});
+
 test('marked stories stay in the json file', () => {
   const file = path.join(os.tmpdir(), `va-used-${Date.now()}.json`);
   const saved = wiki.saveUsedStory({
@@ -77,6 +98,10 @@ test('marked stories stay in the json file', () => {
   }, file);
   assert.equal(video.stories.length, 1);
   assert.equal(video.stories[0].video, true);
+  assert.equal(video.stories[0].marked, true);
+  const unmarked = wiki.saveUsedStory({ id: 'brandes2001', title: 'Bernd Brandes', marked: false }, file);
+  assert.equal(unmarked.stories[0].video, true);
+  assert.equal(unmarked.stories[0].marked, false);
   const removed = wiki.saveUsedStory({ id: 'brandes2001', remove: true }, file);
   assert.equal(removed.stories.length, 0);
   assert.equal(wiki.readUsedStories(file).length, 0);

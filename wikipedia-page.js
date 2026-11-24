@@ -8,7 +8,7 @@ const MAX_USED = 2000;
 
 const NAME_COL = /name|person|victim|deceased|individual|who|isim|ad[ıi]|ki[sş]i/i;
 const DATE_COL = /date|death|died|year|when|tarih|[oö]l[uü]m/i;
-const PLACE_COL = /country|place|location|city|where|nation|site|[uü]lke|yer|[sş]ehir|konum/i;
+const PLACE_COL = /country|place|location|city|where|nation|site|missing|[uü]lke|yer|[sş]ehir|konum/i;
 const STORY_COL = /detail|description|notes|circumstance|cause|summary|account|story|event|a[cç][ıi]klama|ayr[ıi]nt[ıi]|olay/i;
 const IMAGE_COL = /image|picture|photo|portrait|resim|g[oö]rsel/i;
 const META_SECTION = /^(notes|references|see also|external links|bibliography|further reading|sources|kaynak[cç]a|notlar|ayrıca bak[ıi]n[ıi]z)$/i;
@@ -348,6 +348,7 @@ function templateValue(inner) {
     if (named) return named.slice(named.indexOf('=') + 1).trim();
     return positional[0] || '';
   }
+  if (name === 'sortname') return positional.slice(0, 2).join(' ');
   if (name === 'lang' || name === 'small' || name === 'nowrap') return positional[positional.length - 1] || '';
   if (/^(cite|reflist|efn|sfn|harv|nbsp|center|sort|hs)$/.test(name)) return '';
   if (!args.length && name.length < 40) return parts[0].trim();
@@ -407,24 +408,32 @@ function saveUsedStory(entry, file) {
     error.statusCode = 400;
     throw error;
   }
-  const list = readUsedStories(file).filter((item) => item && item.id !== id);
+  const all = readUsedStories(file);
+  const prior = all.find((item) => item && item.id === id) || {};
+  const list = all.filter((item) => item && item.id !== id);
   if (entry.remove) {
     writeUsedStories(list, file);
     return { ok: true, removed: true, id, stories: list };
   }
-  const title = String(entry.title || entry.name || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  const title = String(entry.title || entry.name || prior.title || '').replace(/\s+/g, ' ').trim().slice(0, 300);
   if (!title) {
     const error = new Error('Hikâye başlığı gerekli.');
     error.statusCode = 400;
     throw error;
   }
+  const has = (key) => Object.prototype.hasOwnProperty.call(entry, key);
   const saved = {
     id,
     title,
-    page: String(entry.page || '').replace(/\s+/g, ' ').trim().slice(0, 300),
-    video: Boolean(entry.video),
+    page: String(has('page') ? entry.page : (prior.page || '')).replace(/\s+/g, ' ').trim().slice(0, 300),
+    video: has('video') ? Boolean(entry.video) : Boolean(prior.video),
+    marked: has('marked') ? Boolean(entry.marked) : (prior.marked == null ? true : Boolean(prior.marked)),
     updated_at: new Date().toISOString()
   };
+  if (!saved.video && !saved.marked) {
+    writeUsedStories(list, file);
+    return { ok: true, removed: true, id, stories: list };
+  }
   list.push(saved);
   writeUsedStories(list, file);
   return { ok: true, story: saved, stories: list };

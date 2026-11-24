@@ -281,6 +281,27 @@
 
   /* (Transcript yıldızı kaldırıldı) */
 
+  .wiki-bar{display:flex;gap:8px;align-items:center}
+  .wiki-bar .tool-input{margin:0;flex:1}
+  .wiki-picks,.wiki-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .wiki-pick{padding:7px 12px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;font-family:'Outfit',sans-serif;font-size:12px;font-weight:600}
+  .wiki-pick:hover{color:var(--text);border-color:rgba(124,107,255,.45)}
+  .wiki-filter{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13px;color:var(--text)}
+  .wiki-table-wrap{max-height:70vh;overflow:auto;margin-top:12px;border:1px solid var(--border);border-radius:14px}
+  .wiki-table{width:100%;border-collapse:collapse}
+  .wiki-table th{position:sticky;top:0;text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:12px;background:#141726;border-bottom:1px solid var(--border)}
+  .wiki-table td{padding:12px;vertical-align:top;border-bottom:1px solid var(--border);font-size:14px;line-height:1.55}
+  .wiki-section td{font-family:'Bebas Neue',sans-serif;letter-spacing:1px;font-size:18px;background:#101322}
+  .wiki-row.marked{background:rgba(212,168,67,.16)}
+  .wiki-row.used{background:rgba(124,107,255,.12)}
+  .wiki-row.marked.used{box-shadow:inset 3px 0 0 #d4a843}
+  .wiki-name{font-weight:700}
+  .wiki-meta{color:var(--muted);white-space:nowrap}
+  .wiki-story{min-width:240px}
+  .wiki-actions{display:flex;flex-direction:column;gap:8px;min-width:180px}
+  .wiki-actions .tool-btn{width:100%;padding:8px 10px;font-size:12px}
+  .wiki-used-pill{display:inline-block;margin-top:6px;padding:2px 8px;border-radius:999px;background:rgba(124,107,255,.28);color:#e4e0ff;font-size:11px;font-weight:700}
+
 </style>
 </head>
 <body>
@@ -296,6 +317,7 @@
     <button class="nav-btn" data-page="voice" onclick="showPage('voice')">🎙️ Voice Enjektör</button>
     <button class="nav-btn" data-page="doc" onclick="showPage('doc')">🎞️ Belgesel Fabrikası</button>
     <button class="nav-btn" data-page="reel" onclick="showPage('reel')">📖 Hikâye Reels</button>
+    <button class="nav-btn" data-page="wiki" onclick="showPage('wiki')">📚 Wikipedia Vaka Okuyucu</button>
     <button class="nav-btn" data-page="tools" onclick="showPage('tools')">🛠️ Araçlar</button>
   </div>
   <div class="day-badge" id="dayBadge">📅 <strong>—</strong></div>
@@ -666,6 +688,39 @@
       <div class="tool-desc" style="margin-top:10px">ElevenLabs anahtarı Belgesel Fabrikası kutusundaki kayıtlı anahtardır.</div>
       <button class="tool-btn" type="button" id="reelBuildBtn" onclick="runReel()" style="margin-top:12px">Reels videosunu üret ve kaydet</button>
       <div class="tool-result" id="reelMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="page" id="page-wiki">
+<div class="wrap">
+  <div style="margin-bottom:18px">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;margin-bottom:6px">Wikipedia Vaka Okuyucu</div>
+    <div style="font-size:13px;color:var(--muted)">Bir Wikipedia başlığı veya linki yaz. Kişi, tarih, yer ve hikâye burada listelenir.</div>
+  </div>
+  <div class="tool-card">
+    <div class="wiki-bar">
+      <input class="tool-input" id="wikiQuery" placeholder="Wikipedia linki veya başlık" />
+      <button class="tool-btn" type="button" id="wikiLoadBtn" style="width:auto;white-space:nowrap" onclick="loadWikiPage()">Listeyi getir</button>
+    </div>
+    <div class="wiki-picks" id="wikiPicks"></div>
+    <label class="wiki-filter"><input type="checkbox" id="wikiUnusedOnly" onchange="renderWikiRows()" /> Sadece Kullanılmayanları Göster</label>
+    <div id="wikiMsg" style="font-size:12px;color:var(--muted);min-height:18px"></div>
+    <div id="wikiLinks" class="wiki-links"></div>
+    <div class="wiki-table-wrap" id="wikiTableWrap" style="display:none">
+      <table class="wiki-table">
+        <thead>
+          <tr>
+            <th>Kişi / Başlık</th>
+            <th>Tarih</th>
+            <th>Ülke / Yer</th>
+            <th>Hikâye</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="wikiBody"></tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -2285,6 +2340,214 @@ function showPage(page) {
   if (page === 'doc') { refreshDocElevenStatus(); refreshDocJobs(); }
   if (page === 'reel') showReelStep(reelStep);
   if (page === 'voice') refreshVoiceElevenStatus();
+  if (page === 'wiki') openWikiReader();
+}
+
+const WIKI_PICKS = [
+  "List of unusual deaths",
+  "List of people who disappeared mysteriously"
+];
+let wikiRows = [];
+let wikiPageTitle = "";
+let wikiUsed = [];
+let wikiLinks = [];
+
+function wikiEsc(text) {
+  return String(text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function paintWikiPicks() {
+  const box = document.getElementById("wikiPicks");
+  if (!box || box.childElementCount) return;
+  WIKI_PICKS.forEach((title) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "wiki-pick";
+    btn.textContent = title;
+    btn.onclick = () => {
+      const input = document.getElementById("wikiQuery");
+      if (input) input.value = title;
+      loadWikiPage(title);
+    };
+    box.appendChild(btn);
+  });
+}
+
+function wireWikiTable() {
+  const body = document.getElementById("wikiBody");
+  if (!body || body.dataset.wired) return;
+  body.dataset.wired = "1";
+  body.addEventListener("click", (event) => {
+    const mark = event.target.closest("[data-wiki-mark]");
+    const send = event.target.closest("[data-wiki-send]");
+    if (mark) toggleWikiMark(mark.getAttribute("data-wiki-mark"));
+    if (send) sendWikiToReel(send.getAttribute("data-wiki-send"));
+  });
+}
+
+function openWikiReader() {
+  paintWikiPicks();
+  wireWikiTable();
+  loadWikiUsed().catch(() => {});
+}
+
+async function loadWikiUsed() {
+  const res = await fetch(LOCAL_API + "/wikipedia/used");
+  const data = await res.json().catch(() => ({}));
+  wikiUsed = Array.isArray(data.stories) ? data.stories : [];
+  if (wikiRows.length) renderWikiRows();
+}
+
+async function loadWikiPage(title) {
+  const input = document.getElementById("wikiQuery");
+  const query = String(title || (input && input.value) || "").trim();
+  const msg = document.getElementById("wikiMsg");
+  const btn = document.getElementById("wikiLoadBtn");
+  if (!query) {
+    if (msg) msg.textContent = "Bir Wikipedia başlığı veya linki yaz.";
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = "Getiriliyor…"; }
+  if (msg) msg.textContent = "Wikipedia okunuyor.";
+  try {
+    const res = await fetch(LOCAL_API + "/wikipedia/page", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(/^https?:\/\//i.test(query) ? { url: query } : { title: query })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
+    wikiPageTitle = data.title || query;
+    wikiRows = Array.isArray(data.rows) ? data.rows : [];
+    wikiLinks = Array.isArray(data.links) ? data.links : [];
+    if (msg) {
+      msg.textContent = wikiRows.length
+        ? (wikiPageTitle + " · " + wikiRows.length + " hikâye")
+        : (wikiPageTitle + " tablosuz bir dizin. Aşağıdan bir liste aç.");
+    }
+    renderWikiLinks();
+    renderWikiRows();
+  } catch (e) {
+    if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Listeyi getir"; }
+  }
+}
+
+function renderWikiLinks() {
+  const box = document.getElementById("wikiLinks");
+  if (!box) return;
+  box.replaceChildren();
+  if (wikiRows.length) return;
+  wikiLinks.filter((link) => /^List of /i.test(link && link.title)).slice(0, 12).forEach((link) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "wiki-pick";
+    btn.textContent = link.label || link.title;
+    btn.onclick = () => {
+      const input = document.getElementById("wikiQuery");
+      if (input) input.value = link.title;
+      loadWikiPage(link.title);
+    };
+    box.appendChild(btn);
+  });
+}
+
+function wikiState(id) {
+  return wikiUsed.find((item) => item && item.id === id) || null;
+}
+
+function renderWikiRows() {
+  const body = document.getElementById("wikiBody");
+  const wrap = document.getElementById("wikiTableWrap");
+  if (!body || !wrap) return;
+  const unusedOnly = Boolean((document.getElementById("wikiUnusedOnly") || {}).checked);
+  body.replaceChildren();
+  let shown = 0;
+  let section = "";
+  wikiRows.forEach((row) => {
+    const state = wikiState(row.id);
+    const used = Boolean(state && state.video);
+    if (unusedOnly && used) return;
+    if (row.section && row.section !== section) {
+      section = row.section;
+      const head = document.createElement("tr");
+      head.className = "wiki-section";
+      head.innerHTML = "<td colspan=\"5\">" + wikiEsc(section) + "</td>";
+      body.appendChild(head);
+    }
+    shown += 1;
+    const tr = document.createElement("tr");
+    tr.className = "wiki-row" + (state && state.marked ? " marked" : "") + (used ? " used" : "");
+    const markLabel = state && state.marked ? "İşareti kaldır" : "İşaretle / Kaldığım Yer";
+    tr.innerHTML =
+      "<td class=\"wiki-name\">" + wikiEsc(row.name) + (used ? "<div class=\"wiki-used-pill\">Kullanıldı</div>" : "") + "</td>" +
+      "<td class=\"wiki-meta\">" + wikiEsc(row.date) + "</td>" +
+      "<td class=\"wiki-meta\">" + wikiEsc(row.place) + "</td>" +
+      "<td class=\"wiki-story\">" + wikiEsc(row.story) + "</td>" +
+      "<td><div class=\"wiki-actions\">" +
+        "<button type=\"button\" class=\"tool-btn\" data-wiki-mark=\"" + wikiEsc(row.id) + "\">" + markLabel + "</button>" +
+        "<button type=\"button\" class=\"tool-btn\" data-wiki-send=\"" + wikiEsc(row.id) + "\">Videoya Aktar</button>" +
+      "</div></td>";
+    body.appendChild(tr);
+  });
+  wrap.style.display = wikiRows.length ? "block" : "none";
+  if (!shown && wikiRows.length && unusedOnly) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td colspan=\"5\" style=\"color:var(--muted)\">Kullanılmayan hikâye kalmadı.</td>";
+    body.appendChild(tr);
+  }
+}
+
+async function saveWikiFlag(row, patch) {
+  const prev = wikiState(row.id) || {};
+  const res = await fetch(LOCAL_API + "/wikipedia/used", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      id: row.id,
+      title: row.name,
+      page: wikiPageTitle,
+      video: Object.prototype.hasOwnProperty.call(patch, "video") ? patch.video : Boolean(prev.video),
+      marked: Object.prototype.hasOwnProperty.call(patch, "marked") ? patch.marked : Boolean(prev.marked)
+    })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data && data.error) ? data.error : "Kayıt yazılamadı.");
+  wikiUsed = Array.isArray(data.stories) ? data.stories : wikiUsed;
+  renderWikiRows();
+}
+
+async function toggleWikiMark(id) {
+  const row = wikiRows.find((item) => item.id === id);
+  if (!row) return;
+  const prev = wikiState(id);
+  try {
+    await saveWikiFlag(row, { marked: !(prev && prev.marked) });
+  } catch (e) {
+    const msg = document.getElementById("wikiMsg");
+    if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
+  }
+}
+
+async function sendWikiToReel(id) {
+  const row = wikiRows.find((item) => item.id === id);
+  if (!row) return;
+  const heading = [row.name, [row.date, row.place].filter(Boolean).join(", ")].filter(Boolean).join(". ");
+  const story = [heading, row.story].filter(Boolean).join("\n\n");
+  const box = document.getElementById("reelStory");
+  if (box) box.value = story;
+  showPage("reel");
+  showReelStep("story");
+  try {
+    await saveWikiFlag(row, { video: true, marked: true });
+  } catch (e) {
+    const msg = document.getElementById("reelWriteMsg");
+    if (msg) {
+      msg.style.display = "block";
+      msg.textContent = "Hikâye yapıştırıldı. İşaret kaydedilemedi: " + ((e && e.message) ? e.message : String(e));
+    }
+  }
 }
 
 // TARİH
