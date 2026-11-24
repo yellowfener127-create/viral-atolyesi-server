@@ -16,6 +16,7 @@ const { JOBS_ROOT } = require('./documentary-run');
 const { fileNameFor } = require('./documentary-meta');
 const { stampDay } = require('./documentary-job');
 const publishQueue = require('./publish-queue');
+const wikiPages = require('./wikipedia-page');
 
 const app = express();
 app.use((req, res, next) => {
@@ -3314,6 +3315,43 @@ app.post('/crush', async (req, res) => {
   } finally {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
     releaseCrushLock();
+  }
+});
+
+app.get('/wikipedia/page', async (req, res) => {
+  try {
+    const input = req.query.url || req.query.title || req.query.page;
+    return res.json(await wikiPages.fetchWikipedia(input));
+  } catch (e) {
+    return res.status(e && e.statusCode ? e.statusCode : 500).json({ error: (e && e.message) ? e.message : 'Wikipedia okunamadı.' });
+  }
+});
+
+app.post('/wikipedia/page', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const input = body.url || body.title || body.page;
+    return res.json(await wikiPages.fetchWikipedia(input));
+  } catch (e) {
+    return res.status(e && e.statusCode ? e.statusCode : 500).json({ error: (e && e.message) ? e.message : 'Wikipedia okunamadı.' });
+  }
+});
+
+app.get('/wikipedia/used', (req, res) => {
+  res.json({ ok: true, stories: wikiPages.readUsedStories() });
+});
+
+app.post('/wikipedia/used', (req, res) => {
+  try {
+    const body = req.body || {};
+    const items = Array.isArray(body.stories) ? body.stories : [body];
+    let result = { ok: true, stories: wikiPages.readUsedStories() };
+    items.forEach((item) => {
+      result = wikiPages.saveUsedStory(item);
+    });
+    return res.json(result);
+  } catch (e) {
+    return res.status(e && e.statusCode ? e.statusCode : 500).json({ error: (e && e.message) ? e.message : 'Kayıt yazılamadı.' });
   }
 });
 

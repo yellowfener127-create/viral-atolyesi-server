@@ -21,3 +21,4 @@ keys/*.json
 _tmp_*.b64
 output/
 jobs/
+data/
