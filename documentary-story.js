@@ -262,6 +262,33 @@ function reelLengthPrompt(scenes, words, language) {
   ].join('\n');
 }
 
+function reelOpeningPrompt(text) {
+  return [
+    'Translate the Turkish line into spoken English.',
+    'Keep the same sentences and every name, place, date, and fact.',
+    'Do not add a name, a place, a date, or a fact that the line does not contain.',
+    'No square brackets.',
+    `Line:\n${text}`
+  ].join('\n');
+}
+
+function spokenOpening(text) {
+  let line = String(text || '').replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
+  line = line.replace(/^["']+|["']+$/g, '').trim();
+  if (!line) return '';
+  if (!/[.!?…]$/.test(line)) line += '.';
+  return line;
+}
+
+function withOpening(narration, opening) {
+  const line = spokenOpening(opening);
+  const rest = String(narration || '').replace(/\s+/g, ' ').trim();
+  if (!line) return rest;
+  if (!rest) return line;
+  if (rest.toLowerCase().indexOf(line.toLowerCase()) === 0) return rest;
+  return `${line} ${rest}`;
+}
+
 function reelIssues(scenes) {
   const list = Array.isArray(scenes) ? scenes : [];
   const issues = [];
@@ -375,6 +402,9 @@ module.exports = {
   reelTranslatePrompt,
   reelRepairNote,
   reelLengthPrompt,
+  reelOpeningPrompt,
+  spokenOpening,
+  withOpening,
   reelIssues,
   beatsOf,
   BIBLE_SCHEMA,
@@ -396,6 +426,11 @@ module.exports = {
       }
     },
     required: ['scenes']
+  },
+  REEL_OPENING_SCHEMA: {
+    type: 'OBJECT',
+    properties: { english: { type: 'STRING' } },
+    required: ['english']
   },
   REEL_READ_SCHEMA: {
     type: 'OBJECT',

@@ -165,6 +165,16 @@ async function produceRecipe(opts, config, deps) {
       if (!plan.scenes || plan.scenes.length !== 5) {
         throw new deps.DocumentaryError('Senaryo 5 sahneden oluşmalı.', 422);
       }
+      const openingRaw = String(opts.openingText || '').replace(/\s+/g, ' ').trim();
+      if (openingRaw) {
+        if (openingRaw.length > 500) throw new deps.DocumentaryError('İlk cümle 500 karakterden kısa olsun.', 400);
+        const translated = await deps.askGeminiJson(opts.geminiKey, story.reelOpeningPrompt(openingRaw), story.REEL_OPENING_SCHEMA);
+        const english = story.spokenOpening(translated && translated.english);
+        if (!english) throw new deps.DocumentaryError('İlk cümle İngilizceye çevrilemedi.', 422);
+        plan.scenes[0].narration = story.withOpening(plan.scenes[0].narration, english);
+        plan.words = plan.scenes.reduce((sum, scene) => sum + story.wordCount(scene.narration), 0);
+        console.log('[belgesel] ilk cümle eklendi');
+      }
       bible = { logline: subject, is_fiction: true, scope: subject, core_mechanism: 'the pasted story', hook: plan.scenes[0].narration, final_line: plan.scenes[4].narration };
       critic = { pass: true, issues: [] };
       job.writeJson(dir, 'bible.json', bible);

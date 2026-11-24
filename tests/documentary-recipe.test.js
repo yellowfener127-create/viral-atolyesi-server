@@ -38,6 +38,10 @@ test('a pasted story is read before the reel prompt', () => {
   assert.match(story.reelTranslatePrompt([{ narration: 'The door was locked.' }], 'Turkish'), /Translate each narration into Turkish/);
   assert.match(story.reelRepairNote(['word count 60'], 60), /Add 20 to 25 words/);
   assert.match(story.reelLengthPrompt([{ narration: 'The door was locked.' }], 60, 'English'), /between 80 and 85/);
+  assert.match(story.reelOpeningPrompt('Kapı içeriden kilitliydi.'), /spoken English/);
+  assert.match(story.reelOpeningPrompt('Kapı içeriden kilitliydi.'), /Do not add a name/);
+  assert.equal(story.spokenOpening('  "The key was still there"  '), 'The key was still there.');
+  assert.equal(story.withOpening('The door was locked from inside.', 'The key was still there.'), 'The key was still there. The door was locked from inside.');
 });
 
 test('bible and script validators catch an empty mechanism and a dream ending', () => {

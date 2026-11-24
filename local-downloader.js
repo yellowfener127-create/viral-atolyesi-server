@@ -2591,6 +2591,7 @@ app.post('/documentary', async (req, res) => {
       channel,
       storyText,
       scriptScenes,
+      openingText: String(req.body?.opening_text || req.body?.openingText || '').trim(),
       musicMood: String(req.body?.music_mood || ''),
       redditId: String(req.body?.reddit_id || req.body?.redditId || '').trim(),
       geminiKey: String(req.body?.gemini_api_key || req.body?.geminiApiKey || '').trim(),
