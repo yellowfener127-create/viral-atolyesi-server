@@ -1,4 +1,5 @@
 """Download one vertical Pollinations still. Python standard library only."""
+import os
 import re
 import sys
 import time
@@ -74,14 +75,18 @@ def download(prompt, dest, seed=None):
     if len(text) < 20:
         raise ValueError("Gorsel promptu bos.")
     encoded = urllib.parse.quote(text, safe="")
-    url = (
-        "https://image.pollinations.ai/prompt/"
-        + encoded
-        + "?width=1080&height=1920&nologo=true"
-    )
+    provider = os.environ.get("IMAGE_PROVIDER", "classic").strip().lower()
+    key = os.environ.get("POLLINATIONS_API_KEY", "").strip()
+    headers = {"User-Agent": USER_AGENT}
+    if provider == "enter" and key:
+        url = "https://gen.pollinations.ai/image/" + encoded + "?model=flux&width=1080&height=1920"
+        headers["Authorization"] = "Bearer " + key
+    else:
+        # Classic docs: every JPEG includes the corner logo. nologo was removed and is ignored.
+        url = "https://image.pollinations.ai/prompt/" + encoded + "?width=1080&height=1920"
     if seed not in (None, ""):
         url += "&seed=" + str(int(seed))
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    request = urllib.request.Request(url, headers=headers)
     target = Path(dest)
     target.parent.mkdir(parents=True, exist_ok=True)
     data = b""
