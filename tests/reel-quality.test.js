@@ -93,7 +93,8 @@ test('human ratio, vehicle lock and graphic wording stay nonviolent', () => {
     shots: [{ visual_prompt: 'A sunny forest and an empty road with no one there at all.' }]
   }));
   const ratio = quality.ensureHumanRatio(scenes, 0.4);
-  assert.ok(ratio >= 0.4);
+  assert.equal(ratio, 0);
+  assert.doesNotMatch(scenes[0].shots[0].visual_prompt, /silhouette/);
   assert.equal(quality.lockVehicle(scenes), 'the same dark pickup truck');
   assert.match(quality.calmText('a headless corpse in blood'), /empty seat/);
   assert.doesNotMatch(quality.calmText('a headless corpse in blood'), /headless|corpse|blood/);

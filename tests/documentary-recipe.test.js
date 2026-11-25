@@ -211,7 +211,9 @@ test('nine photographs follow the spoken moments', () => {
   const prompt = story.momentShotPrompt('He drove twelve miles with the headless body. A neighbor saw them in the car.');
   assert.match(prompt, /exactly 9 photographs/);
   assert.match(prompt, /driver seat/);
-  assert.match(prompt, /anonymous silhouettes/);
+  assert.match(prompt, /ordinary people/);
+  assert.match(prompt, /exactly that many/);
+  assert.doesNotMatch(prompt, /anonymous silhouettes/);
   assert.match(prompt, /do not add one/i);
   const scenes = [1, 2, 3, 4, 5].map((n) => ({ narration: `Scene ${n} keeps going along the road tonight.` }));
   const frames = Array.from({ length: 9 }, (_, i) => ({

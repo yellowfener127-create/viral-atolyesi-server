@@ -38,9 +38,10 @@ async function ffmpeg(bin, args) {
   }
 }
 
-function stillPrompt(visual, periodLock) {
+function stillPrompt(visual, periodLock, naturalPeople) {
   const text = String(visual || '');
   const locked = text.indexOf('Period-accurate') < 0 ? text + periodLock : text;
+  if (naturalPeople) return locked;
   if (!/\b(person|people|man|woman|boy|girl|figure|silhouette|body|driver|passenger|neighbor|corpse|victim|friend)\b/i.test(locked)) return locked;
   return `${locked} The people are anonymous silhouettes in the scene, not sharp faces and not a portrait.`;
 }
@@ -350,7 +351,7 @@ async function produceRecipe(opts, config, deps) {
     if (opts.onlyScene != null && shot.scene !== opts.onlyScene) continue;
     const photo = path.join(dir, 'images', `shot_${i}.jpg`);
     if (rank(from) > rank('images') && fs.existsSync(photo) && opts.onlyScene == null) continue;
-    const prompt = stillPrompt(shot.visual_prompt, periodLock);
+    const prompt = stillPrompt(shot.visual_prompt, periodLock, reelCut);
     await deps.downloadPollinationsStill(prompt, photo, selected, seedBase + i + 1, ffmpegBin);
   }
   if (reelCut && config.infographic_shots === 'on') {
@@ -409,7 +410,7 @@ async function produceRecipe(opts, config, deps) {
       for (const index of redo) {
         const shot = clock.shots[index];
         const photo = path.join(dir, 'images', `shot_${index}.jpg`);
-        const again = stillPrompt(shot.visual_prompt, periodLock);
+        const again = stillPrompt(shot.visual_prompt, periodLock, reelCut);
         await deps.downloadPollinationsStill(again, photo, selected, seedBase + index + 1 + 50000, ffmpegBin);
       }
       job.writeJson(dir, 'vision.json', { frames, redo });
@@ -574,7 +575,6 @@ async function produceRecipe(opts, config, deps) {
   } : null;
   const reelIssues = [];
   if (reelReport && reelReport.watermark_detected) reelIssues.push('watermark');
-  if (reelReport && reelReport.human_shot_ratio < 0.4) reelIssues.push('no_human_shots');
   if (reelReport && config.reel_variable_cuts !== false && cutStats.cv < 0.15) reelIssues.push('uniform_cadence');
   if (reelReport && config.reel_variable_cuts !== false && cutStats.max > 3.05) reelIssues.push('max_shot_duration');
   const qc = judgeQc(measure, {

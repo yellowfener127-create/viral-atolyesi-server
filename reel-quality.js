@@ -6,7 +6,7 @@ const AFTERMATH = /\b(sentenced|pleaded|guilty|prison|convicted|years|freed)\b/i
 const VAGUE_PLACE = /\bto atlanta\b/i;
 const TONE = /\b(lol|haha|hilarious|stupid|idiot|dumb)\b/i;
 const FRAGMENT = /^(accidentally|suddenly|unknowingly|after|before|while|driving|killed)\b/i;
-const HUMAN = /\b(person|people|silhouette|hand|hands|driver|passenger|interior)\b/i;
+const HUMAN = /\b(person|people|man|woman|boy|girl|silhouette|hand|hands|driver|passenger|neighbor)\b/i;
 const GRAPHIC = /\b(blood|corpse|gore|wound|decapitat\w*|headless|severed|dismember\w*)\b/gi;
 
 function contentWords(text) {
@@ -76,7 +76,7 @@ function trueEventPrompt(reading, language, note, options) {
     'Do not say "to Atlanta" unless the reading says the destination was Atlanta.',
     'The last sentence is a question. It echoes a concrete phrase from the first sentence and asks the viewer to respond.',
     nameLine(opts.name_policy),
-    'image_prompt shows the moment as an anonymous silhouette, a hand, or the inside of the vehicle. No blood, no corpse, no wound, no severed body.',
+    'image_prompt shows exactly the people that scene names, as ordinary people doing the action the narration gives them. Not silhouettes. A scene with no person does not gain one. No blood, no corpse, no wound, no severed body.',
     'anchor_words are 2 to 4 words copied from that scene narration.',
     'voice_tone is a short English direction such as "quiet, tense" or "slow, low".',
     'music_mood is exactly one of mystery, epic, sad, science.',
@@ -212,19 +212,8 @@ function allShots(scenes) {
   return (scenes || []).flatMap((scene) => (Array.isArray(scene.shots) ? scene.shots : []));
 }
 
-function ensureHumanRatio(scenes, ratio) {
-  const need = Number(ratio) || 0.4;
-  const shots = allShots(scenes);
-  if (!shots.length) return 0;
-  const phrase = ' Seen from inside the vehicle, an anonymous silhouette keeps both hands on the wheel. No injury is shown.';
-  let human = shots.filter((shot) => HUMAN.test(shot.visual_prompt)).length;
-  shots.forEach((shot) => {
-    if (human / shots.length >= need) return;
-    if (HUMAN.test(shot.visual_prompt)) return;
-    shot.visual_prompt = `${shot.visual_prompt}${phrase}`;
-    human += 1;
-  });
-  return human / shots.length;
+function ensureHumanRatio(scenes) {
+  return humanRatio(scenes);
 }
 
 function lockLighting(scenes) {
