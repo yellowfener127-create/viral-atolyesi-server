@@ -207,6 +207,19 @@ test('qc accepts a measured reel and rejects a quiet one', () => {
   assert.ok(quiet.issues.includes('lufs'));
 });
 
+test('a short image line does not wipe the spoken word count', () => {
+  const factory = require('../documentary-factory');
+  const plan = factory.planFromReelScenes([
+    { narration: 'He drove twelve miles and never noticed his friend.', image_prompt: 'a road' },
+    { narration: 'August 2004 in Georgia, after they left a bar.', image_prompt: 'a bar' },
+    { narration: 'His friend leans out of the window because he feels sick.', image_prompt: 'a window' },
+    { narration: 'The driver clips a wire and his friend dies instantly.', image_prompt: 'a wire' },
+    { narration: 'How do you drive twelve miles and not know?', image_prompt: 'home' }
+  ]);
+  assert.equal(plan.scenes.length, 5);
+  assert.ok(plan.words >= 40);
+});
+
 test('nine photographs follow the spoken moments', () => {
   const prompt = story.momentShotPrompt('He drove twelve miles with the headless body. A neighbor saw them in the car.');
   assert.match(prompt, /exactly 9 photographs/);

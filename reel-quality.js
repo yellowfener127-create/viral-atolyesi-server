@@ -74,7 +74,7 @@ function trueEventPrompt(reading, language, note, options) {
     'Write one spoken script for a vertical reel.',
     'Do not add a person, place, number, date, court result, or cause that the reading does not contain.',
     `Narration language: ${language}.`,
-    'Five scenes. The five narrations together stay between 80 and 110 spoken words.',
+    'Five scenes. The five narrations together stay between 70 and 110 spoken words.',
     'Scene 1 is one sentence of 6 to 16 words. Start with He, She, They, A, The, or a name from the reading, then the stake. Do not start with Accidentally, Suddenly, or a bare verb. Do not use the words decapitated or headless. Use "killed instantly" instead.',
     'The next sentences, in order, add who, when, and where, then why, then the impact, then what he did next, then the discovery.',
     'If the reading contains a court result or a family response, one later sentence must say that result. Do not invent one.',
@@ -107,6 +107,7 @@ function addsFact(prev, next) {
 function issueNote(issues) {
   const notes = {
     hook_no_subject: 'Scene 1 must start with He, She, They, A, The, or a name, and say what is at stake.',
+    'word count': 'Keep the five spoken narrations between 70 and 110 words.',
     hook_length: 'Scene 1 must be one sentence of 6 to 16 words.',
     hook_too_long: 'Scene 1 must stay under 4.5 seconds, so keep it to 16 words or fewer.',
     redundant_beat: 'Do not repeat the same claim in two sentences in a row.',
@@ -119,7 +120,7 @@ function issueNote(issues) {
     victim_named: 'Leave the victim\'s name out.',
     sensitive_hook: 'Do not use decapitated or headless in scene 1.'
   };
-  return (issues || []).map((item) => notes[item] || item).join(' ');
+  return (issues || []).map((item) => notes[item] || (String(item).startsWith('word count') ? notes['word count'] : item)).join(' ');
 }
 
 function structureIssues(scenes, options) {
@@ -131,7 +132,7 @@ function structureIssues(scenes, options) {
   const list = Array.isArray(scenes) ? scenes : [];
   if (list.length !== 5) issues.push('five scenes');
   const words = list.reduce((sum, scene) => sum + story.wordCount(scene && scene.narration), 0);
-  if (words < 70 || words > 120) issues.push(`word count ${words}`);
+  if (words < 70 || words > 110) issues.push(`word count ${words}`);
   const hook = lines[0] || '';
   const hookWords = story.wordCount(hook);
   if (hook.split(/[.!?]+/).filter(Boolean).length !== 1 || hookWords < 6 || hookWords > maxWords) issues.push('hook_length');

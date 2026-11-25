@@ -1960,7 +1960,10 @@ async function produceDocumentaryLegacy({
 function planFromReelScenes(list) {
   const scenes = (Array.isArray(list) ? list : []).slice(0, 5).map((scene) => {
     const narration = spokenHookText(scene && scene.narration);
-    const image = cleanImagePrompt(scene && (scene.image_prompt || scene.visual_prompt));
+    let image = cleanImagePrompt(scene && (scene.image_prompt || scene.visual_prompt));
+    if (!image && narration) {
+      image = `${narration} Show the ordinary people named in this sentence, doing only that action, in the place it names. One vertical photograph. No blood, no corpse, no wound.`;
+    }
     const anchor = String(scene && scene.anchor_words || '').replace(/\s+/g, ' ').trim().slice(0, 80);
     return {
       narration,
@@ -2053,7 +2056,7 @@ async function buildStoryReel(source, language, apiKey) {
   const leftover = grade(closest && closest.scenes);
   const words = closest && closest.words;
   const detail = leftover.some((item) => String(item).startsWith('word count'))
-    ? `${words} kelime çıktı, ${trueEvent ? '80-110' : '80-85'} gerekli`
+    ? `${Number(words) || 0} kelime çıktı, ${trueEvent ? '70-110' : '80-85'} gerekli`
     : (leftover.join('; ') || 'senaryo yok');
   throw new DocumentaryError(`Hikâye Reels ölçüsüne inemedi: ${detail}.`, 422);
 }
