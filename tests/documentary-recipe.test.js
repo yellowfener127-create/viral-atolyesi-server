@@ -6,6 +6,7 @@ const path = require('path');
 const story = require('../documentary-story');
 const timeline = require('../documentary-timeline');
 const { judgeQc } = require('../documentary-qc');
+const { peakHoldFilter, PEAK_CEILINGS } = require('../documentary-run');
 const { buildMetadata, fileNameFor } = require('../documentary-meta');
 const { maskKey } = require('../documentary-keys');
 const { hashValue, stageOutputReady, markStage } = require('../documentary-job');
@@ -204,6 +205,19 @@ test('qc accepts a measured reel and rejects a quiet one', () => {
   }, { duration: [24, 70], shots: 10, imageCount: 10 });
   assert.equal(quiet.pass, false);
   assert.ok(quiet.issues.includes('lufs'));
+});
+
+test('the peak limiter stays under the true-peak gate', () => {
+  assert.ok(PEAK_CEILINGS[0] <= 0.707);
+  assert.ok(PEAK_CEILINGS[PEAK_CEILINGS.length - 1] < PEAK_CEILINGS[0]);
+  const filter = peakHoldFilter({
+    input_i: '-20.0',
+    input_tp: '-1.0',
+    input_lra: '5.0',
+    input_thresh: '-30.0',
+    target_offset: '0.5'
+  }, PEAK_CEILINGS[0]);
+  assert.match(filter, /linear=true,alimiter=limit=0\.707:attack=0\.1:release=50:level=false/);
 });
 
 test('metadata stays on one channel and the filename has no hashtag', () => {

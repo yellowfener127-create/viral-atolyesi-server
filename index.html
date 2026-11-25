@@ -633,14 +633,6 @@
           <option value="therapy">Therapy Lab — karanlık psikoloji</option>
         </select>
       </label>
-      <div class="mcc-row" style="margin-top:10px">
-        <label style="font-size:12px;color:var(--muted)">Videoda okunacak dil
-          <select class="tool-input" id="reelLang">
-            <option value="tr" selected>Türkçe</option>
-            <option value="en">İngilizce</option>
-          </select>
-        </label>
-      </div>
       <div class="tool-title" style="margin-top:12px">Ham hikâye</div>
       <textarea class="tool-input" id="reelStory" rows="12" maxlength="12000" placeholder="Vakayı buraya yapıştır. Sistem dışarıdan olay eklemez."></textarea>
       <label style="font-size:12px;color:var(--muted);display:block;margin-top:12px">İlk cümle
@@ -3846,7 +3838,6 @@ async function writeReelScript() {
     alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
     return;
   }
-  const lang = (document.getElementById("reelLang") && document.getElementById("reelLang").value) === "en" ? "en" : "tr";
   if (btn) { btn.disabled = true; btn.textContent = "Senaryo yazılıyor…"; }
   if (msg) { msg.style.display = "block"; msg.textContent = "Gemini hikâyeyi okuyor. Ardından Reels promptuyla 80-85 kelimeye indirecek."; }
   try {
@@ -3856,7 +3847,7 @@ async function writeReelScript() {
       res = await fetch(LOCAL_API + "/story-reel-script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ story: story, lang: lang, gemini_api_key: keys[i] })
+        body: JSON.stringify({ story: story, gemini_api_key: keys[i] })
       });
       data = await res.json().catch(() => ({}));
       const errText = (data && data.error) ? data.error : "";
@@ -3957,14 +3948,13 @@ async function previewReelVoice() {
     return;
   }
   rememberReelVoice(picked);
-  const lang = (document.getElementById("reelLang") && document.getElementById("reelLang").value) === "en" ? "en" : "tr";
   if (btn) { btn.disabled = true; btn.textContent = "Hazırlanıyor…"; }
   if (msg) msg.textContent = "Seçili sesin 5 saniyelik örneği hazırlanıyor.";
   try {
     const res = await fetch(LOCAL_API + "/documentary-voice-preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ voice_id: picked, lang: lang, elevenlabs_api_key: docElevenKeySaved() })
+      body: JSON.stringify({ voice_id: picked, lang: "en", elevenlabs_api_key: docElevenKeySaved() })
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -3993,8 +3983,7 @@ async function previewReelVoice() {
 async function runReel() {
   const btn = document.getElementById("reelBuildBtn");
   const msg = document.getElementById("reelMsg");
-  const lang = (document.getElementById("reelLang") && document.getElementById("reelLang").value) === "en" ? "en" : "tr";
-  const spokenScenes = lang === "en" ? (reelPlan && reelPlan.scenes_en) : (reelPlan && reelPlan.scenes_tr);
+  const spokenScenes = reelPlan && reelPlan.scenes_en;
   if (!reelPlan || !Array.isArray(spokenScenes) || spokenScenes.length !== 5) {
     alert("Önce hikâyeden senaryoyu yaz.");
     showReelStep("story");
@@ -4033,7 +4022,7 @@ async function runReel() {
           opening_text: String((document.getElementById("reelOpening") || {}).value || "").trim(),
           script_scenes: spokenScenes,
           music_mood: reelPlan.music_mood || "",
-          lang: lang,
+          lang: "en",
           channel: channel,
           voice_id: voiceId,
           gemini_api_key: keys[i],

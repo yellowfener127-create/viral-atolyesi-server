@@ -7,7 +7,7 @@ const job = require('./documentary-job');
 const timeline = require('./documentary-timeline');
 const { judgeQc } = require('./documentary-qc');
 const { buildMetadata } = require('./documentary-meta');
-const { measureFile } = require('./documentary-measure');
+const { measureFile, parseEbur128 } = require('./documentary-measure');
 const vision = require('./documentary-vision');
 
 const JOBS_ROOT = path.join(__dirname, 'jobs');
@@ -132,7 +132,7 @@ async function produceRecipe(opts, config, deps) {
   } else if (subject.length < 8) {
     throw new deps.DocumentaryError('Konu en az birkaç kelime olsun.', 400);
   }
-  const language = opts.lang === 'tr' ? 'tr' : 'en';
+  const language = (pastedStory || givenScenes) ? 'en' : (opts.lang === 'tr' ? 'tr' : 'en');
   const langName = language === 'tr' ? 'Turkish' : 'English';
   const dir = opts.jobDir || job.jobDirFor(JOBS_ROOT, selected, subject);
   fs.mkdirSync(path.join(dir, 'audio'), { recursive: true });
@@ -158,8 +158,9 @@ async function produceRecipe(opts, config, deps) {
         if (reelProblems.length) {
           throw new deps.DocumentaryError(`Senaryo Reels ölçüsüne uymadı: ${reelProblems.join('; ')}.`, 422);
         }
-        if (plan.scenes_tr && plan.scenes_en) {
-          plan.scenes = /Turkish/i.test(langName) ? plan.scenes_tr : plan.scenes_en;
+        if (plan.scenes_en && plan.scenes_en.length === plan.scenes.length) {
+          plan.scenes = plan.scenes_en;
+          plan.words = plan.scenes.reduce((sum, scene) => sum + story.wordCount(scene.narration), 0);
         }
       }
       if (!plan.scenes || plan.scenes.length !== 5) {
@@ -426,22 +427,9 @@ async function produceRecipe(opts, config, deps) {
   await deps.mixMusicBed(ffmpegBin, ffprobe, graded, music.file, mixed);
   let current = mixed;
   if (config.loudnorm !== false) {
-    const probe = await runCapture(ffmpegBin, ['-hide_banner', '-i', mixed, '-af', 'loudnorm=I=-14:TP=-2.5:LRA=7:print_format=json', '-f', 'null', '-']);
-    const match = probe.stderr.match(/\{[\s\S]*"input_i"[\s\S]*\}/);
     const finalFile = path.join(dir, 'final.mp4');
-    if (match) {
-      const measured = JSON.parse(match[0]);
-      await ffmpeg(ffmpegBin, [
-        '-y', '-i', mixed,
-        '-af', `loudnorm=I=-14:TP=-2.5:LRA=7:measured_I=${measured.input_i}:measured_TP=${measured.input_tp}:measured_LRA=${measured.input_lra}:measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}:linear=true,alimiter=limit=0.750:attack=5:release=50:level=false`,
-        '-c:v', 'copy', '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k', '-movflags', '+faststart',
-        finalFile
-      ]);
-      current = finalFile;
-    } else {
-      await fs.promises.copyFile(mixed, finalFile);
-      current = finalFile;
-    }
+    await masterLoudness(ffmpegBin, mixed, finalFile);
+    current = finalFile;
   } else {
     const finalFile = path.join(dir, 'final.mp4');
     await fs.promises.copyFile(mixed, finalFile);
@@ -489,4 +477,48 @@ async function produceRecipe(opts, config, deps) {
   };
 }
 
-module.exports = { produceRecipe, JOBS_ROOT, scenesFromBeats, motionFilter };
+const PEAK_CEILINGS = Object.freeze([0.707, 0.630, 0.560]);
+
+function peakHoldFilter(measured, ceiling) {
+  const limit = Number(ceiling).toFixed(3);
+  return `loudnorm=I=-14:TP=-2.5:LRA=7:measured_I=${measured.input_i}:measured_TP=${measured.input_tp}:measured_LRA=${measured.input_lra}:measured_thresh=${measured.input_thresh}:offset=${measured.target_offset}:linear=true,alimiter=limit=${limit}:attack=0.1:release=50:level=false`;
+}
+
+async function masterLoudness(ffmpegBin, sourceFile, destFile) {
+  const probe = await runCapture(ffmpegBin, ['-hide_banner', '-i', sourceFile, '-af', 'loudnorm=I=-14:TP=-2.5:LRA=7:print_format=json', '-f', 'null', '-']);
+  const match = probe.stderr.match(/\{[\s\S]*"input_i"[\s\S]*\}/);
+  if (!match) {
+    await fs.promises.copyFile(sourceFile, destFile);
+    return null;
+  }
+  const measured = JSON.parse(match[0]);
+  const scratch = `${destFile}.peak.mp4`;
+  let kept = null;
+  try {
+    for (const ceiling of PEAK_CEILINGS) {
+      await ffmpeg(ffmpegBin, [
+        '-y', '-i', sourceFile,
+        '-af', peakHoldFilter(measured, ceiling),
+        '-c:v', 'copy', '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k', '-movflags', '+faststart',
+        scratch
+      ]);
+      const loud = await runCapture(ffmpegBin, ['-hide_banner', '-i', scratch, '-af', 'ebur128=peak=true', '-f', 'null', '-']);
+      const row = parseEbur128(loud.stderr);
+      const peak = row.true_peak_db;
+      const lufs = row.lufs;
+      const peakOk = peak == null || peak <= -1.3;
+      const lufsOk = lufs != null && lufs >= -14.8 && lufs <= -13.1;
+      if (!kept || (lufsOk && (peak == null || !kept.peakOk || peak < kept.peak))) {
+        await fs.promises.copyFile(scratch, destFile);
+        kept = { peak, lufs, peakOk, lufsOk };
+      }
+      if (peakOk && lufsOk) break;
+      if (lufs != null && lufs < -14.8) break;
+    }
+  } finally {
+    await fs.promises.unlink(scratch).catch(() => {});
+  }
+  return kept;
+}
+
+module.exports = { produceRecipe, JOBS_ROOT, scenesFromBeats, motionFilter, peakHoldFilter, PEAK_CEILINGS, masterLoudness };
