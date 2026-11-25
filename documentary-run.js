@@ -37,6 +37,13 @@ async function ffmpeg(bin, args) {
   }
 }
 
+function stillPrompt(visual, periodLock) {
+  const text = String(visual || '');
+  const locked = text.indexOf('Period-accurate') < 0 ? text + periodLock : text;
+  if (!/\b(person|people|man|woman|boy|girl|figure|silhouette|body|driver|passenger|neighbor|corpse|victim|friend)\b/i.test(locked)) return locked;
+  return `${locked} The people are anonymous silhouettes in the scene, not sharp faces and not a portrait.`;
+}
+
 function motionFilter(duration, motion) {
   const frames = Math.max(8, Math.round(Math.max(0.4, Number(duration) || 1) * 30));
   const head = 'scale=1426:2534:flags=lanczos,zoompan=fps=30:d=1:s=1080x1920';
@@ -273,21 +280,33 @@ async function produceRecipe(opts, config, deps) {
   }
   job.markStage(dir, 'tts', { state: 'done' });
 
+  let momentCount = 0;
+  if (rank(from) <= rank('images') && deps.askGeminiJson && opts.geminiKey) {
+    try {
+      const spoken = plan.scenes.map((scene) => scene.narration).join('\n');
+      const planned = await deps.askGeminiJson(opts.geminiKey, story.momentShotPrompt(spoken), story.MOMENT_SHOT_SCHEMA);
+      momentCount = story.assignMomentShots(plan.scenes, planned && planned.shots) || 0;
+      if (momentCount) console.log(`[belgesel] an fotoğrafı=${momentCount}`);
+    } catch (err) {
+      const message = String(err && err.message || 'an fotoğrafı yazılamadı').replace(/AIza[0-9A-Za-z_-]+/g, 'AIzaREDACTED').slice(0, 180);
+      console.warn(`[belgesel] an fotoğrafı atlandı: ${message}`);
+    }
+  }
   plan.scenes.forEach((scene) => {
     const shots = Array.isArray(scene.shots) ? scene.shots.filter((shot) => shot && shot.visual_prompt) : [];
     scene.shots = shots.length ? shots : [{ visual_prompt: scene.image_prompt, anchor_words: '' }];
   });
-  timeline.fitImageCount(plan.scenes, config.image_count || 10);
+  if (!momentCount) timeline.fitImageCount(plan.scenes, config.image_count || 9);
   const clock = timeline.buildTimeline(plan.scenes, sceneAudio);
   job.writeJson(dir, 'timeline.json', clock);
   const seedBase = crypto.createHash('sha256').update(path.basename(dir)).digest().readUInt32BE(0) % 100000;
-  const periodLock = ' One single photograph filling the whole vertical frame. One subject, one moment. Period-accurate objects only. No modern clothing, eyeglasses, pens, screens, digital interfaces, or modern hats.';
+  const periodLock = ' One single photograph filling the whole vertical frame. One moment. Period-accurate objects only. No modern clothing, eyeglasses, pens, screens, digital interfaces, or modern hats.';
   for (let i = 0; i < clock.shots.length; i++) {
     const shot = clock.shots[i];
     if (opts.onlyScene != null && shot.scene !== opts.onlyScene) continue;
     const photo = path.join(dir, 'images', `shot_${i}.jpg`);
     if (rank(from) > rank('images') && fs.existsSync(photo) && opts.onlyScene == null) continue;
-    const prompt = String(shot.visual_prompt || '') + (String(shot.visual_prompt || '').indexOf('Period-accurate') < 0 ? periodLock : '');
+    const prompt = stillPrompt(shot.visual_prompt, periodLock);
     await deps.downloadPollinationsStill(prompt, photo, selected, seedBase + i + 1, ffmpegBin);
   }
   if (rank(from) <= rank('images') && deps.askGeminiVision) {
@@ -328,7 +347,7 @@ async function produceRecipe(opts, config, deps) {
       for (const index of redo) {
         const shot = clock.shots[index];
         const photo = path.join(dir, 'images', `shot_${index}.jpg`);
-        const again = String(shot.visual_prompt || '') + (String(shot.visual_prompt || '').indexOf('Period-accurate') < 0 ? periodLock : '');
+        const again = stillPrompt(shot.visual_prompt, periodLock);
         await deps.downloadPollinationsStill(again, photo, selected, seedBase + index + 1 + 50000, ffmpegBin);
       }
       job.writeJson(dir, 'vision.json', { frames, redo });
@@ -439,7 +458,7 @@ async function produceRecipe(opts, config, deps) {
   const qc = judgeQc(measure, {
     duration: config.duration_range[selected],
     shots: clock.shots.length,
-    imageCount: config.image_count || 10,
+    imageCount: clock.shots.length >= 8 && clock.shots.length <= 9 ? clock.shots.length : (config.image_count || 9),
     hardMax: config.hard_max_duration
   });
   job.writeJson(dir, 'qc.json', { pass: qc.pass, issues: qc.issues, measure });

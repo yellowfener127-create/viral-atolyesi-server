@@ -15,7 +15,7 @@ function judgeQc(measure, options) {
   const hardMax = Number(options && options.hardMax) || 0;
   if (hardMax && duration > hardMax) issues.push('hard_max');
   const shots = Number(options && options.shots) || 0;
-  const imageCount = Number(options && options.imageCount) || 10;
+  const imageCount = Number(options && options.imageCount) || 9;
   if (shots && shots !== imageCount) issues.push('shot_count');
   return { pass: issues.length === 0, issues };
 }

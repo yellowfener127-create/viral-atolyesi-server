@@ -10,8 +10,8 @@ test('config defaults keep the current pipeline', () => {
   assert.equal(config.STORY_PIPELINE, 'v2');
   assert.equal(config.OUTPUT_LAYOUT, 'jobs');
   assert.equal(config.CHAOS_SOURCE, 'reddit_premise');
-  assert.equal(config.shots_per_scene, 2);
-  assert.equal(config.image_count, 10);
+  assert.equal(config.shots_per_scene, 1);
+  assert.equal(config.image_count, 9);
   assert.equal(config.subtitles, 'ass');
   assert.equal(config.loudnorm, true);
   assert.equal(config.music_volume, 0.05);

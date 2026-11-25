@@ -207,6 +207,24 @@ test('qc accepts a measured reel and rejects a quiet one', () => {
   assert.ok(quiet.issues.includes('lufs'));
 });
 
+test('nine photographs follow the spoken moments', () => {
+  const prompt = story.momentShotPrompt('He drove twelve miles with the headless body. A neighbor saw them in the car.');
+  assert.match(prompt, /exactly 9 photographs/);
+  assert.match(prompt, /driver seat/);
+  assert.match(prompt, /anonymous silhouettes/);
+  assert.match(prompt, /do not add one/i);
+  const scenes = [1, 2, 3, 4, 5].map((n) => ({ narration: `Scene ${n} keeps going along the road tonight.` }));
+  const frames = Array.from({ length: 9 }, (_, i) => ({
+    visual_prompt: `A silhouette in moment ${i} on the road at dusk with the car door open and the light falling across the seat.`,
+    anchor_words: 'along the road'
+  }));
+  assert.equal(story.assignMomentShots(scenes, frames), 9);
+  assert.equal(scenes.reduce((sum, scene) => sum + scene.shots.length, 0), 9);
+  assert.match(scenes[0].shots[0].visual_prompt, /moment 0/);
+  assert.equal(scenes[4].shots.length, 1);
+  assert.equal(story.assignMomentShots(scenes, frames.slice(0, 3)), false);
+});
+
 test('the peak limiter stays under the true-peak gate', () => {
   assert.ok(PEAK_CEILINGS[0] <= 0.707);
   assert.ok(PEAK_CEILINGS[PEAK_CEILINGS.length - 1] < PEAK_CEILINGS[0]);

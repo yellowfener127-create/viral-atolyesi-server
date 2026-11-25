@@ -162,7 +162,7 @@ function scriptPrompt(bible, language, shotsPerScene, note) {
     'Write the spoken script from this bible only. Do not add a new fact.',
     `Language: ${language}.`,
     `Shots per beat: ${shotsPerScene}.`,
-    'The whole film has exactly 10 shots and never an 11th. Five beats, two different photographs on each beat.',
+    'Five beats. Each beat has one draft photograph of the moment that beat speaks. A later pass cuts the whole narration into nine moments.',
     'Beats in order: hook, setup, escalation, twist, close.',
     'Hook is one sentence, 6 to 7 spoken words, no spoiler, no square brackets.',
     'Each beat has narration (1 or 2 sentences), voice_direction, and shots.',
@@ -199,7 +199,7 @@ function reelPrompt(reading, language, note) {
     'Scene 1 is one sentence of 6 to 14 words. It is spoken in the first 3 seconds. It points straight at the sharpest result or contradiction and includes at least one concrete name, place, or time from the reading.',
     'Scenes 2, 3 and 4 retell the reading in chronological order. Sentences stay short, clear, and easy to speak. Do not repeat a stock phrase.',
     'The last sentence closes the story on a clear knot and returns to the tension of the first sentence. It adds no new fact.',
-    'image_prompt is one English photograph of 40 to 70 words. It shows only what that scene says. One subject. One continuous vertical photograph. Match the light to the scene. Do not force a dark grade. No neon and no candy colors.',
+    'image_prompt is one English photograph of 40 to 70 words. It shows only the instant that scene speaks. If that scene has people, put each of them in the frame as an anonymous silhouette doing that action, not a sharp face and not a portrait. One continuous vertical photograph. Match the light to the scene. Do not force a dark grade. No neon and no candy colors.',
     'anchor_words are 2 to 4 words copied from that scene narration.',
     'voice_tone is a short English direction such as "quiet, tense".',
     'music_mood is exactly one of mystery, epic, sad, science.',
@@ -253,7 +253,7 @@ function reelLengthPrompt(scenes, words, language) {
     'Keep exactly five scenes. Scene 1 stays one sentence of 6 to 14 words and still includes one concrete name, place, or time.',
     'Keep every person name, place name, date, and clock time. Do not invent one.',
     'The last sentence still closes the knot and returns to the tension of the first sentence.',
-    'image_prompt is one English photograph of 40 to 70 words. One subject. One continuous vertical photograph.',
+    'image_prompt is one English photograph of 40 to 70 words. Show the people that scene names as anonymous silhouettes. One continuous vertical photograph.',
     'anchor_words are 2 to 4 words copied from that scene narration.',
     'voice_tone is a short English direction such as "quiet, tense".',
     'music_mood is exactly one of mystery, epic, sad, science.',
@@ -287,6 +287,52 @@ function withOpening(narration, opening) {
   if (!rest) return line;
   if (rest.toLowerCase().indexOf(line.toLowerCase()) === 0) return rest;
   return `${line} ${rest}`;
+}
+
+function momentShotPrompt(narration) {
+  return [
+    'Divide this spoken script into exactly 9 photographs, in time order, from the first word to the last.',
+    '8 photographs is acceptable. 10 is not. Cover the whole script. Do not skip the ending.',
+    'Each photograph is the instant being spoken in its own stretch. Simulate that moment. Do not illustrate a different part of the story.',
+    'When the stretch names people, put every one of them in the frame, doing what the line says, in the place the line puts them.',
+    'A line about driving with a headless body is the inside of the car: a silhouette in the driver seat and a headless silhouette where the body sits.',
+    'A line about a neighbor seeing that body is the neighbor silhouette looking in at the headless silhouette inside the car.',
+    'People are anonymous silhouettes, not a sharp face, not a portrait, and not a full-HD beauty shot.',
+    'If the stretch has no person, do not add one.',
+    'Do not add an object, a place, or an action the stretch does not contain.',
+    'One continuous vertical photograph of that one moment.',
+    'visual_prompt is 40 to 80 concrete English words. Name the place, the light, and where each person is.',
+    'anchor_words are 2 to 5 words copied from that stretch.',
+    `Script:\n${narration}`
+  ].join('\n');
+}
+
+function shareCount(total, scenes) {
+  const n = Math.max(1, scenes);
+  const base = Math.floor(total / n);
+  let extra = total % n;
+  return Array.from({ length: n }, () => base + (extra > 0 ? (extra -= 1, 1) : 0));
+}
+
+function assignMomentShots(scenes, frames) {
+  const list = (scenes || []).filter((scene) => scene && String(scene.narration || '').trim());
+  const shots = (frames || []).map((frame) => ({
+    visual_prompt: String(frame && frame.visual_prompt || '').replace(/\s+/g, ' ').trim(),
+    anchor_words: String(frame && frame.anchor_words || '').replace(/\s+/g, ' ').trim()
+  })).filter((frame) => frame.visual_prompt.length >= 20);
+  if (shots.length < 8 || !list.length) return false;
+  const used = shots.slice(0, 9);
+  const counts = shareCount(used.length, list.length);
+  let cursor = 0;
+  list.forEach((scene, index) => {
+    const take = counts[index];
+    scene.shots = used.slice(cursor, cursor + take).map((frame) => ({
+      visual_prompt: frame.visual_prompt,
+      anchor_words: frame.anchor_words
+    }));
+    cursor += take;
+  });
+  return used.length;
 }
 
 function reelIssues(scenes) {
@@ -405,6 +451,8 @@ module.exports = {
   reelOpeningPrompt,
   spokenOpening,
   withOpening,
+  momentShotPrompt,
+  assignMomentShots,
   reelIssues,
   beatsOf,
   BIBLE_SCHEMA,
@@ -426,6 +474,23 @@ module.exports = {
       }
     },
     required: ['scenes']
+  },
+  MOMENT_SHOT_SCHEMA: {
+    type: 'OBJECT',
+    properties: {
+      shots: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            visual_prompt: { type: 'STRING' },
+            anchor_words: { type: 'STRING' }
+          },
+          required: ['visual_prompt', 'anchor_words']
+        }
+      }
+    },
+    required: ['shots']
   },
   REEL_OPENING_SCHEMA: {
     type: 'OBJECT',

@@ -416,7 +416,7 @@ function imageDetailRules() {
   return [
     'image_prompt is one concrete English frame, not a search keyword and not a caption.',
     'Write 80 to 120 words. Name the place, the era or the hour, the light that belongs there, at least three objects and their condition, what sits closest to the lens, and how far the camera is. Daylight, overcast, fire, candle, and a plain work lamp are allowed when the scene calls for them. Do not force night. Avoid neon, candy colors, and a cheerful advertisement look.',
-    'If a person is present, they stay anonymous or in silhouette. No readable text, no logo, no famous face.',
+    'If a person is in that moment, show each person the line names, in the place the line puts them, as an anonymous silhouette. Not a sharp face, not a portrait, not a full-HD beauty shot. A line with no person does not gain one. No readable text, no logo, no famous face.',
     'Do not add color grading or a style suffix. The editor locks the look.'
   ].join('\n');
 }
