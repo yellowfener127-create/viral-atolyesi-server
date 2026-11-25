@@ -1,5 +1,15 @@
 # Değişiklikler
 
+## Hutcherson reels
+
+- Hikâye reels true_event şablonu bir bayrağın arkasında: özneli hook, tekrar yasağı, akıbet ve döngüsel soru.
+- Kesim süreleri değişiyor; gece ışığı ve aynı araç kilitli. Şiddet, ceset ve yara gösterilmiyor.
+- Konuşma bitince süren müzik yatağı artık 0.25 sn fade ile kapanıyor.
+- Pollinations `nologo` resmi dokümanda kaldırılmış ve yok sayılıyor. Logosuz görsel yalnızca anahtarlı sağlayıcıda.
+- Klasik sağlayıcıda filigran kalite kapısını geçirmiyor; video yayın klasörüne yazılmıyor.
+
+
+
 ## Roma lejyonu, son cümle
 
 - Video sesten kısa kaldığında konuşma artık kesilmiyor; eksik görüntü son kareyle uzatılıyor.
