@@ -17,6 +17,7 @@ const {
 const { loadDocConfig } = require('./documentary-config');
 const { averageHash, isFlat, tooSimilar, isStacked } = require('./documentary-image');
 const storyLib = require('./documentary-story');
+const reelQuality = require('./reel-quality');
 const { produceRecipe } = require('./documentary-run');
 
 const OUT_W = 1080;
@@ -1230,9 +1231,13 @@ async function buildPlan(topic, lang, apiKey, source, channel) {
   throw lastError || new DocumentaryError('Senaryo kurulamadı.');
 }
 
-function runProcess(bin, args, timeoutMs) {
+function runProcess(bin, args, timeoutMs, extraEnv) {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(bin, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      env: extraEnv ? { ...process.env, ...extraEnv } : process.env
+    });
     let stderr = '';
     const timer = setTimeout(() => {
       try { child.kill(); } catch {}
@@ -1327,7 +1332,7 @@ async function downloadPollinationsStill(prompt, dest, channel, seed, ffmpegPath
       try {
         const args = [...prefix, script, promptFile, dest];
         if (usedSeed) args.push(String(usedSeed));
-        await runProcess(bin, args, 300000);
+        await runProcess(bin, args, 300000, { IMAGE_PROVIDER: loadDocConfig().image_provider });
         const size = fs.statSync(dest).size;
         if (size < 2048) throw new Error('Pollinations boş bir görsel yazdı.');
         const pixels = await grayFingerprint(ffmpegPath, dest);
@@ -2016,28 +2021,39 @@ async function buildStoryReel(source, language, apiKey) {
   }
   if (!reading) throw new DocumentaryError('Hikâye okunamadı. Metni biraz daha açık yapıştır.', 422);
   const authored = storyLib.reelSourceLanguage(text) === 'tr' ? 'Turkish' : 'English';
+  const reelConfig = loadDocConfig();
+  const trueEvent = reelConfig.reel_true_event !== false;
+  const grade = (scenes) => (trueEvent
+    ? reelQuality.structureIssues(scenes, { ...reelConfig, source: text })
+    : storyLib.reelIssues(scenes));
   let note = '';
   let closest = null;
   for (let turn = 0; turn < 3; turn++) {
-    const raw = await askGeminiJson(apiKey, storyLib.reelPrompt(reading, authored, note), storyLib.REEL_SCHEMA);
+    const prompt = trueEvent
+      ? reelQuality.trueEventPrompt(reading, authored, note)
+      : storyLib.reelPrompt(reading, authored, note);
+    const raw = await askGeminiJson(apiKey, prompt, storyLib.REEL_SCHEMA);
     const plan = planFromReelScenes(raw && raw.scenes);
     plan.music_mood = /^(mystery|epic|sad|science)$/.test(String(raw && raw.music_mood)) ? raw.music_mood : 'mystery';
-    const issues = storyLib.reelIssues(plan.scenes);
+    const issues = grade(plan.scenes);
     if (!issues.length) return attachReelTranslation(plan, authored, apiKey);
-    if (!closest || Math.abs(plan.words - 82) < Math.abs(closest.words - 82)) closest = plan;
-    note = storyLib.reelRepairNote(issues, plan.words);
+    if (!closest || Math.abs(plan.words - 90) < Math.abs(closest.words - 90)) closest = plan;
+    note = trueEvent ? issues.join('; ') : storyLib.reelRepairNote(issues, plan.words);
   }
   if (closest && closest.scenes && closest.scenes.length === 5) {
-    const raw = await askGeminiJson(apiKey, storyLib.reelLengthPrompt(closest.scenes, closest.words, authored), storyLib.REEL_SCHEMA);
+    const repairPrompt = trueEvent
+      ? reelQuality.trueEventPrompt(reading, authored, note)
+      : storyLib.reelLengthPrompt(closest.scenes, closest.words, authored);
+    const raw = await askGeminiJson(apiKey, repairPrompt, storyLib.REEL_SCHEMA);
     const plan = planFromReelScenes(raw && raw.scenes);
     plan.music_mood = closest.music_mood;
-    if (!storyLib.reelIssues(plan.scenes).length) return attachReelTranslation(plan, authored, apiKey);
-    if (Math.abs(plan.words - 82) < Math.abs(closest.words - 82)) closest = plan;
+    if (!grade(plan.scenes).length) return attachReelTranslation(plan, authored, apiKey);
+    if (Math.abs(plan.words - 90) < Math.abs(closest.words - 90)) closest = plan;
   }
-  const leftover = storyLib.reelIssues(closest && closest.scenes);
+  const leftover = grade(closest && closest.scenes);
   const words = closest && closest.words;
   const detail = leftover.some((item) => String(item).startsWith('word count'))
-    ? `${words} kelime çıktı, 80-85 gerekli`
+    ? `${words} kelime çıktı, ${trueEvent ? '80-110' : '80-85'} gerekli`
     : (leftover.join('; ') || 'senaryo yok');
   throw new DocumentaryError(`Hikâye Reels ölçüsüne inemedi: ${detail}.`, 422);
 }

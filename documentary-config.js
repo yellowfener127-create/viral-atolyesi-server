@@ -37,7 +37,19 @@ const DOC_CONFIG = Object.freeze({
     captionYMax: 1270
   }),
   music_volume: 0.05,
-  hard_max_duration: 70
+  hard_max_duration: 70,
+  reel_true_event: true,
+  hook_max_words: 16,
+  hook_max_sec: 4.5,
+  name_policy: 'none',
+  sensitive_hook: 'soft',
+  infographic_shots: 'off',
+  sfx: 'off',
+  fact_check: 'off',
+  reel_tail_fade: true,
+  reel_variable_cuts: true,
+  reel_watermark_gate: true,
+  image_provider: 'classic'
 });
 
 function pick(env, name, fallback, allowed) {
@@ -59,7 +71,17 @@ function loadDocConfig(env) {
     TTS_MODEL: pick(source, 'TTS_MODEL', DOC_CONFIG.TTS_MODEL),
     shots_per_scene: numberOr(source.DOC_SHOTS, DOC_CONFIG.shots_per_scene, 1, 2),
     image_count: DOC_CONFIG.image_count,
-    loudnorm: source.DOC_LOUDNORM === '0' ? false : DOC_CONFIG.loudnorm
+    loudnorm: source.DOC_LOUDNORM === '0' ? false : DOC_CONFIG.loudnorm,
+    reel_true_event: source.REEL_TRUE_EVENT === '0' ? false : DOC_CONFIG.reel_true_event,
+    hook_max_words: numberOr(source.HOOK_MAX_WORDS, DOC_CONFIG.hook_max_words, 8, 24),
+    name_policy: pick(source, 'NAME_POLICY', DOC_CONFIG.name_policy, ['full', 'first_name', 'none']),
+    infographic_shots: pick(source, 'INFOGRAPHIC_SHOTS', DOC_CONFIG.infographic_shots, ['on', 'off']),
+    sfx: pick(source, 'SFX', DOC_CONFIG.sfx, ['on', 'off']),
+    fact_check: pick(source, 'FACT_CHECK', DOC_CONFIG.fact_check, ['on', 'off']),
+    reel_tail_fade: source.REEL_TAIL_FADE === '0' ? false : DOC_CONFIG.reel_tail_fade,
+    reel_variable_cuts: source.REEL_VARIABLE_CUTS === '0' ? false : DOC_CONFIG.reel_variable_cuts,
+    reel_watermark_gate: source.REEL_WATERMARK_GATE === '0' ? false : DOC_CONFIG.reel_watermark_gate,
+    image_provider: pick(source, 'IMAGE_PROVIDER', DOC_CONFIG.image_provider, ['classic', 'enter'])
   });
 }
 

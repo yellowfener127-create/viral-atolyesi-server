@@ -289,15 +289,17 @@ function withOpening(narration, opening) {
   return `${line} ${rest}`;
 }
 
-function momentShotPrompt(narration) {
+function momentShotPrompt(narration, count) {
+  const total = Math.max(8, Math.min(24, Math.round(Number(count) || 9)));
   return [
-    'Divide this spoken script into exactly 9 photographs, in time order, from the first word to the last.',
-    '8 photographs is acceptable. 10 is not. Cover the whole script. Do not skip the ending.',
+    `Divide this spoken script into exactly ${total} photographs, in time order, from the first word to the last.`,
+    'Cover the whole script. Do not skip the ending.',
     'Each photograph is the instant being spoken in its own stretch. Simulate that moment. Do not illustrate a different part of the story.',
     'When the stretch names people, put every one of them in the frame, doing what the line says, in the place the line puts them.',
-    'A line about driving with a headless body is the inside of the car: a silhouette in the driver seat and a headless silhouette where the body sits.',
-    'A line about a neighbor seeing that body is the neighbor silhouette looking in at the headless silhouette inside the car.',
-    'People are anonymous silhouettes, not a sharp face, not a portrait, and not a full-HD beauty shot.',
+    'A driving line is the inside of the vehicle: an anonymous silhouette in the driver seat, both hands on the wheel. Do not show a body, a wound, or blood.',
+    'A discovery line is a silhouette standing beside the same vehicle in the light of that hour, looking toward the cab. Do not show a body.',
+    'People are anonymous silhouettes, a hand, or a view from inside the vehicle. Not a sharp face, not a portrait, and not a full-HD beauty shot.',
+    'Never depict blood, a corpse, a wound, or a severed body.',
     'If the stretch has no person, do not add one.',
     'Do not add an object, a place, or an action the stretch does not contain.',
     'One continuous vertical photograph of that one moment.',
@@ -314,14 +316,15 @@ function shareCount(total, scenes) {
   return Array.from({ length: n }, () => base + (extra > 0 ? (extra -= 1, 1) : 0));
 }
 
-function assignMomentShots(scenes, frames) {
+function assignMomentShots(scenes, frames, limit) {
+  const cap = Math.max(8, Math.min(24, Math.round(Number(limit) || 9)));
   const list = (scenes || []).filter((scene) => scene && String(scene.narration || '').trim());
   const shots = (frames || []).map((frame) => ({
     visual_prompt: String(frame && frame.visual_prompt || '').replace(/\s+/g, ' ').trim(),
     anchor_words: String(frame && frame.anchor_words || '').replace(/\s+/g, ' ').trim()
   })).filter((frame) => frame.visual_prompt.length >= 20);
   if (shots.length < 8 || !list.length) return false;
-  const used = shots.slice(0, 9);
+  const used = shots.slice(0, cap);
   const counts = shareCount(used.length, list.length);
   let cursor = 0;
   list.forEach((scene, index) => {
