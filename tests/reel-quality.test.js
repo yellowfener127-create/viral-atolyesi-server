@@ -67,6 +67,15 @@ test('a sourced aftermath script with a question passes', () => {
   assert.equal(review.loop_closer_present, true);
 });
 
+test('the default name policy keeps a victim surname out', () => {
+  const withSurname = pack(PASSING.map((line) => line.replace('His friend feels', 'His friend Frankie Brohm feels')));
+  const withFirst = pack(PASSING.map((line) => line.replace('His friend feels', 'His friend Frankie feels')));
+  assert.ok(quality.structureIssues(withSurname).includes('victim_full_name'));
+  assert.equal(quality.structureIssues(withFirst).includes('victim_full_name'), false);
+  assert.ok(quality.structureIssues(withFirst, { name_policy: 'none' }).includes('victim_named'));
+  assert.match(quality.trueEventPrompt({ shock: 'a', ending: 'b', events: ['c'] }, 'English', '', { name_policy: 'first_name' }), /only the first name/);
+});
+
 test('variable cuts stay under three seconds and are uneven', () => {
   const shots = Array.from({ length: 16 }, () => ({ start: 0, end: 0 }));
   quality.applyVariableCuts(shots, 38.3);

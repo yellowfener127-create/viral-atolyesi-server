@@ -28,7 +28,7 @@
 
 "12 mil" ile "10 milden fazla" iki ayrı haberde duruyor. Şablon ikisini de uydurmaz; okunan metindeki sayıyı kullanır. "to Atlanta" kaynaklarda yok. 1992 model iddiası bu üç haberde yok, bu yüzden araç kilidi yıl yazmaz.
 
-Kurban adı varsayılan `NAME_POLICY=none` ile anlatıma girmez. Sanık adı ancak bu kamu kaydı `sources[]` içindeyken kullanılabilir.
+Kurban adı varsayılanı `NAME_POLICY=first_name`: yalnızca ilk ad. Soyadı `victim_full_name` olur. `none` adı tamamen çıkarır, `full` tam adı bırakır. Sanık adı ancak bu kamu kaydı `sources[]` içindeyken kullanılabilir.
 
 ## Hipotezler
 

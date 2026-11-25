@@ -55,7 +55,14 @@ function isReveal(text) {
   return /\b(discover\w*|found|finds|neighbor|died instantly|dies instantly|impact)\b/i.test(String(text || ''));
 }
 
-function trueEventPrompt(reading, language, note) {
+function nameLine(policy) {
+  if (policy === 'full') return 'A victim name from the reading may be used in full. A defendant name may stay only when the reading already uses it.';
+  if (policy === 'none') return 'If the reading names the victim, leave that name out. A defendant name may stay only when the reading already uses it.';
+  return 'If the reading names the victim, use only the first name. Do not use the victim surname. A defendant name may stay only when the reading already uses it.';
+}
+
+function trueEventPrompt(reading, language, note, options) {
+  const opts = options || {};
   return [
     'You already read the story. The reading below is the only material you may use.',
     'Write one spoken script for a vertical reel.',
@@ -68,7 +75,7 @@ function trueEventPrompt(reading, language, note) {
     'Do not repeat the same claim in two sentences in a row. The second sentence must add a new fact.',
     'Do not say "to Atlanta" unless the reading says the destination was Atlanta.',
     'The last sentence is a question. It echoes a concrete phrase from the first sentence and asks the viewer to respond.',
-    'If the reading names the victim, leave that name out. A defendant name may stay only when the reading already uses it.',
+    nameLine(opts.name_policy),
     'image_prompt shows the moment as an anonymous silhouette, a hand, or the inside of the vehicle. No blood, no corpse, no wound, no severed body.',
     'anchor_words are 2 to 4 words copied from that scene narration.',
     'voice_tone is a short English direction such as "quiet, tense" or "slow, low".',
@@ -121,7 +128,9 @@ function structureIssues(scenes, options) {
   if (!/\?/.test(last) || contentJaccard(hook, last) < 0.12) issues.push('missing_loop_closer');
   if (VAGUE_PLACE.test(spoken)) issues.push('vague_location');
   if (TONE.test(spoken)) issues.push('tone_check');
-  if ((opts.name_policy || 'none') === 'none' && /\bfriend\s+[A-Z][a-z]+\b/.test(spoken)) issues.push('victim_named');
+  const namePolicy = opts.name_policy || 'first_name';
+  if (namePolicy === 'none' && /\bfriend\s+[A-Z][a-z]+\b/.test(spoken)) issues.push('victim_named');
+  if (namePolicy === 'first_name' && /\bfriend\s+[A-Z][a-z]+\s+[A-Z][a-z]+\b/.test(spoken)) issues.push('victim_full_name');
   if (opts.fact_check === 'on' && (!Array.isArray(opts.sources) || !opts.sources.length)) issues.push('missing_sources');
   list.forEach((scene, index) => {
     if (!String(scene && scene.narration || '').trim()) issues.push(`empty scene ${index + 1}`);

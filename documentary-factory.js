@@ -2030,7 +2030,7 @@ async function buildStoryReel(source, language, apiKey) {
   let closest = null;
   for (let turn = 0; turn < 3; turn++) {
     const prompt = trueEvent
-      ? reelQuality.trueEventPrompt(reading, authored, note)
+      ? reelQuality.trueEventPrompt(reading, authored, note, reelConfig)
       : storyLib.reelPrompt(reading, authored, note);
     const raw = await askGeminiJson(apiKey, prompt, storyLib.REEL_SCHEMA);
     const plan = planFromReelScenes(raw && raw.scenes);
@@ -2042,7 +2042,7 @@ async function buildStoryReel(source, language, apiKey) {
   }
   if (closest && closest.scenes && closest.scenes.length === 5) {
     const repairPrompt = trueEvent
-      ? reelQuality.trueEventPrompt(reading, authored, note)
+      ? reelQuality.trueEventPrompt(reading, authored, note, reelConfig)
       : storyLib.reelLengthPrompt(closest.scenes, closest.words, authored);
     const raw = await askGeminiJson(apiKey, repairPrompt, storyLib.REEL_SCHEMA);
     const plan = planFromReelScenes(raw && raw.scenes);

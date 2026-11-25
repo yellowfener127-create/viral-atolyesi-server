@@ -41,7 +41,7 @@ const DOC_CONFIG = Object.freeze({
   reel_true_event: true,
   hook_max_words: 16,
   hook_max_sec: 4.5,
-  name_policy: 'none',
+  name_policy: 'first_name',
   sensitive_hook: 'soft',
   infographic_shots: 'off',
   sfx: 'off',
