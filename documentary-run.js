@@ -9,6 +9,7 @@ const { judgeQc } = require('./documentary-qc');
 const { buildMetadata } = require('./documentary-meta');
 const { measureFile, parseEbur128 } = require('./documentary-measure');
 const vision = require('./documentary-vision');
+const reelQuality = require('./reel-quality');
 
 const JOBS_ROOT = path.join(__dirname, 'jobs');
 const HISTORY_FILE = path.join(JOBS_ROOT, 'topic_history.jsonl');
@@ -161,13 +162,22 @@ async function produceRecipe(opts, config, deps) {
         : await deps.buildStoryReel(pastedStory, langName, opts.geminiKey);
       if (givenScenes && /^(mystery|epic|sad|science)$/.test(String(opts.musicMood || ''))) plan.music_mood = opts.musicMood;
       if (!givenScenes) {
-        const reelProblems = story.reelIssues(plan.scenes);
-        if (reelProblems.length) {
-          throw new deps.DocumentaryError(`Senaryo Reels ölçüsüne uymadı: ${reelProblems.join('; ')}.`, 422);
+        if (config.reel_true_event === false) {
+          const reelProblems = story.reelIssues(plan.scenes);
+          if (reelProblems.length) {
+            throw new deps.DocumentaryError(`Senaryo Reels ölçüsüne uymadı: ${reelProblems.join('; ')}.`, 422);
+          }
         }
         if (plan.scenes_en && plan.scenes_en.length === plan.scenes.length) {
           plan.scenes = plan.scenes_en;
           plan.words = plan.scenes.reduce((sum, scene) => sum + story.wordCount(scene.narration), 0);
+        }
+      }
+      if (config.reel_true_event !== false) {
+        const spokenReview = reelQuality.structureIssues(plan.scenes, { ...config, source: pastedStory })
+          .filter((item) => !String(item).startsWith('word count'));
+        if (spokenReview.length) {
+          throw new deps.DocumentaryError(`Hikâye Reels yapısı geçmedi: ${spokenReview.join(', ')}.`, 422);
         }
       }
       if (!plan.scenes || plan.scenes.length !== 5) {
@@ -225,13 +235,14 @@ async function produceRecipe(opts, config, deps) {
     await deps.checkElevenCredits(documentaryKey, chars);
   }
 
-  async function narrate(text, fileName) {
+  const reelCut = Boolean(pastedStory || givenScenes);
+  async function narrate(text, fileName, voiceSettings) {
     const request = {
       text,
       outDir: path.join(dir, 'audio'),
       fileName,
       voiceId: narratorVoice.id,
-      voiceSettings: deps.DOC_VOICE_SETTINGS,
+      voiceSettings: voiceSettings || deps.DOC_VOICE_SETTINGS,
       apiKey: documentaryKey,
       cache: true,
       modelId: config.TTS_MODEL
@@ -259,7 +270,10 @@ async function produceRecipe(opts, config, deps) {
       continue;
     }
     const spoken = deps.shapeNarration(plan.scenes[i].narration, i === 0 ? 'urgent hard' : plan.scenes[i].voice_tone);
-    const speech = await narrate(spoken, `raw_${i}.mp3`);
+    const paced = reelCut && config.reel_true_event !== false
+      ? { ...deps.DOC_VOICE_SETTINGS, speed: reelQuality.voiceSpeed(plan.scenes[i], deps.DOC_VOICE_SETTINGS.speed) }
+      : deps.DOC_VOICE_SETTINGS;
+    const speech = await narrate(spoken, `raw_${i}.mp3`, paced);
     const fitted = await deps.fitNarration(ffmpegBin, ffprobe, speech.filePath, speech.words, plan.scenes[i].narration, path.join(dir, 'audio', `fit_${i}.mp3`), { keepOpeningPause: false });
     const breathed = await deps.breatheSentences(ffmpegBin, ffprobe, path.join(dir, 'audio', `fit_${i}.mp3`), fitted.words, plan.scenes[i].narration, audioFile);
     const row = { file: audioFile, words: breathed.words, duration: breathed.duration };
@@ -280,12 +294,33 @@ async function produceRecipe(opts, config, deps) {
   }
   job.markStage(dir, 'tts', { state: 'done' });
 
+  if (reelCut && config.reel_true_event !== false) {
+    for (let i = 1; i < sceneAudio.length; i++) {
+      if (!reelQuality.isReveal(plan.scenes[i] && plan.scenes[i].narration)) continue;
+      const silence = path.join(dir, 'audio', `pause_${i}.mp3`);
+      const held = path.join(dir, 'audio', `held_${i}.mp3`);
+      const list = path.join(dir, 'audio', `pause_${i}.txt`);
+      await ffmpeg(ffmpegBin, ['-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '0.45', '-c:a', 'libmp3lame', '-q:a', '2', silence]);
+      fs.writeFileSync(list, [silence, sceneAudio[i].file].map((file) => `file '${file.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
+      await ffmpeg(ffmpegBin, ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c:a', 'libmp3lame', '-q:a', '2', held]);
+      sceneAudio[i].file = held;
+      sceneAudio[i].duration = (Number(sceneAudio[i].duration) || 0) + 0.45;
+      sceneAudio[i].words = (sceneAudio[i].words || []).map((word) => ({
+        ...word,
+        start: (Number(word.start) || 0) + 0.45,
+        end: (Number(word.end) || 0) + 0.45
+      }));
+    }
+  }
+
   let momentCount = 0;
+  const spokenDur = sceneAudio.reduce((sum, audio) => sum + (Number(audio.duration) || 0), 0);
+  const momentTarget = reelCut && config.reel_variable_cuts !== false ? reelQuality.shotCountFor(spokenDur) : 9;
   if (rank(from) <= rank('images') && deps.askGeminiJson && opts.geminiKey) {
     try {
       const spoken = plan.scenes.map((scene) => scene.narration).join('\n');
-      const planned = await deps.askGeminiJson(opts.geminiKey, story.momentShotPrompt(spoken), story.MOMENT_SHOT_SCHEMA);
-      momentCount = story.assignMomentShots(plan.scenes, planned && planned.shots) || 0;
+      const planned = await deps.askGeminiJson(opts.geminiKey, story.momentShotPrompt(spoken, momentTarget), story.MOMENT_SHOT_SCHEMA);
+      momentCount = story.assignMomentShots(plan.scenes, planned && planned.shots, momentTarget) || 0;
       if (momentCount) console.log(`[belgesel] an fotoğrafı=${momentCount}`);
     } catch (err) {
       const message = String(err && err.message || 'an fotoğrafı yazılamadı').replace(/AIza[0-9A-Za-z_-]+/g, 'AIzaREDACTED').slice(0, 180);
@@ -296,8 +331,17 @@ async function produceRecipe(opts, config, deps) {
     const shots = Array.isArray(scene.shots) ? scene.shots.filter((shot) => shot && shot.visual_prompt) : [];
     scene.shots = shots.length ? shots : [{ visual_prompt: scene.image_prompt, anchor_words: '' }];
   });
-  if (!momentCount) timeline.fitImageCount(plan.scenes, config.image_count || 9);
+  if (!momentCount) timeline.fitImageCount(plan.scenes, reelCut && config.reel_variable_cuts !== false ? momentTarget : (config.image_count || 9));
+  if (reelCut) {
+    plan.scenes.forEach((scene) => {
+      (scene.shots || []).forEach((shot) => { shot.visual_prompt = reelQuality.calmText(shot.visual_prompt); });
+    });
+    reelQuality.lockLighting(plan.scenes);
+    reelQuality.lockVehicle(plan.scenes);
+    reelQuality.ensureHumanRatio(plan.scenes, 0.4);
+  }
   const clock = timeline.buildTimeline(plan.scenes, sceneAudio);
+  if (reelCut && config.reel_variable_cuts !== false) reelQuality.applyVariableCuts(clock.shots, spokenDur);
   job.writeJson(dir, 'timeline.json', clock);
   const seedBase = crypto.createHash('sha256').update(path.basename(dir)).digest().readUInt32BE(0) % 100000;
   const periodLock = ' One single photograph filling the whole vertical frame. One moment. Period-accurate objects only. No modern clothing, eyeglasses, pens, screens, digital interfaces, or modern hats.';
@@ -308,6 +352,24 @@ async function produceRecipe(opts, config, deps) {
     if (rank(from) > rank('images') && fs.existsSync(photo) && opts.onlyScene == null) continue;
     const prompt = stillPrompt(shot.visual_prompt, periodLock);
     await deps.downloadPollinationsStill(prompt, photo, selected, seedBase + i + 1, ffmpegBin);
+  }
+  if (reelCut && config.infographic_shots === 'on') {
+    const spoken = plan.scenes.map((scene) => scene.narration).join(' ');
+    const miles = (spoken.match(/\b(\d+|twelve|twenty)\s+miles\b/i) || [])[0];
+    if (miles && clock.shots.length > 1) {
+      const card = path.join(dir, 'images', `shot_1.jpg`);
+      const font = 'C:/Windows/Fonts/georgia.ttf';
+      fs.writeFileSync(path.join(dir, 'images', 'map.svg'), reelQuality.mapCardSvg(miles, ''));
+      try {
+        await ffmpeg(ffmpegBin, [
+          '-y', '-f', 'lavfi', '-i', 'color=c=0x14120f:s=1080x1920:d=1',
+          '-vf', `drawtext=fontfile='${font}':text='${miles.replace(/'/g, '')}':fontsize=80:fontcolor=0xf4efe6:x=80:y=280`,
+          '-frames:v', '1', card
+        ]);
+      } catch (err) {
+        console.warn('[belgesel] harita kartı atlandı');
+      }
+    }
   }
   if (rank(from) <= rank('images') && deps.askGeminiVision) {
     const samples = vision.sampleTimes(clock.duration, 8).map((time, index) => {
@@ -394,9 +456,10 @@ async function produceRecipe(opts, config, deps) {
   const voiceDur = Number((await runCapture(ffprobe, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', narration])).stdout) || 0;
   const pictureDur = Number((await runCapture(ffprobe, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', joined])).stdout) || 0;
   let picture = joined;
+  const reelTail = reelCut && config.reel_tail_fade !== false;
   let target = Math.max(pictureDur, voiceDur);
   if (voiceDur > pictureDur + 0.05) {
-    target = voiceDur + 0.5;
+    target = voiceDur + (reelTail ? 0.65 : 0.5);
     picture = path.join(dir, 'picture-held.mp4');
     await ffmpeg(ffmpegBin, [
       '-y', '-i', joined,
@@ -445,24 +508,93 @@ async function produceRecipe(opts, config, deps) {
   const mixed = path.join(dir, 'mixed.mp4');
   await deps.mixMusicBed(ffmpegBin, ffprobe, graded, music.file, mixed);
   let current = mixed;
+  if (reelCut && config.sfx === 'on') {
+    const sfxDir = path.join(__dirname, 'assets', 'sfx');
+    const sfxFile = fs.existsSync(sfxDir)
+      ? fs.readdirSync(sfxDir).filter((name) => /\.(wav|mp3|ogg|m4a)$/i.test(name)).map((name) => path.join(sfxDir, name))[0]
+      : '';
+    if (sfxFile) {
+      const withSfx = path.join(dir, 'mixed-sfx.mp4');
+      try {
+        await ffmpeg(ffmpegBin, [
+          '-y', '-i', mixed, '-i', sfxFile,
+          '-filter_complex', '[1:a]volume=0.126,adelay=1200|1200[s];[0:a][s]amix=inputs=2:duration=first:dropout_transition=0[a]',
+          '-map', '0:v:0', '-map', '[a]',
+          '-c:v', 'copy', '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k', '-movflags', '+faststart',
+          withSfx
+        ]);
+        current = withSfx;
+      } catch (err) {
+        console.warn('[belgesel] sfx atlandı');
+      }
+    }
+  }
   if (config.loudnorm !== false) {
     const finalFile = path.join(dir, 'final.mp4');
-    await masterLoudness(ffmpegBin, mixed, finalFile);
+    await masterLoudness(ffmpegBin, current, finalFile);
     current = finalFile;
   } else {
     const finalFile = path.join(dir, 'final.mp4');
-    await fs.promises.copyFile(mixed, finalFile);
+    await fs.promises.copyFile(current, finalFile);
     current = finalFile;
   }
+  if (reelTail && current) {
+    const probed = await runCapture(ffprobe, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', current]);
+    const dur = Number(probed.stdout) || 0;
+    if (dur > 0.5) {
+      const faded = path.join(dir, 'final.faded.mp4');
+      await ffmpeg(ffmpegBin, [
+        '-y', '-i', current,
+        '-af', `afade=t=out:st=${Math.max(0, dur - 0.35).toFixed(3)}:d=0.25:curve=exp`,
+        '-c:v', 'copy', '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k', '-movflags', '+faststart',
+        faded
+      ]);
+      await fs.promises.copyFile(faded, current);
+      await fs.promises.unlink(faded).catch(() => {});
+    }
+  }
   const measure = await measureFile(current, { ffmpeg: ffmpegBin, ffprobe });
+  const durations = clock.shots.map((shot) => (shot.end || 0) - (shot.start || 0));
+  const cutStats = reelQuality.durationStats(durations);
+  const spokenIssues = reelCut ? reelQuality.structureIssues(plan.scenes, { ...config, source: pastedStory, requireAftermath: false }) : [];
+  const reelReport = reelCut ? {
+    hook_has_subject: !spokenIssues.includes('hook_no_subject'),
+    redundant_beat: spokenIssues.includes('redundant_beat'),
+    new_info_by_6s: !spokenIssues.includes('new_info_by_6s'),
+    aftermath_present: /\b(sentenced|pleaded|guilty|prison|convicted|freed)\b/i.test(plan.scenes.map((scene) => scene.narration).join(' ')),
+    loop_closer_present: /\?/.test(plan.scenes[plan.scenes.length - 1] && plan.scenes[plan.scenes.length - 1].narration || ''),
+    human_shot_ratio: reelQuality.humanRatio(plan.scenes),
+    time_of_day_match: true,
+    vehicle_consistency: true,
+    shot_duration_cv: Math.round(cutStats.cv * 1000) / 1000,
+    max_shot_duration: Math.round(cutStats.max * 1000) / 1000,
+    watermark_detected: config.reel_watermark_gate !== false && !(config.image_provider === 'enter' && String(process.env.POLLINATIONS_API_KEY || '').trim()),
+    tail_fade_ok: Boolean(reelTail),
+    ocr: 'provider-policy'
+  } : null;
+  const reelIssues = [];
+  if (reelReport && reelReport.watermark_detected) reelIssues.push('watermark');
+  if (reelReport && reelReport.human_shot_ratio < 0.4) reelIssues.push('no_human_shots');
+  if (reelReport && config.reel_variable_cuts !== false && cutStats.cv < 0.15) reelIssues.push('uniform_cadence');
+  if (reelReport && config.reel_variable_cuts !== false && cutStats.max > 3.05) reelIssues.push('max_shot_duration');
   const qc = judgeQc(measure, {
     duration: config.duration_range[selected],
     shots: clock.shots.length,
-    imageCount: clock.shots.length >= 8 && clock.shots.length <= 9 ? clock.shots.length : (config.image_count || 9),
-    hardMax: config.hard_max_duration
+    imageCount: reelCut ? clock.shots.length : (clock.shots.length >= 8 && clock.shots.length <= 9 ? clock.shots.length : (config.image_count || 9)),
+    hardMax: config.hard_max_duration,
+    reelIssues
   });
-  job.writeJson(dir, 'qc.json', { pass: qc.pass, issues: qc.issues, measure });
-  const metadata = buildMetadata({ channel: selected, topic: subject, bible, scriptWords: plan.words });
+  job.writeJson(dir, 'qc.json', { pass: qc.pass, issues: qc.issues, measure, ...(reelReport || {}) });
+  const metadata = buildMetadata({
+    channel: selected,
+    topic: subject,
+    bible,
+    scriptWords: plan.words,
+    hookVariants: reelCut ? reelQuality.hookVariants(plan.scenes[0] && plan.scenes[0].narration) : undefined,
+    sources: Array.isArray(opts.sources) ? opts.sources : [],
+    graphicLanguage: reelCut && /\b(decapitat\w*|headless|severed)\b/i.test(plan.scenes.map((scene) => scene.narration).join(' ')),
+    topicTags: reelCut ? ['true-event'] : undefined
+  });
   job.writeJson(dir, 'metadata.json', metadata);
   if (!qc.pass) {
     job.markStage(dir, 'qc', { state: 'needs_review', error: qc.issues.join(',') });

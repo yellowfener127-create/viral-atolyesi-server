@@ -10,7 +10,7 @@ function clip(text, max) {
   return value.slice(0, max).replace(/\s+\S*$/, '').trim();
 }
 
-function buildMetadata({ channel, topic, bible, scriptWords }) {
+function buildMetadata({ channel, topic, bible, scriptWords, hookVariants, sources, graphicLanguage, topicTags }) {
   const tags = TAGS[channel] || TAGS.epoch;
   const title = clip(topic || (bible && bible.logline) || channel, 80);
   const description = clip(
@@ -29,7 +29,12 @@ function buildMetadata({ channel, topic, bible, scriptWords }) {
     },
     ai_generated: true,
     words: scriptWords || 0,
-    spoils_ending: false
+    spoils_ending: false,
+    hook_variants: hookVariants || [],
+    sources: sources || [],
+    content_warnings: { graphic_language: Boolean(graphicLanguage) },
+    topic_tags: topicTags || [],
+    ai_flag: true
   };
 }
 

@@ -17,6 +17,9 @@ function judgeQc(measure, options) {
   const shots = Number(options && options.shots) || 0;
   const imageCount = Number(options && options.imageCount) || 9;
   if (shots && shots !== imageCount) issues.push('shot_count');
+  (Array.isArray(options && options.reelIssues) ? options.reelIssues : []).forEach((item) => {
+    if (item && !issues.includes(item)) issues.push(item);
+  });
   return { pass: issues.length === 0, issues };
 }
 
