@@ -2038,7 +2038,7 @@ async function buildStoryReel(source, language, apiKey) {
     const issues = grade(plan.scenes);
     if (!issues.length) return attachReelTranslation(plan, authored, apiKey);
     if (!closest || Math.abs(plan.words - 90) < Math.abs(closest.words - 90)) closest = plan;
-    note = trueEvent ? issues.join('; ') : storyLib.reelRepairNote(issues, plan.words);
+    note = trueEvent ? reelQuality.issueNote(issues) : storyLib.reelRepairNote(issues, plan.words);
   }
   if (closest && closest.scenes && closest.scenes.length === 5) {
     const repairPrompt = trueEvent

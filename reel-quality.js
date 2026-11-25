@@ -5,7 +5,6 @@ const SENSITIVE = /\b(decapitat\w*|headless|severed|dismember\w*)\b/i;
 const AFTERMATH = /\b(sentenced|pleaded|guilty|prison|convicted|years|freed)\b/i;
 const VAGUE_PLACE = /\bto atlanta\b/i;
 const TONE = /\b(lol|haha|hilarious|stupid|idiot|dumb)\b/i;
-const FRAGMENT = /^(accidentally|suddenly|unknowingly|after|before|while|driving|killed)\b/i;
 const HUMAN = /\b(person|people|man|woman|boy|girl|silhouette|hand|hands|driver|passenger|neighbor)\b/i;
 const GRAPHIC = /\b(blood|corpse|gore|wound|decapitat\w*|headless|severed|dismember\w*)\b/gi;
 
@@ -30,9 +29,16 @@ function sentencesOf(scenes) {
 }
 
 function hasSubject(sentence) {
-  const line = String(sentence || '').trim();
-  if (!line || FRAGMENT.test(line)) return false;
-  return /^(he|she|they|it|[A-Z][a-z]+)\b/.test(line);
+  const line = String(sentence || '').trim().replace(/^["'“”]+/, '');
+  if (!line) return false;
+  if (/^(accidentally|suddenly|unknowingly|driving|killed)\b/i.test(line)) return false;
+  if (/^(after|before|while)\b/i.test(line)) {
+    const rest = line.replace(/^(after|before|while)\b[, ]*/i, '');
+    return /\b(he|she|they|we|i)\b/i.test(rest) || /\b[A-Z][\p{L}'’-]{1,}/u.test(rest);
+  }
+  if (/^(a|an|the|he|she|they|it|his|her|their|one|this|that)\b/i.test(line)) return true;
+  if (/^[A-Z][\p{L}'’-]*/u.test(line)) return true;
+  return /\b(he|she|they|we|i)\b/i.test(line);
 }
 
 function hookVariants(hook) {
@@ -69,7 +75,7 @@ function trueEventPrompt(reading, language, note, options) {
     'Do not add a person, place, number, date, court result, or cause that the reading does not contain.',
     `Narration language: ${language}.`,
     'Five scenes. The five narrations together stay between 80 and 110 spoken words.',
-    'Scene 1 is one sentence of at most 16 words. It has a subject and a stake. It is not a fragment. It does not use the words decapitated or headless. Use "killed instantly" instead.',
+    'Scene 1 is one sentence of 6 to 16 words. Start with He, She, They, A, The, or a name from the reading, then the stake. Do not start with Accidentally, Suddenly, or a bare verb. Do not use the words decapitated or headless. Use "killed instantly" instead.',
     'The next sentences, in order, add who, when, and where, then why, then the impact, then what he did next, then the discovery.',
     'If the reading contains a court result or a family response, one later sentence must say that result. Do not invent one.',
     'Do not repeat the same claim in two sentences in a row. The second sentence must add a new fact.',
@@ -96,6 +102,24 @@ function sameClaim(a, b) {
 function addsFact(prev, next) {
   const before = new Set(contentWords(prev));
   return contentWords(next).some((word) => !before.has(word));
+}
+
+function issueNote(issues) {
+  const notes = {
+    hook_no_subject: 'Scene 1 must start with He, She, They, A, The, or a name, and say what is at stake.',
+    hook_length: 'Scene 1 must be one sentence of 6 to 16 words.',
+    hook_too_long: 'Scene 1 must stay under 4.5 seconds, so keep it to 16 words or fewer.',
+    redundant_beat: 'Do not repeat the same claim in two sentences in a row.',
+    no_new_info: 'Each sentence must add a new fact.',
+    new_info_by_6s: 'Sentence 2 must add a new fact. Do not repeat the opening claim.',
+    missing_aftermath: 'Add the court result or family response that is already in the reading.',
+    missing_loop_closer: 'The last sentence must be a question that echoes a phrase from sentence 1.',
+    vague_location: 'Do not say "to Atlanta" unless the reading says that was the destination.',
+    victim_full_name: 'Use only the victim\'s first name.',
+    victim_named: 'Leave the victim\'s name out.',
+    sensitive_hook: 'Do not use decapitated or headless in scene 1.'
+  };
+  return (issues || []).map((item) => notes[item] || item).join(' ');
 }
 
 function structureIssues(scenes, options) {
@@ -281,6 +305,7 @@ function tailPlan(voiceDur) {
 module.exports = {
   contentJaccard,
   hasSubject,
+  issueNote,
   hookVariants,
   voiceSpeed,
   isReveal,

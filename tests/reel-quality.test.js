@@ -67,6 +67,16 @@ test('a sourced aftermath script with a question passes', () => {
   assert.equal(review.loop_closer_present, true);
 });
 
+test('an article or a name counts as a hook subject', () => {
+  assert.equal(quality.hasSubject('A driver kept going twelve miles and never noticed.'), true);
+  assert.equal(quality.hasSubject('The neighbor found the truck the next morning.'), true);
+  assert.equal(quality.hasSubject('John drove home and never noticed his friend.'), true);
+  assert.equal(quality.hasSubject('After the bar, John drove home and never noticed.'), true);
+  assert.equal(quality.hasSubject('Accidentally killed his friend and unknowingly traveled 12 miles with the lifeless body.'), false);
+  assert.equal(quality.hasSubject('Killed his friend on the drive home that night.'), false);
+  assert.match(quality.issueNote(['hook_no_subject']), /He, She, They/);
+});
+
 test('the default name policy keeps a victim surname out', () => {
   const withSurname = pack(PASSING.map((line) => line.replace('His friend feels', 'His friend Frankie Brohm feels')));
   const withFirst = pack(PASSING.map((line) => line.replace('His friend feels', 'His friend Frankie feels')));
