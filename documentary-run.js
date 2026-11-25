@@ -530,6 +530,20 @@ async function produceRecipe(opts, config, deps) {
       }
     }
   }
+  if (reelTail && current) {
+    const probed = await runCapture(ffprobe, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', current]);
+    const dur = Number(probed.stdout) || 0;
+    if (dur > 0.5) {
+      const faded = path.join(dir, 'tail-faded.mp4');
+      await ffmpeg(ffmpegBin, [
+        '-y', '-i', current,
+        '-af', `afade=t=out:st=${Math.max(0, dur - 0.35).toFixed(3)}:d=0.25:curve=exp`,
+        '-c:v', 'copy', '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k', '-movflags', '+faststart',
+        faded
+      ]);
+      current = faded;
+    }
+  }
   if (config.loudnorm !== false) {
     const finalFile = path.join(dir, 'final.mp4');
     await masterLoudness(ffmpegBin, current, finalFile);
@@ -538,21 +552,6 @@ async function produceRecipe(opts, config, deps) {
     const finalFile = path.join(dir, 'final.mp4');
     await fs.promises.copyFile(current, finalFile);
     current = finalFile;
-  }
-  if (reelTail && current) {
-    const probed = await runCapture(ffprobe, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', current]);
-    const dur = Number(probed.stdout) || 0;
-    if (dur > 0.5) {
-      const faded = path.join(dir, 'final.faded.mp4');
-      await ffmpeg(ffmpegBin, [
-        '-y', '-i', current,
-        '-af', `afade=t=out:st=${Math.max(0, dur - 0.35).toFixed(3)}:d=0.25:curve=exp`,
-        '-c:v', 'copy', '-c:a', 'aac', '-ar', '44100', '-ac', '2', '-b:a', '192k', '-movflags', '+faststart',
-        faded
-      ]);
-      await fs.promises.copyFile(faded, current);
-      await fs.promises.unlink(faded).catch(() => {});
-    }
   }
   const measure = await measureFile(current, { ffmpeg: ffmpegBin, ffprobe });
   const durations = clock.shots.map((shot) => (shot.end || 0) - (shot.start || 0));
@@ -628,7 +627,7 @@ async function produceRecipe(opts, config, deps) {
   };
 }
 
-const PEAK_CEILINGS = Object.freeze([0.707, 0.630, 0.560]);
+const PEAK_CEILINGS = Object.freeze([0.707, 0.630, 0.560, 0.450]);
 
 function peakHoldFilter(measured, ceiling) {
   const limit = Number(ceiling).toFixed(3);
