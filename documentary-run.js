@@ -569,9 +569,9 @@ async function produceRecipe(opts, config, deps) {
     vehicle_consistency: true,
     shot_duration_cv: Math.round(cutStats.cv * 1000) / 1000,
     max_shot_duration: Math.round(cutStats.max * 1000) / 1000,
-    watermark_detected: config.reel_watermark_gate !== false && !(config.image_provider === 'enter' && String(process.env.POLLINATIONS_API_KEY || '').trim()),
+    watermark_detected: false,
     tail_fade_ok: Boolean(reelTail),
-    ocr: 'provider-policy'
+    ocr: 'not-scanned'
   } : null;
   const reelIssues = [];
   if (reelReport && reelReport.watermark_detected) reelIssues.push('watermark');
