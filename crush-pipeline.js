@@ -980,10 +980,10 @@ async function buildCrushRenderPlan(o) {
   } = o;
 
   const brandNorm = brandFolderKey(brand);
+  const frameOnly = o.frameOnly === true || o.frame_only === true;
   const useLabFrame =
-    (brandNorm === 'terapi' || brandNorm === 'umut' || brandNorm === 'kaos') && o.useReelsInstagramCanvas !== false;
-  const useReelsInstagramCanvas =
-    (brandNorm === 'terapi' || brandNorm === 'umut' || brandNorm === 'kaos') && o.useReelsInstagramCanvas !== false;
+    frameOnly || ((brandNorm === 'terapi' || brandNorm === 'umut' || brandNorm === 'kaos') && o.useReelsInstagramCanvas !== false);
+  const useReelsInstagramCanvas = useLabFrame;
   const profilePng = useLabFrame ? resolveBrandProfilePng(brandNorm) : null;
   const profileExists = !!(profilePng && fs.existsSync(profilePng));
 
@@ -1022,8 +1022,8 @@ async function buildCrushRenderPlan(o) {
   const hitYExpr = `floor(${uYExpr})`;
   const pYSafeExpr = `if(lt(${hitYExpr},2),if(lt(${pYExpr},0.5),${pYExpr}*0.7,0.65+(${pYExpr}-0.5)*0.7),${pYExpr})`;
   const wmYExpr = `${wmMargin}+(H-h-2*${wmMargin})*(${pYSafeExpr})`;
-  const speedRamp = pickSpeedRampFactor();
-  const effectiveSpeed = BASE_EDIT_SPEED * speedRamp;
+  const speedRamp = frameOnly ? 1 : pickSpeedRampFactor();
+  const effectiveSpeed = frameOnly ? 1 : BASE_EDIT_SPEED * speedRamp;
   // Tek video varsayılanı 60 sn. Derleme yolu maxDurationSec ile uzatır.
   const requestedCap = Number(o.maxDurationSec);
   const maxDurCap = Number.isFinite(requestedCap) && requestedCap > 0
@@ -1184,6 +1184,9 @@ async function buildCrushRenderPlan(o) {
   const musicInputIdxPlanned = nextInputIdx; // only valid if music input exists
 
   let vChain = `[0:v]trim=start=${startSec.toFixed(3)},setpts=PTS-STARTPTS,fps=${targetFps}`;
+  if (frameOnly) {
+    vChain += `,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},setsar=1[v0]`;
+  } else {
   vChain += `,scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH}[v0base0]`;
   // Manual crop rect: crop in outW×outH space, then scale back to outW×outH (fill).
   const cropRectOut = (() => {
@@ -1231,6 +1234,7 @@ async function buildCrushRenderPlan(o) {
     // Zoom kaynaklı yumuşamayı hafif toparla (çok agresif değil)
     `,unsharp=5:5:0.70:3:3:0.35` +
     `,setsar=1,setpts=PTS/${effectiveSpeed.toFixed(6)},trim=0:${outDur.toFixed(3)},setpts=PTS-STARTPTS[v0]`;
+  }
 
   let baseLabel = cover ? 'vcover' : 'v0u';
 
@@ -1240,7 +1244,9 @@ async function buildCrushRenderPlan(o) {
     : [];
   const emojiInputs = [];
   const hasMusicInput = !!(musicFile && fs.existsSync(musicFile));
-  const emojiIndexBase = musicInputIdxPlanned + (hasMusicInput ? 1 : 0);
+  const emojiIndexBase = frameOnly
+    ? (profileExists ? 2 : 1)
+    : (musicInputIdxPlanned + (hasMusicInput ? 1 : 0));
 
   const noiseOpEff = useReelsInstagramCanvas ? 0.002 : noiseOpacity;
   const grainOpEff = useReelsInstagramCanvas ? 0.006 : grainOpacity;
@@ -1348,7 +1354,7 @@ async function buildCrushRenderPlan(o) {
           hookYOffsetRefPx: manualReelsHookYOff
         })
       : legacyVisualStack),
-    ...tailWmAndGrain
+    ...(frameOnly ? ['[v1]format=yuv420p[v]'] : tailWmAndGrain)
   ];
 
   const semitone = -0.4;
@@ -1357,7 +1363,13 @@ async function buildCrushRenderPlan(o) {
   let audioFilter = '';
   let mapAudioOut = hasAudio;
 
-  if (hasAudio) {
+  if (frameOnly && hasAudio) {
+    parts.push(
+      `[0:a]atrim=start=${startSec.toFixed(3)},asetpts=PTS-STARTPTS,` +
+        `apad=pad_dur=${(outDur + 0.5).toFixed(3)},` +
+        `atrim=0:${outDur.toFixed(3)},asetpts=PTS-STARTPTS[a]`
+    );
+  } else if (hasAudio) {
     const bumpDur = 0.25;
     const bump = (t) => `between(t,${t.toFixed(3)},${(t + bumpDur).toFixed(3)})`;
     const volExpr = `if(${bump(3)}+${bump(8)}+${bump(10)},1.02,1)`;
@@ -1419,7 +1431,7 @@ async function buildCrushRenderPlan(o) {
         );
       }
     }
-  } else if (musicFile && fs.existsSync(musicFile)) {
+  } else if (!frameOnly && musicFile && fs.existsSync(musicFile)) {
     const musicDur = (await probeAudioDuration(ffmpegPath, ffprobePath, musicFile)) || 120;
     const maxStart = Math.max(0, musicDur - 0.25);
     const musicStart = Math.random() * maxStart;
@@ -1457,8 +1469,8 @@ async function buildCrushRenderPlan(o) {
 
   const inputs = ['-y', '-i', inFile];
   if (profileExists) inputs.push('-loop', '1', '-i', profilePng);
-  inputs.push('-loop', '1', '-i', wmFile);
-  if (musicFile && fs.existsSync(musicFile)) {
+  if (!frameOnly) inputs.push('-loop', '1', '-i', wmFile);
+  if (!frameOnly && musicFile && fs.existsSync(musicFile)) {
     inputs.push('-stream_loop', '-1', '-i', musicFile);
   }
   for (const emojiPng of emojiInputs) {
@@ -1482,23 +1494,15 @@ async function buildCrushRenderPlan(o) {
     '-c:v',
     'libx264',
     '-preset',
-    'slower',
+    frameOnly ? 'veryfast' : 'slower',
     '-crf',
-    '18',
+    frameOnly ? '20' : '18',
     '-pix_fmt',
     'yuv420p',
-    // Bitrate’i sosyal medya standardının altına düşürme (yaklaşık 8–10 Mbps)
-    '-b:v',
-    '8M',
-    '-minrate',
-    '8M',
-    '-maxrate',
-    '10M',
-    '-bufsize',
-    '20M',
+    ...(frameOnly ? [] : ['-b:v', '8M', '-minrate', '8M', '-maxrate', '10M', '-bufsize', '20M']),
     '-movflags',
     '+faststart',
-    ...buildMetadataArgs(),
+    ...(frameOnly ? [] : buildMetadataArgs()),
     ...(mapAudioOut ? ['-c:a', 'aac', '-b:a', '128k'] : [])
   ];
 

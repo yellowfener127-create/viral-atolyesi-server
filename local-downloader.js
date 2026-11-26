@@ -2726,8 +2726,9 @@ app.post('/crush', async (req, res) => {
   const hasFfprobe = await existsOnPath('ffprobe');
   if (!hasFfmpeg || !hasFfprobe) return res.status(500).json({ error: 'ffmpeg/ffprobe bulunamadı. Önce bilgisayara ffmpeg kur.' });
 
+  const frameOnly = req.body?.frame_only === true || req.body?.frameOnly === true;
   const wmFile = crushWatermarkPngPath(brand);
-  if (!fs.existsSync(wmFile)) return res.status(500).json({ error: 'Watermark dosyası yok (public/watermark-*.png).' });
+  if (!frameOnly && !fs.existsSync(wmFile)) return res.status(500).json({ error: 'Watermark dosyası yok (public/watermark-*.png).' });
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-local-crush-'));
   const inTpl = path.join(tmpDir, 'in.%(ext)s');
@@ -2846,7 +2847,7 @@ app.post('/crush', async (req, res) => {
     const outW = 1080;
     const outH = 1920;
     const hasAudio = await probeHasAudio(inFile);
-    const musicFile = crush.pickRandomMusicFile(PUBLIC_DIR, brand);
+    const musicFile = frameOnly ? null : crush.pickRandomMusicFile(PUBLIC_DIR, brand);
     const cache = loadDirectorCache();
     const titleHook = buildHookFromTitle({ title: metaTitle, isListicle: titleIsListicle });
     const fallbackCaptionBits = splitCaptionPayload(
@@ -3211,6 +3212,7 @@ app.post('/crush', async (req, res) => {
           const retryPlan = await crush.buildCrushRenderPlan({
             inFile,
             wmFile,
+            frameOnly,
             musicFile,
             brand,
             outW,
@@ -3246,6 +3248,7 @@ app.post('/crush', async (req, res) => {
     let plan = await crush.buildCrushRenderPlan({
       inFile,
       wmFile,
+      frameOnly,
       musicFile,
       brand,
       outW,

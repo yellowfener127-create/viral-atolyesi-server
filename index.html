@@ -307,7 +307,7 @@
 <body>
 
 <div class="header">
-  <div class="logo-wrap">
+  <div class="logo-wrap" onclick="showPage('tools')" style="cursor:pointer">
     <img class="brand-logo" src="viral-tarayici-logo.svg" width="38" height="38" alt="Viral Tarayıcı" decoding="async"/>
     <div class="logo">Viral <span>Atölyesi</span></div>
   </div>
@@ -318,7 +318,6 @@
     <button class="nav-btn" data-page="doc" onclick="showPage('doc')">🎞️ Belgesel Fabrikası</button>
     <button class="nav-btn" data-page="reel" onclick="showPage('reel')">📖 Hikâye Reels</button>
     <button class="nav-btn" data-page="wiki" onclick="showPage('wiki')">📚 Wikipedia Vaka Okuyucu</button>
-    <button class="nav-btn" data-page="tools" onclick="showPage('tools')">🛠️ Araçlar</button>
   </div>
   <div class="day-badge" id="dayBadge">📅 <strong>—</strong></div>
 </div>
@@ -624,6 +623,7 @@
       <button type="button" class="mcc-tab active" id="reelTabStory" onclick="showReelStep('story')">1 · Hikâye</button>
       <button type="button" class="mcc-tab" id="reelTabScript" onclick="showReelStep('script')">2 · Senaryo</button>
       <button type="button" class="mcc-tab" id="reelTabMake" onclick="showReelStep('make')">3 · Üretim</button>
+      <button type="button" class="mcc-tab" id="reelTabFrame" onclick="showReelStep('frame')">4 · Gemini</button>
     </div>
     <div class="mcc-panel active" id="reel-story">
       <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:6px;max-width:420px">Görüntü tarzı
@@ -680,6 +680,21 @@
       <div class="tool-desc" style="margin-top:10px">ElevenLabs anahtarı Belgesel Fabrikası kutusundaki kayıtlı anahtardır.</div>
       <button class="tool-btn" type="button" id="reelBuildBtn" onclick="runReel()" style="margin-top:12px">Reels videosunu üret ve kaydet</button>
       <div class="tool-result" id="reelMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
+    </div>
+    <div class="mcc-panel" id="reel-frame">
+      <div class="tool-title" style="font-size:16px">Gemini</div>
+      <div class="tool-desc">Araçlardaki kanca yazarı. Senaryoyu okur, hook ve açıklamayı yazar. Yazı bitince video kendiliğinden bulanık zemine, büyük karta, üstteki isme ve profil fotoğrafına iner.</div>
+      <div id="reelGeminiLog" style="max-height:220px;overflow:auto;margin-top:8px;font-size:13px;line-height:1.45"></div>
+      <textarea id="reelGeminiInput" class="tool-input" rows="2" placeholder="İstersen bir not ekle. Boş bırakırsan senaryodan yazar." style="margin-top:8px"></textarea>
+      <button type="button" class="tool-btn" id="reelGeminiSend" onclick="sendReelGemini()" style="margin-top:8px">Gönder</button>
+      <label style="font-size:12px;color:var(--muted);display:block;margin-top:12px">Hook
+        <textarea id="reelFrameHook" rows="2" class="tool-input" style="margin-top:4px" placeholder="İngilizce kanca"></textarea>
+      </label>
+      <label style="font-size:12px;color:var(--muted);display:block;margin-top:8px">Caption
+        <textarea id="reelFrameCaption" rows="3" class="tool-input" style="margin-top:4px" placeholder="İngilizce açıklama"></textarea>
+      </label>
+      <button type="button" class="tool-btn" id="reelFrameRetry" onclick="reelApplyFrame()" style="margin-top:8px">Bu yazıyla yeniden indir</button>
+      <div class="tool-result" id="reelFrameMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
     </div>
   </div>
 </div>
@@ -3492,7 +3507,7 @@ async function docRandomTopic() {
   const current = box ? String(box.value || "").trim() : "";
   const keys = geminiKeysInOrder();
   if (channel !== "chaos" && !keys.length) {
-    alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
+    alert("Üstteki Viral Atölyesi yazısına tıklayıp bir Gemini anahtarını aktif yap.");
     return;
   }
   if (btn) { btn.disabled = true; btn.textContent = channel === "chaos" ? "Hikaye aranıyor…" : "Konu yazılıyor…"; }
@@ -3738,7 +3753,7 @@ async function runDocumentary() {
   }
   const keys = geminiKeysInOrder();
   if (!keys.length) {
-    alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
+    alert("Üstteki Viral Atölyesi yazısına tıklayıp bir Gemini anahtarını aktif yap.");
     return;
   }
   if (btn) { btn.disabled = true; btn.textContent = "⏳ Belgesel üretiliyor…"; }
@@ -3797,11 +3812,12 @@ async function runDocumentary() {
 
 let reelPlan = null;
 let reelStep = "story";
+let reelOutPath = "";
 
 function showReelStep(step) {
   paintReelCustomVoices();
-  reelStep = step === "script" || step === "make" ? step : "story";
-  ["story", "script", "make"].forEach((name) => {
+  reelStep = step === "script" || step === "make" || step === "frame" ? step : "story";
+  ["story", "script", "make", "frame"].forEach((name) => {
     const panel = document.getElementById("reel-" + name);
     const tab = document.getElementById("reelTab" + name.charAt(0).toUpperCase() + name.slice(1));
     if (panel) panel.classList.toggle("active", name === reelStep);
@@ -3835,7 +3851,7 @@ async function writeReelScript() {
   }
   const keys = geminiKeysInOrder();
   if (!keys.length) {
-    alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
+    alert("Üstteki Viral Atölyesi yazısına tıklayıp bir Gemini anahtarını aktif yap.");
     return;
   }
   if (btn) { btn.disabled = true; btn.textContent = "Senaryo yazılıyor…"; }
@@ -3991,7 +4007,7 @@ async function runReel() {
   }
   const keys = geminiKeysInOrder();
   if (!keys.length) {
-    alert("Önce Araçlar → Gemini bölümünden bir API anahtarını aktif yap.");
+    alert("Üstteki Viral Atölyesi yazısına tıklayıp bir Gemini anahtarını aktif yap.");
     return;
   }
   const story = String((document.getElementById("reelStory") || {}).value || "").trim();
@@ -4035,11 +4051,106 @@ async function runReel() {
       if (msg) msg.textContent = "Bu Gemini anahtarı dolu. Sıradaki anahtarla sürdürülüyor…";
     }
     if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
-    if (msg) msg.textContent = "Kaydedildi: " + (data.absPath || "");
+    reelOutPath = data.absPath || "";
+    if (msg) msg.textContent = "Kaydedildi: " + reelOutPath;
+    showReelStep("frame");
   } catch (e) {
     if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "Reels videosunu üret ve kaydet"; }
+  }
+}
+
+function reelBrand() {
+  const channel = (document.getElementById("reelChannel") || {}).value || "epoch";
+  if (channel === "chaos") return "kaos";
+  if (channel === "therapy") return "terapi";
+  return "umut";
+}
+
+function reelGeminiLine(text) {
+  const log = document.getElementById("reelGeminiLog");
+  if (!log) return;
+  const line = document.createElement("div");
+  line.style.whiteSpace = "pre-wrap";
+  line.style.margin = "0 0 8px";
+  line.textContent = text;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendReelGemini() {
+  const btn = document.getElementById("reelGeminiSend");
+  const msg = document.getElementById("reelFrameMsg");
+  const spoken = reelPlan && reelPlan.scenes_en;
+  const keys = geminiKeysInOrder();
+  if (!keys.length) {
+    alert("Üstteki Viral Atölyesi yazısına tıklayıp bir Gemini anahtarını aktif yap.");
+    return;
+  }
+  if (!spoken || !spoken.length) {
+    alert("Önce senaryoyu yaz.");
+    showReelStep("story");
+    return;
+  }
+  const note = String((document.getElementById("reelGeminiInput") || {}).value || "").trim();
+  const script = spoken.map((scene, index) => (index + 1) + ". " + scene.narration).join("\n");
+  const ask = "The spoken script:\n" + script + (note ? "\n\nNote:\n" + note : "") + "\nWrite the HOOK, CAPTION, and 5 subject hashtags.";
+  if (btn) btn.disabled = true;
+  if (msg) { msg.style.display = "block"; msg.textContent = "Hook yazılıyor…"; }
+  reelGeminiLine(note || "Senaryodan hook yaz.");
+  try {
+    const reply = await geminiGenerate(keys[0], GEMINI_HOOK_SYSTEM, [{ role: "user", parts: [{ text: ask }] }]);
+    reelGeminiLine(reply || "(boş yanıt)");
+    const split = geminiSplitCopy(reply || "");
+    if (!split) throw new Error("Hook ve açıklama ayrılamadı. Metni kutulara yazıp yeniden indirebilirsin.");
+    const hookBox = document.getElementById("reelFrameHook");
+    const capBox = document.getElementById("reelFrameCaption");
+    if (hookBox) hookBox.value = split.hook;
+    if (capBox) capBox.value = (split.caption + " " + split.hashtags).trim();
+    await reelApplyFrame();
+  } catch (e) {
+    if (msg) { msg.style.display = "block"; msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e)); }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function reelApplyFrame() {
+  const msg = document.getElementById("reelFrameMsg");
+  const btn = document.getElementById("reelFrameRetry");
+  const hook = String((document.getElementById("reelFrameHook") || {}).value || "").trim();
+  const caption = String((document.getElementById("reelFrameCaption") || {}).value || "").trim();
+  if (!reelOutPath) {
+    if (msg) { msg.style.display = "block"; msg.textContent = "Önce videoyu üret."; }
+    return;
+  }
+  if (!hook) {
+    if (msg) { msg.style.display = "block"; msg.textContent = "Hook boş."; }
+    return;
+  }
+  if (btn) btn.disabled = true;
+  if (msg) { msg.style.display = "block"; msg.textContent = "Çerçeve basılıyor…"; }
+  try {
+    const res = await fetch(LOCAL_API + "/crush", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        local_path: reelOutPath,
+        brand: reelBrand(),
+        frame_only: true,
+        hook_text: hook,
+        caption_text: caption,
+        manual_start_sec: 0
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
+    if (msg) msg.textContent = "İndi: " + (data.savedTo || "") + "\\" + (data.file || "");
+  } catch (e) {
+    if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -4547,8 +4658,8 @@ async function geminiGenerate(key, systemText, contents) {
       throw new Error(msg);
     }
   }
-  if (lastKind === "quota") throw new Error("Gemini ücretsiz günlük hakkı doldu. Araçlar bölümünden başka anahtarı aktif yap.");
-  if (lastKind === "auth") throw new Error("Gemini API anahtarı geçersiz. Araçlar listesinden başka bir anahtar seç.");
+  if (lastKind === "quota") throw new Error("Gemini ücretsiz günlük hakkı doldu. Üstteki Viral Atölyesi yazısına tıklayıp başka anahtarı aktif yap.");
+  if (lastKind === "auth") throw new Error("Gemini API anahtarı geçersiz. Üstteki Viral Atölyesi yazısına tıklayıp başka bir anahtar seç.");
   throw new Error("Gemini şu an yoğun. Birkaç saniye sonra tekrar dene.");
 }
 
