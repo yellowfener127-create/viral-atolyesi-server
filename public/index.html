@@ -4069,7 +4069,7 @@ function showMccTab(id) {
 
 const GEMINI_CHAT_MODEL = "gemini-3.5-flash-lite";
 const GEMINI_STORY_SYSTEM = "You are a senior short-form story editor. The uploaded video is one compilation cut from TWO DIFFERENT ranking videos, not a single clip. Watch the file from the first moment to the last. Do not judge it from one frame or one freeze. Keep the two rankings separate. Write a beat sheet in order: who does what, what changes, and how each ranking pays off. Then one short paragraph on how the two rankings sit together as one video. No hook, no caption, no hashtags.";
-const GEMINI_HOOK_SYSTEM = "You are a professional retention writer for Reels, TikTok, and Shorts. These videos are compilations of TWO different ranking videos. You are given the full beat sheet of both rankings. Read that entire beat sheet before you write. The hook must come from the whole video, both rankings together, not from a single frame or a single clip. It has to stop a stranger in the first 3 seconds.\n\nOutput exactly this shape and nothing else:\nHOOK:\n<one English line, 53 characters MAXIMUM including spaces and the emoji. Count every character. Include exactly one fitting emoji inside the line. No hashtags. No quotes.>\nCAPTION:\n<one or two English sentences that carry both rankings without spoiling the last beat. Include at least one fitting emoji. No hashtags in this block. The caption plus the 5 hashtags, joined by one space, must be at most 180 characters, including spaces, the emoji, and every hashtag. There is no minimum count. Write one or two complete sentences, not a stub of a few words. Never add a hashtag to make the line longer. Keep each of the 2 topical hashtags to one short word.>\nHASHTAGS:\n<exactly 5 hashtags, no more and no less: #chaos #therapy #epoch plus exactly 2 topical tags>\n\nAlways use emojis. Never skip the emoji on the hook or the caption. English only. One hook. One caption. No alternatives.";
+const GEMINI_HOOK_SYSTEM = "You are a professional retention writer for Reels, TikTok, and Shorts. These videos are compilations of TWO different ranking videos. You are given the full beat sheet of both rankings. Read that entire beat sheet before you write. The hook must come from the whole video, both rankings together, not from a single frame or a single clip. It has to stop a stranger in the first 3 seconds.\n\nOutput exactly this shape and nothing else:\nHOOK:\n<one English line, 53 characters MAXIMUM including spaces and the emoji. Count every character. Include exactly one fitting emoji inside the line. No hashtags. No quotes.>\nCAPTION:\n<one or two English sentences that carry both rankings without spoiling the last beat. Include at least one fitting emoji. No hashtags in this block. The caption plus the 5 hashtags, joined by one space, must be at most 180 characters, including spaces, the emoji, and every hashtag. There is no minimum count. Write one or two complete sentences, not a stub of a few words. Never add a hashtag to make the line longer. Each of the 5 hashtags is one short subject word.>\nHASHTAGS:\n<exactly 5 English hashtags, no more and no less. Every tag names the subject, genre, or audience of THIS video so YouTube and Instagram can categorize it and show it to people who watch this kind of story. One short word each. Do not use #chaos #therapy #epoch #viral #fyp #trending>\n\nAlways use emojis. Never skip the emoji on the hook or the caption. English only. One hook. One caption. No alternatives.";
 const GEMINI_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
 let geminiChatHistory = [];
 let geminiChatVideoFile = null;
@@ -4434,7 +4434,7 @@ async function sendGeminiChat() {
         { role: "model", parts: [{ text: story || "No beat sheet." }] },
         {
           role: "user",
-          parts: [{ text: "Read that entire beat sheet. Write the hook from the whole video, both rankings, not from one moment. Hook is one line, 53 characters max including one emoji, strong enough to stop the scroll in 3 seconds. The caption plus the 5 hashtags, joined by one space, must be at most 180 characters. There is no minimum. Write one or two complete sentences, not a stub. Never add a hashtag to make the line longer. Hashtags are exactly 5: #chaos #therapy #epoch and 2 short topical tags. Use the HOOK / CAPTION / HASHTAGS format." }]
+          parts: [{ text: "Read that entire beat sheet. Write the hook from the whole video, both rankings, not from one moment. Hook is one line, 53 characters max including one emoji, strong enough to stop the scroll in 3 seconds. The caption plus the 5 hashtags, joined by one space, must be at most 180 characters. There is no minimum. Write one or two complete sentences, not a stub. Never add a hashtag to make the line longer. Hashtags are exactly 5 short subject tags that categorize this video for YouTube and Instagram. Do not use #chaos #therapy #epoch #viral #fyp #trending. Use the HOOK / CAPTION / HASHTAGS format." }]
         }
       ]));
       setGeminiChatNotice("");
@@ -4598,18 +4598,23 @@ function geminiClipChars(text, max) {
   return cut.trim();
 }
 
-function geminiFiveTags(raw) {
-  const required = ["#chaos", "#therapy", "#epoch"];
-  const found = String(raw || "").match(/#[^\s#]+/g) || [];
-  const seen = new Set(required.map(function (t) { return t.toLowerCase(); }));
-  const extra = [];
-  found.forEach(function (t) {
-    const key = String(t || "").toLowerCase();
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    extra.push(t);
+function geminiFiveTags(raw, caption) {
+  const banned = { "#chaos": 1, "#therapy": 1, "#epoch": 1, "#viral": 1, "#fyp": 1, "#foryou": 1, "#trending": 1, "#shorts": 1, "#reels": 1 };
+  const stop = { the: 1, and: 1, that: 1, with: 1, from: 1, this: 1, after: 1, before: 1, into: 1, over: 1, his: 1, her: 1, their: 1, was: 1, were: 1, have: 1, been: 1, for: 1, you: 1, your: 1 };
+  const seen = {};
+  const tags = [];
+  function add(tag) {
+    const key = String(tag || "").toLowerCase().replace(/[^a-z0-9#]/g, "");
+    if (!key || key.charAt(0) !== "#" || key.length < 4 || banned[key] || seen[key] || tags.length >= 5) return;
+    seen[key] = 1;
+    tags.push(key);
+  }
+  (String(raw || "").match(/#[a-z0-9_]+/gi) || []).forEach(add);
+  String(caption || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).forEach(function (word) {
+    if (word.length < 4 || stop[word]) return;
+    add("#" + word);
   });
-  return required.concat(extra.slice(0, 2)).join(" ");
+  return tags.slice(0, 5).join(" ");
 }
 
 function geminiBoundCaption(caption, tags) {
@@ -4628,8 +4633,9 @@ function geminiBoundCaption(caption, tags) {
 
 function geminiSplitCopy(raw) {
   const hook = geminiClipChars(geminiLabeledBlock(raw, "Hook", "Caption|Hashtags?"), 53);
-  const tags = geminiFiveTags(geminiHashtagLine(raw));
-  const caption = geminiBoundCaption(geminiLabeledBlock(raw, "Caption", "Hashtags?"), tags);
+  const captionRaw = geminiLabeledBlock(raw, "Caption", "Hashtags?");
+  const tags = geminiFiveTags(geminiHashtagLine(raw), captionRaw);
+  const caption = geminiBoundCaption(captionRaw, tags);
   if (!hook || !caption) return null;
   return { hook: hook, caption: caption, hashtags: tags };
 }

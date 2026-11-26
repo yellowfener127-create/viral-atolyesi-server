@@ -254,9 +254,12 @@ test('the peak limiter stays under the true-peak gate', () => {
 });
 
 test('metadata stays on one channel and the filename has no hashtag', () => {
-  const meta = buildMetadata({ channel: 'therapy', topic: 'The shock test', bible: { logline: 'A lab measured obedience.' } });
-  assert.ok(meta.hashtags.includes('#therapy'));
+  const meta = buildMetadata({ channel: 'therapy', topic: 'The shock obedience test in a lab', bible: { logline: 'A lab measured obedience.' } });
+  assert.equal(meta.hashtags.length, 5);
+  assert.equal(meta.hashtags.includes('#therapy'), false);
   assert.equal(meta.hashtags.includes('#chaos'), false);
+  assert.equal(meta.hashtags.includes('#epoch'), false);
+  assert.ok(meta.hashtags.includes('#obedience'));
   assert.equal(meta.ai_generated, true);
   const name = fileNameFor('20261118', 'epoch', 'The cursed diary #chaos');
   assert.equal(name.includes('#'), false);

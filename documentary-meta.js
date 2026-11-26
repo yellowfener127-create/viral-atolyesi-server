@@ -1,8 +1,19 @@
-const TAGS = Object.freeze({
-  epoch: ['#epoch', '#darkhistory', '#mystery', '#unsolved', '#history'],
-  chaos: ['#chaos', '#creepy', '#horror', '#mystery', '#scary'],
-  therapy: ['#therapy', '#psychology', '#darkpsychology', '#mind', '#experiment']
-});
+const BANNED = new Set(['chaos', 'therapy', 'epoch', 'viral', 'fyp', 'foryou', 'trending', 'shorts', 'reels', 'tiktok']);
+const STOP = new Set(['the', 'and', 'that', 'with', 'from', 'this', 'after', 'before', 'into', 'over', 'his', 'her', 'their', 'was', 'were', 'have', 'been', 'for', 'you', 'your', 'faced', 'about']);
+
+function topicHashtags(text, extra) {
+  const tags = [];
+  const seen = new Set();
+  function add(word) {
+    const clean = String(word || '').toLowerCase().replace(/^#/, '').replace(/[^a-z0-9]/g, '');
+    if (clean.length < 3 || BANNED.has(clean) || STOP.has(clean) || seen.has(clean) || tags.length >= 5) return;
+    seen.add(clean);
+    tags.push(`#${clean}`);
+  }
+  (extra || []).forEach(add);
+  String(text || '').toLowerCase().split(/[^a-z0-9]+/).forEach(add);
+  return tags.slice(0, 5);
+}
 
 function clip(text, max) {
   const value = String(text || '').replace(/\s+/g, ' ').trim();
@@ -11,12 +22,12 @@ function clip(text, max) {
 }
 
 function buildMetadata({ channel, topic, bible, scriptWords, hookVariants, sources, graphicLanguage, topicTags }) {
-  const tags = TAGS[channel] || TAGS.epoch;
   const title = clip(topic || (bible && bible.logline) || channel, 80);
   const description = clip(
     (bible && bible.logline) || topic || '',
     180
   );
+  const tags = topicHashtags(`${title} ${description}`, topicTags);
   return {
     channel,
     title,
@@ -43,4 +54,4 @@ function fileNameFor(day, channel, title) {
   return `${day}_${channel}_${slug}.mp4`;
 }
 
-module.exports = { TAGS, buildMetadata, fileNameFor, clip };
+module.exports = { buildMetadata, fileNameFor, clip, topicHashtags };
