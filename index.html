@@ -622,8 +622,8 @@
     <div class="mcc-tabs" style="padding-top:16px">
       <button type="button" class="mcc-tab active" id="reelTabStory" onclick="showReelStep('story')">1 · Hikâye</button>
       <button type="button" class="mcc-tab" id="reelTabScript" onclick="showReelStep('script')">2 · Senaryo</button>
-      <button type="button" class="mcc-tab" id="reelTabMake" onclick="showReelStep('make')">3 · Üretim</button>
-      <button type="button" class="mcc-tab" id="reelTabFrame" onclick="showReelStep('frame')">4 · Gemini</button>
+      <button type="button" class="mcc-tab" id="reelTabFrame" onclick="showReelStep('frame')">3 · Gemini</button>
+      <button type="button" class="mcc-tab" id="reelTabMake" onclick="showReelStep('make')">4 · Üretim</button>
     </div>
     <div class="mcc-panel active" id="reel-story">
       <label style="font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:6px;max-width:420px">Görüntü tarzı
@@ -653,10 +653,13 @@
           <div id="reelScriptEn" style="margin-top:8px;font-size:14px;line-height:1.55;white-space:pre-wrap">No script yet.</div>
         </div>
       </div>
+      <button type="button" id="reelSendGemini" onclick="sendReelScriptToGemini()" style="display:block;width:100%;margin-top:12px;text-align:left;cursor:pointer" class="tool-card">
+        <div class="tool-title" style="font-size:14px">İngilizce senaryoyu Gemini'ye gönder</div>
+        <div class="tool-desc" style="margin:6px 0 0">Tıklayınca Gemini açılır ve bu İngilizce senaryo kendiliğinden gider. Hook ile açıklama oraya yazılır.</div>
+      </button>
       <div class="mcc-row" style="margin-top:12px">
         <button class="tool-btn" type="button" onclick="showReelStep('story')">Hikâyeye dön</button>
         <button class="tool-btn" type="button" onclick="writeReelScript()">Yeniden yaz</button>
-        <button class="tool-btn" type="button" onclick="showReelStep('make')">Bunu üret</button>
       </div>
     </div>
     <div class="mcc-panel" id="reel-make">
@@ -683,7 +686,7 @@
     </div>
     <div class="mcc-panel" id="reel-frame">
       <div class="tool-title" style="font-size:16px">Gemini</div>
-      <div class="tool-desc">Araçlardaki kanca yazarı. Senaryoyu okur, hook ve açıklamayı yazar. Yazı bitince video kendiliğinden bulanık zemine, büyük karta, üstteki isme ve profil fotoğrafına iner.</div>
+      <div class="tool-desc">İngilizce senaryo buraya kendiliğinden gelir. Hook ve açıklama kutulara yazılır. Video bu adımda inmez. İndirme sondaki üretimdedir: bulanık zemin, kartın içinde video, üstte hook, hikâyede seçtiğin kanalın profil fotoğrafı. Dosya adı açıklamadır.</div>
       <div id="reelGeminiLog" style="max-height:220px;overflow:auto;margin-top:8px;font-size:13px;line-height:1.45"></div>
       <textarea id="reelGeminiInput" class="tool-input" rows="2" placeholder="İstersen bir not ekle. Boş bırakırsan senaryodan yazar." style="margin-top:8px"></textarea>
       <button type="button" class="tool-btn" id="reelGeminiSend" onclick="sendReelGemini()" style="margin-top:8px">Gönder</button>
@@ -693,7 +696,7 @@
       <label style="font-size:12px;color:var(--muted);display:block;margin-top:8px">Caption
         <textarea id="reelFrameCaption" rows="3" class="tool-input" style="margin-top:4px" placeholder="İngilizce açıklama"></textarea>
       </label>
-      <button type="button" class="tool-btn" id="reelFrameRetry" onclick="reelApplyFrame()" style="margin-top:8px">Bu yazıyla yeniden indir</button>
+      <button type="button" class="tool-btn" onclick="showReelStep('make')" style="margin-top:8px">Üretime geç</button>
       <div class="tool-result" id="reelFrameMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
     </div>
   </div>
@@ -4005,6 +4008,13 @@ async function runReel() {
     showReelStep("story");
     return;
   }
+  const hookReady = String((document.getElementById("reelFrameHook") || {}).value || "").trim();
+  const captionReady = String((document.getElementById("reelFrameCaption") || {}).value || "").trim();
+  if (!hookReady || !captionReady) {
+    alert("Önce senaryodaki kutuya tıklayıp İngilizce senaryoyu Gemini'ye gönder.");
+    showReelStep("script");
+    return;
+  }
   const keys = geminiKeysInOrder();
   if (!keys.length) {
     alert("Üstteki Viral Atölyesi yazısına tıklayıp bir Gemini anahtarını aktif yap.");
@@ -4052,13 +4062,27 @@ async function runReel() {
     }
     if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
     reelOutPath = data.absPath || "";
-    if (msg) msg.textContent = "Kaydedildi: " + reelOutPath;
-    showReelStep("frame");
+    if (!reelOutPath) throw new Error("Video yolu gelmedi.");
+    if (msg) msg.textContent = "Çerçeve basılıyor. Bulanık zemin, kart, üstteki hook ve seçtiğin kanalın profil fotoğrafı ekleniyor.";
+    if (btn) btn.textContent = "Çerçeve basılıyor…";
+    const saved = await reelApplyFrame();
+    if (msg) msg.textContent = "İndi: " + saved;
   } catch (e) {
     if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "Reels videosunu üret ve kaydet"; }
   }
+}
+
+function sendReelScriptToGemini() {
+  const spoken = reelPlan && reelPlan.scenes_en;
+  if (!reelPlan || !Array.isArray(spoken) || !spoken.length) {
+    alert("Önce senaryoyu yaz.");
+    showReelStep("story");
+    return;
+  }
+  showReelStep("frame");
+  sendReelGemini();
 }
 
 function reelBrand() {
@@ -4103,12 +4127,12 @@ async function sendReelGemini() {
     const reply = await geminiGenerate(keys[0], GEMINI_HOOK_SYSTEM, [{ role: "user", parts: [{ text: ask }] }]);
     reelGeminiLine(reply || "(boş yanıt)");
     const split = geminiSplitCopy(reply || "");
-    if (!split) throw new Error("Hook ve açıklama ayrılamadı. Metni kutulara yazıp yeniden indirebilirsin.");
+    if (!split) throw new Error("Hook ve açıklama ayrılamadı. Metni kutulara kendin yazabilirsin.");
     const hookBox = document.getElementById("reelFrameHook");
     const capBox = document.getElementById("reelFrameCaption");
     if (hookBox) hookBox.value = split.hook;
     if (capBox) capBox.value = (split.caption + " " + split.hashtags).trim();
-    await reelApplyFrame();
+    if (msg) msg.textContent = "Hook ve açıklama yazıldı. Üretim adımında sesi seçip bir kez kaydet.";
   } catch (e) {
     if (msg) { msg.style.display = "block"; msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e)); }
   } finally {
@@ -4117,41 +4141,25 @@ async function sendReelGemini() {
 }
 
 async function reelApplyFrame() {
-  const msg = document.getElementById("reelFrameMsg");
-  const btn = document.getElementById("reelFrameRetry");
   const hook = String((document.getElementById("reelFrameHook") || {}).value || "").trim();
   const caption = String((document.getElementById("reelFrameCaption") || {}).value || "").trim();
-  if (!reelOutPath) {
-    if (msg) { msg.style.display = "block"; msg.textContent = "Önce videoyu üret."; }
-    return;
-  }
-  if (!hook) {
-    if (msg) { msg.style.display = "block"; msg.textContent = "Hook boş."; }
-    return;
-  }
-  if (btn) btn.disabled = true;
-  if (msg) { msg.style.display = "block"; msg.textContent = "Çerçeve basılıyor…"; }
-  try {
-    const res = await fetch(LOCAL_API + "/crush", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        local_path: reelOutPath,
-        brand: reelBrand(),
-        frame_only: true,
-        hook_text: hook,
-        caption_text: caption,
-        manual_start_sec: 0
-      })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
-    if (msg) msg.textContent = "İndi: " + (data.savedTo || "") + "\\" + (data.file || "");
-  } catch (e) {
-    if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
-  } finally {
-    if (btn) btn.disabled = false;
-  }
+  if (!reelOutPath) throw new Error("Video yolu gelmedi.");
+  if (!hook || !caption) throw new Error("Hook ve açıklama boş.");
+  const res = await fetch(LOCAL_API + "/crush", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      local_path: reelOutPath,
+      brand: reelBrand(),
+      frame_only: true,
+      hook_text: hook,
+      caption_text: caption,
+      manual_start_sec: 0
+    })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
+  return (data.savedTo || "") + "\\" + (data.file || "");
 }
 
 function showMccTab(id) {
