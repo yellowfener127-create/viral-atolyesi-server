@@ -75,6 +75,9 @@ test('an article or a name counts as a hook subject', () => {
   assert.equal(quality.hasSubject('Accidentally killed his friend and unknowingly traveled 12 miles with the lifeless body.'), false);
   assert.equal(quality.hasSubject('Killed his friend on the drive home that night.'), false);
   assert.match(quality.issueNote(['hook_no_subject']), /He, She, They/);
+  assert.match(quality.issueNote(['word count 60']), /60 words/);
+  assert.match(quality.issueNote(['word count 60']), /ordinary moment/);
+  assert.match(quality.trueEventPrompt({ shock: 'a', ending: 'b', events: ['c'] }, 'English', ''), /helicopter lost altitude/);
 });
 
 test('the default name policy keeps a victim surname out', () => {

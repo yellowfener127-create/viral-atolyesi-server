@@ -70,9 +70,11 @@ function nameLine(policy) {
 function trueEventPrompt(reading, language, note, options) {
   const opts = options || {};
   return [
-    'You already read the story. The reading below is the only material you may use.',
+    'You already read the story. The reading below is the event you must tell.',
     'Write one spoken script for a vertical reel.',
-    'Do not add a person, place, number, date, court result, or cause that the reading does not contain.',
+    'If the reading is short, open the same event with the ordinary moment around it until the script reaches 70 to 110 spoken words. Say where the person was, what they were doing, and how the thing reached them.',
+    'A line like "a helicopter hit his head" can become "he was walking down the road when a helicopter lost altitude and fell onto him."',
+    'Keep the same people, the same outcome, and the same cause. Do not invent a new person, a new ending, a court result, a date, or a different cause.',
     `Narration language: ${language}.`,
     'Five scenes. The five narrations together stay between 70 and 110 spoken words.',
     'Scene 1 is one sentence of 6 to 16 words. Start with He, She, They, A, The, or a name from the reading, then the stake. Do not start with Accidentally, Suddenly, or a bare verb. Do not use the words decapitated or headless. Use "killed instantly" instead.',
@@ -107,7 +109,7 @@ function addsFact(prev, next) {
 function issueNote(issues) {
   const notes = {
     hook_no_subject: 'Scene 1 must start with He, She, They, A, The, or a name, and say what is at stake.',
-    'word count': 'Keep the five spoken narrations between 70 and 110 words.',
+    'word count': 'The reading is thin. Open the same event with the ordinary moment around it until the five narrations are between 70 and 110 words. Say where the person was, what they were doing, and how the event reached them.',
     hook_length: 'Scene 1 must be one sentence of 6 to 16 words.',
     hook_too_long: 'Scene 1 must stay under 4.5 seconds, so keep it to 16 words or fewer.',
     redundant_beat: 'Do not repeat the same claim in two sentences in a row.',
@@ -120,7 +122,17 @@ function issueNote(issues) {
     victim_named: 'Leave the victim\'s name out.',
     sensitive_hook: 'Do not use decapitated or headless in scene 1.'
   };
-  return (issues || []).map((item) => notes[item] || (String(item).startsWith('word count') ? notes['word count'] : item)).join(' ');
+  return (issues || []).map((item) => {
+    const count = String(item).match(/^word count (\d+)/);
+    if (count) {
+      const words = Number(count[1]);
+      const direction = words < 70
+        ? `The narration is ${words} words. Add the ordinary moment around the same event until it is between 70 and 110 words.`
+        : `The narration is ${words} words. Shorten it to between 70 and 110 words without changing the event.`;
+      return `${direction} ${notes['word count']}`;
+    }
+    return notes[item] || item;
+  }).join(' ');
 }
 
 function structureIssues(scenes, options) {
