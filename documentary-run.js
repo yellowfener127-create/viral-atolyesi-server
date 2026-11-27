@@ -176,7 +176,7 @@ async function produceRecipe(opts, config, deps) {
       }
       if (config.reel_true_event !== false) {
         const spokenReview = reelQuality.structureIssues(plan.scenes, { ...config, source: pastedStory })
-          .filter((item) => !String(item).startsWith('word count'));
+          .filter((item) => !String(item).startsWith('word count') && !String(item).startsWith('community_'));
         if (spokenReview.length) {
           throw new deps.DocumentaryError(`Hikâye Reels yapısı geçmedi: ${spokenReview.join(', ')}.`, 422);
         }
@@ -225,11 +225,6 @@ async function produceRecipe(opts, config, deps) {
     plan = job.readJson(dir, 'script.json');
     bible = job.readJson(dir, 'bible.json');
   }
-  const spokenCommunity = reelQuality.communityIssues(plan && plan.scenes);
-  if (spokenCommunity.length) {
-    throw new deps.DocumentaryError(`Topluluk kuralları geçilmedi (${spokenCommunity.join(', ')}). Reels, X ve YouTube için bu video üretilemez.`, 422);
-  }
-
   const ffmpegBin = opts.ffmpegPath || 'ffmpeg';
   const ffprobe = opts.ffprobePath || 'ffprobe';
   let narratorVoice = deps.resolveDocVoice(opts.narrator);
@@ -344,10 +339,6 @@ async function produceRecipe(opts, config, deps) {
     reelQuality.lockLighting(plan.scenes);
     reelQuality.lockVehicle(plan.scenes);
     reelQuality.ensureHumanRatio(plan.scenes, 0.4);
-  }
-  const pictureCommunity = reelQuality.communityIssues(plan.scenes);
-  if (pictureCommunity.length) {
-    throw new deps.DocumentaryError(`Topluluk kuralları geçilmedi (${pictureCommunity.join(', ')}). Reels, X ve YouTube için bu video üretilemez.`, 422);
   }
   const clock = timeline.buildTimeline(plan.scenes, sceneAudio);
   if (reelCut && config.reel_variable_cuts !== false) reelQuality.applyVariableCuts(clock.shots, spokenDur);

@@ -193,6 +193,29 @@ function sceneText(scenes) {
   ]).filter(Boolean).join(' ');
 }
 
+function softenGraphic(text) {
+  return String(text || '')
+    .replace(/\b(decapitat\w*|headless|severed|dismember\w*|mutilat\w*|beheading)\b/gi, 'killed instantly')
+    .replace(/\b(corpse|guts|entrails)\b/gi, 'the empty seat')
+    .replace(/\b(blood|bloody|gore)\b/gi, '')
+    .replace(/\bwounds?\b/gi, 'impact')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,.!?])/g, '$1')
+    .trim();
+}
+
+function softenScenes(scenes) {
+  (scenes || []).forEach((scene) => {
+    if (!scene) return;
+    if (scene.narration) scene.narration = softenGraphic(scene.narration);
+    if (scene.image_prompt) scene.image_prompt = softenGraphic(scene.image_prompt);
+    (scene.shots || []).forEach((shot) => {
+      if (shot && shot.visual_prompt) shot.visual_prompt = softenGraphic(shot.visual_prompt);
+    });
+  });
+  return scenes;
+}
+
 function communityIssues(scenes) {
   const text = sceneText(scenes);
   const issues = [];
@@ -354,6 +377,7 @@ module.exports = {
   trueEventPrompt,
   structureIssues,
   communityIssues,
+  softenScenes,
   reviewTrueEvent,
   durationStats,
   applyVariableCuts,

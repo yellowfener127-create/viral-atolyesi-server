@@ -117,6 +117,11 @@ test('human ratio, vehicle lock and graphic wording stay nonviolent', () => {
   assert.equal(quality.tailPlan(38.3).tail, 0.65);
   assert.deepEqual(quality.communityIssues([{ narration: 'He died instantly on the dark road.' }]), []);
   assert.ok(quality.communityIssues([{ narration: 'Blood covered the corpse.' }]).includes('community_graphic'));
+  const cleaned = [{ narration: 'Blood covered the corpse.', image_prompt: 'a headless body' }];
+  quality.softenScenes(cleaned);
+  assert.equal(quality.communityIssues(cleaned).includes('community_graphic'), false);
+  assert.match(cleaned[0].narration, /empty seat/);
+  assert.match(cleaned[0].image_prompt, /killed instantly/);
   assert.ok(quality.communityIssues([{ narration: 'The boy drove the truck home.' }]).length === 0);
   assert.ok(quality.communityIssues([{ narration: 'A naked child stood in the room.' }]).includes('community_minor'));
   assert.ok(quality.communityIssues([{ image_prompt: 'how to make a bomb in a kitchen' }]).includes('community_harm'));

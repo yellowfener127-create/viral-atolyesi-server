@@ -2001,6 +2001,8 @@ async function attachReelTranslation(plan, authored, apiKey) {
     });
   }
   if (!translated) throw new DocumentaryError('Senaryonun diğer dili yazılamadı. Tekrar dene.', 422);
+  reelQuality.softenScenes(translated);
+  reelQuality.softenScenes(plan.scenes);
   const turkish = authored === 'Turkish' ? plan.scenes : translated;
   const english = authored === 'English' ? plan.scenes : translated;
   return {
@@ -2037,6 +2039,7 @@ async function buildStoryReel(source, language, apiKey) {
       : storyLib.reelPrompt(reading, authored, note);
     const raw = await askGeminiJson(apiKey, prompt, storyLib.REEL_SCHEMA);
     const plan = planFromReelScenes(raw && raw.scenes);
+    reelQuality.softenScenes(plan.scenes);
     plan.music_mood = /^(mystery|epic|sad|science)$/.test(String(raw && raw.music_mood)) ? raw.music_mood : 'mystery';
     const issues = grade(plan.scenes);
     if (!issues.length) return attachReelTranslation(plan, authored, apiKey);
@@ -2049,6 +2052,7 @@ async function buildStoryReel(source, language, apiKey) {
       : storyLib.reelLengthPrompt(closest.scenes, closest.words, authored);
     const raw = await askGeminiJson(apiKey, repairPrompt, storyLib.REEL_SCHEMA);
     const plan = planFromReelScenes(raw && raw.scenes);
+    reelQuality.softenScenes(plan.scenes);
     plan.music_mood = closest.music_mood;
     if (!grade(plan.scenes).length) return attachReelTranslation(plan, authored, apiKey);
     if (Math.abs(plan.words - 90) < Math.abs(closest.words - 90)) closest = plan;
