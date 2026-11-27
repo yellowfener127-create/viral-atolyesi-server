@@ -125,6 +125,21 @@ function sourceFolders() {
   return raw.split(/[|;]/).map((part) => part.trim()).filter(Boolean);
 }
 
+function readCredential(name) {
+  return String(process.env[name] || '').trim();
+}
+
+function credentialsFor(key) {
+  const ownId = readCredential(`FACEBOOK_${key}_PAGE_ID`);
+  const ownToken = readCredential(`FACEBOOK_${key}_PAGE_TOKEN`);
+  if (ownId && ownToken) return { pageId: ownId, token: ownToken, via: 'brand' };
+  if (ownId || ownToken) return { pageId: '', token: '', via: 'incomplete' };
+  const pageId = readCredential('FACEBOOK_PAGE_ID');
+  const token = readCredential('FACEBOOK_PAGE_TOKEN');
+  if (pageId && token) return { pageId, token, via: 'fallback' };
+  return { pageId: '', token: '', via: 'missing' };
+}
+
 function pages(downloadDir) {
   const root = downloadDir || defaultDownloadDir();
   const parsed = parseSlots(process.env.FACEBOOK_POST_SLOTS);
@@ -138,16 +153,16 @@ function pages(downloadDir) {
     }
     const dir = path.isAbsolute(folder) ? folder : path.join(root, folder);
     const key = folderKey(dir);
-    const pageId = String(process.env[`FACEBOOK_${key}_PAGE_ID`] || process.env.FACEBOOK_PAGE_ID || '').trim();
-    const token = String(process.env[`FACEBOOK_${key}_PAGE_TOKEN`] || process.env.FACEBOOK_PAGE_TOKEN || '').trim();
+    const creds = credentialsFor(key);
     list.push({
       key,
       folder: path.basename(dir),
       dir,
       slot,
-      pageId,
-      token,
-      ready: Boolean(pageId && token)
+      pageId: creds.pageId,
+      token: creds.token,
+      via: creds.via,
+      ready: Boolean(creds.pageId && creds.token)
     });
   });
   return { pages: list, warnings };
@@ -240,7 +255,9 @@ async function tick(options = {}) {
       if (!page.ready) {
         emit({
           event: 'skipped',
-          message: `${page.folder} ${page.slot.label} atlandı. FACEBOOK_${page.key}_PAGE_ID / TOKEN veya FACEBOOK_PAGE_ID / FACEBOOK_PAGE_TOKEN boş.`
+          message: page.via === 'incomplete'
+            ? `${page.folder} ${page.slot.label} atlandı. FACEBOOK_${page.key}_PAGE_ID ve FACEBOOK_${page.key}_PAGE_TOKEN birlikte dolu olmalı.`
+            : `${page.folder} ${page.slot.label} atlandı. FACEBOOK_${page.key}_PAGE_ID / FACEBOOK_${page.key}_PAGE_TOKEN boş. Ortak FACEBOOK_PAGE_ID / FACEBOOK_PAGE_TOKEN de boş.`
         });
         continue;
       }
@@ -274,7 +291,7 @@ async function tick(options = {}) {
         saveState(file, state);
         try {
           const dest = moveToPublished(video);
-          emit({ event: 'posted', message: `${page.folder} ${path.basename(dest)}` });
+          emit({ event: 'posted', message: `${page.folder} ${path.basename(dest)} ${page.via === 'brand' ? 'kendi sayfası' : 'ortak sayfa'}` });
         } catch (err) {
           emit({ event: 'move-failed', message: `${path.basename(video)} paylaşıldı ama taşınamadı. ${err && err.message ? err.message : err}` });
         }

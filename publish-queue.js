@@ -140,7 +140,9 @@ function configured(name) {
     return !!(process.env.META_ACCESS_TOKEN && process.env.INSTAGRAM_ACCOUNT_ID);
   }
   if (name === 'facebook') {
-    return !!(process.env.FACEBOOK_PAGE_ID && (process.env.FACEBOOK_PAGE_TOKEN || process.env.META_ACCESS_TOKEN));
+    const brands = ['EPOCH', 'CHAOS', 'THERAPY'];
+    const own = brands.some((key) => process.env[`FACEBOOK_${key}_PAGE_ID`] && process.env[`FACEBOOK_${key}_PAGE_TOKEN`]);
+    return own || !!(process.env.FACEBOOK_PAGE_ID && (process.env.FACEBOOK_PAGE_TOKEN || process.env.META_ACCESS_TOKEN));
   }
   if (name === 'x') {
     return !!(

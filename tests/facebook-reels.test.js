@@ -138,6 +138,38 @@ test('a failed post stays in place and the next page still runs', async () => {
   delete process.env.FACEBOOK_POST_SLOTS;
 });
 
+test('each brand uses its own page and a half-filled brand is skipped', async () => {
+  const root = tempDir();
+  const epoch = path.join(root, 'Epoch Lab');
+  const chaos = path.join(root, 'Chaos Lab');
+  const therapy = path.join(root, 'Therapy Lab');
+  writeMp4(epoch, 'epoch story.mp4', 5 * 60 * 1000);
+  const chaosFile = writeMp4(chaos, 'chaos story.mp4', 5 * 60 * 1000);
+  writeMp4(therapy, 'therapy story.mp4', 5 * 60 * 1000);
+  process.env.FACEBOOK_SOURCE_DIRS = `${epoch}|${chaos}|${therapy}`;
+  process.env.FACEBOOK_POST_SLOTS = '22:00,22:30,23:00';
+  process.env.FACEBOOK_PAGE_ID = 'shared';
+  process.env.FACEBOOK_PAGE_TOKEN = 'shared-token';
+  process.env.FACEBOOK_EPOCH_PAGE_ID = 'epoch-id';
+  process.env.FACEBOOK_EPOCH_PAGE_TOKEN = 'epoch-token';
+  process.env.FACEBOOK_CHAOS_PAGE_ID = 'chaos-id';
+  delete process.env.FACEBOOK_CHAOS_PAGE_TOKEN;
+  process.env.FACEBOOK_THERAPY_PAGE_ID = 'therapy-id';
+  process.env.FACEBOOK_THERAPY_PAGE_TOKEN = 'therapy-token';
+  const seen = [];
+  const stateFile = path.join(root, 'state.json');
+  const base = { force: true, silent: true, downloadDir: root, stateFile, now: new Date('2026-11-27T19:00:00Z') };
+  await reels.tick({ ...base, parts: slotParts('22:00', '2026-11-27'), post: async (item) => { seen.push(item.pageId); return { id: 'e' }; } });
+  const skipped = await reels.tick({ ...base, parts: slotParts('22:30', '2026-11-27'), post: async (item) => { seen.push(item.pageId); return { id: 'c' }; } });
+  await reels.tick({ ...base, parts: slotParts('23:00', '2026-11-27'), post: async (item) => { seen.push(item.pageId); return { id: 't' }; } });
+  assert.deepEqual(seen, ['epoch-id', 'therapy-id']);
+  assert.equal(fs.existsSync(chaosFile), true);
+  assert.equal(fs.existsSync(path.join(epoch, 'paylasildi', 'epoch story.mp4')), true);
+  assert.equal(fs.existsSync(path.join(therapy, 'paylasildi', 'therapy story.mp4')), true);
+  assert.equal(skipped.logs.some((row) => row.event === 'skipped'), true);
+  ['FACEBOOK_PAGE_ID', 'FACEBOOK_PAGE_TOKEN', 'FACEBOOK_SOURCE_DIRS', 'FACEBOOK_POST_SLOTS', 'FACEBOOK_EPOCH_PAGE_ID', 'FACEBOOK_EPOCH_PAGE_TOKEN', 'FACEBOOK_CHAOS_PAGE_ID', 'FACEBOOK_THERAPY_PAGE_ID', 'FACEBOOK_THERAPY_PAGE_TOKEN'].forEach((name) => delete process.env[name]);
+});
+
 test('one page id posts only one video in a day', async () => {
   const root = tempDir();
   const epoch = path.join(root, 'Epoch Lab');
