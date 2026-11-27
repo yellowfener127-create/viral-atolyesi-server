@@ -82,7 +82,7 @@ function trueEventPrompt(reading, language, note, options) {
     'If the reading contains a court result or a family response, one later sentence must say that result. Do not invent one.',
     'Do not repeat the same claim in two sentences in a row. The second sentence must add a new fact.',
     'Do not say "to Atlanta" unless the reading says the destination was Atlanta.',
-    'Scene 5 is only the closing beat. Keep the last fact already in the reading, then end on one question that only this event could ask, so the viewer stays. Fit the shape to the story: how, why, who, or where. Do not use imagine, could you imagine, can you imagine, or ever imagine. Echo one concrete phrase from the first sentence.',
+    'Read the event again before each sentence. Use the fact that is already in the reading. Do not reach for a stock phrase. Do not end on imagine, could you imagine, can you imagine, or ever imagine.',
     nameLine(opts.name_policy),
     'image_prompt shows exactly the people that scene names, as ordinary people doing the action the narration gives them. Not silhouettes. A scene with no person does not gain one. No blood, no corpse, no wound, no severed body.',
     'anchor_words are 2 to 4 words copied from that scene narration.',
@@ -116,7 +116,7 @@ function issueNote(issues) {
     no_new_info: 'Each sentence must add a new fact.',
     new_info_by_6s: 'Sentence 2 must add a new fact. Do not repeat the opening claim.',
     missing_aftermath: 'Add the court result or family response that is already in the reading.',
-    missing_loop_closer: 'The last sentence must be a question about this event that echoes a phrase from sentence 1. Do not use imagine.',
+    missing_loop_closer: 'The last sentence must stay with this event. Do not use imagine.',
     vague_location: 'Do not say "to Atlanta" unless the reading says that was the destination.',
     victim_full_name: 'Use only the victim\'s first name.',
     victim_named: 'Leave the victim\'s name out.',
@@ -161,8 +161,6 @@ function structureIssues(scenes, options) {
   const source = String(opts.source || '');
   const requireAftermath = opts.requireAftermath || AFTERMATH.test(source);
   if (requireAftermath && !AFTERMATH.test(spoken)) issues.push('missing_aftermath');
-  const last = lines[lines.length - 1] || '';
-  if (!/\?/.test(last) || contentJaccard(hook, last) < 0.12) issues.push('missing_loop_closer');
   if (VAGUE_PLACE.test(spoken)) issues.push('vague_location');
   if (TONE.test(spoken)) issues.push('tone_check');
   const namePolicy = opts.name_policy || 'first_name';

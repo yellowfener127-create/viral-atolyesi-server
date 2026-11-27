@@ -686,7 +686,7 @@
     </div>
     <div class="mcc-panel" id="reel-frame">
       <div class="tool-title" style="font-size:16px">Gemini</div>
-      <div class="tool-desc">İngilizce senaryo buraya kendiliğinden gelir. Hook, açıklama ve bu videoya özel son soru kutulara yazılır. Soru imagine kalıbıyla gelmez. Video bu adımda inmez. İndirme sondaki üretimdedir: ilk dört kalıp ile bu son soru birleşir, bulanık zemin, kartın içinde video, üstte hook ve seçtiğin kanalın profil fotoğrafı. Dosya adı açıklamadır.</div>
+      <div class="tool-desc">İngilizce senaryo buraya kendiliğinden gelir. Hook ve açıklama kutulara yazılır. Video bu adımda inmez. İndirme sondaki üretimdedir: bulanık zemin, kartın içinde video, üstte hook, hikâyede seçtiğin kanalın profil fotoğrafı. Dosya adı açıklamadır.</div>
       <div id="reelGeminiLog" style="max-height:220px;overflow:auto;margin-top:8px;font-size:13px;line-height:1.45"></div>
       <textarea id="reelGeminiInput" class="tool-input" rows="2" placeholder="İstersen bir not ekle. Boş bırakırsan senaryodan yazar." style="margin-top:8px"></textarea>
       <button type="button" class="tool-btn" id="reelGeminiSend" onclick="sendReelGemini()" style="margin-top:8px">Gönder</button>
@@ -695,9 +695,6 @@
       </label>
       <label style="font-size:12px;color:var(--muted);display:block;margin-top:8px">Caption
         <textarea id="reelFrameCaption" rows="3" class="tool-input" style="margin-top:4px" placeholder="İngilizce açıklama"></textarea>
-      </label>
-      <label style="font-size:12px;color:var(--muted);display:block;margin-top:8px">Son bağlam ve soru
-        <textarea id="reelFrameClose" rows="3" class="tool-input" style="margin-top:4px" placeholder="Bu videoya özel kapanış. Son cümle soru olsun."></textarea>
       </label>
       <button type="button" class="tool-btn" onclick="showReelStep('make')" style="margin-top:8px">Üretime geç</button>
       <div class="tool-result" id="reelFrameMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
@@ -4013,8 +4010,7 @@ async function runReel() {
   }
   const hookReady = String((document.getElementById("reelFrameHook") || {}).value || "").trim();
   const captionReady = String((document.getElementById("reelFrameCaption") || {}).value || "").trim();
-  const closeReady = String((document.getElementById("reelFrameClose") || {}).value || "").trim();
-  if (!hookReady || !captionReady || !closeReady) {
+  if (!hookReady || !captionReady) {
     alert("Önce senaryodaki kutuya tıklayıp İngilizce senaryoyu Gemini'ye gönder.");
     showReelStep("script");
     return;
@@ -4050,7 +4046,7 @@ async function runReel() {
           topic: String(spokenScenes[0].narration || story).slice(0, 90),
           story_text: story,
           opening_text: String((document.getElementById("reelOpening") || {}).value || "").trim(),
-          script_scenes: applyReelClose(spokenScenes),
+          script_scenes: spokenScenes,
           music_mood: reelPlan.music_mood || "",
           lang: "en",
           channel: channel,
@@ -4122,64 +4118,26 @@ async function sendReelGemini() {
     return;
   }
   const note = String((document.getElementById("reelGeminiInput") || {}).value || "").trim();
-  const head = spoken.slice(0, 4);
-  const last = spoken[spoken.length - 1];
-  const headWords = head.reduce((sum, scene) => sum + String(scene.narration || "").trim().split(/\s+/).filter(Boolean).length, 0);
-  const closeMin = Math.max(8, 70 - headWords);
-  const closeMax = Math.max(closeMin, 110 - headWords);
-  const script = head.map((scene, index) => (index + 1) + ". " + scene.narration).join("\n");
-  const ask = "Scenes 1 to 4:\n" + script + "\n\nCurrent last beat:\n" + String(last && last.narration || "") + (note ? "\n\nNote:\n" + note : "") + "\n\nWrite HOOK, CAPTION, CLOSE, and 5 subject hashtags. CLOSE replaces only the last beat. Keep it between " + closeMin + " and " + closeMax + " spoken words so the full script stays between 70 and 110. The final sentence is a new question fitted to this story. Do not use imagine.";
+  const script = spoken.map((scene, index) => (index + 1) + ". " + scene.narration).join("\n");
+  const ask = "The spoken script:\n" + script + (note ? "\n\nNote:\n" + note : "") + "\nWrite the HOOK, CAPTION, and 5 subject hashtags.";
   if (btn) btn.disabled = true;
-  if (msg) { msg.style.display = "block"; msg.textContent = "Hook ve kapanış sorusu yazılıyor…"; }
-  reelGeminiLine(note || "Senaryodan hook ve son soruyu yaz.");
+  if (msg) { msg.style.display = "block"; msg.textContent = "Hook yazılıyor…"; }
+  reelGeminiLine(note || "Senaryodan hook yaz.");
   try {
-    const reply = await geminiGenerate(keys[0], reelFrameSystem(), [{ role: "user", parts: [{ text: ask }] }]);
+    const reply = await geminiGenerate(keys[0], GEMINI_HOOK_SYSTEM, [{ role: "user", parts: [{ text: ask }] }]);
     reelGeminiLine(reply || "(boş yanıt)");
-    const taken = reelTakeClose(reply || "");
-    const split = geminiSplitCopy(taken.rest);
+    const split = geminiSplitCopy(reply || "");
     if (!split) throw new Error("Hook ve açıklama ayrılamadı. Metni kutulara kendin yazabilirsin.");
     const hookBox = document.getElementById("reelFrameHook");
     const capBox = document.getElementById("reelFrameCaption");
-    const closeBox = document.getElementById("reelFrameClose");
     if (hookBox) hookBox.value = split.hook;
     if (capBox) capBox.value = (split.caption + " " + split.hashtags).trim();
-    if (closeBox) closeBox.value = taken.close;
-    if (!taken.close) throw new Error("Kapanış sorusu ayrılamadı. Son bağlam kutusuna bu videoya özel soruyu yaz.");
-    if (msg) msg.textContent = "Hook, açıklama ve son soru yazıldı. Üretimde hepsi birleşir.";
+    if (msg) msg.textContent = "Hook ve açıklama yazıldı. Üretim adımında sesi seçip bir kez kaydet.";
   } catch (e) {
     if (msg) { msg.style.display = "block"; msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e)); }
   } finally {
     if (btn) btn.disabled = false;
   }
-}
-
-function reelFrameSystem() {
-  return GEMINI_HOOK_SYSTEM
-    .replace("and nothing else:", "and nothing else, with CLOSE between CAPTION and HASHTAGS:")
-    .replace("\nHASHTAGS:\n", "\nCLOSE:\n<Rewrite only the last spoken beat. One or two English sentences. Keep every fact already in that beat, including a court result if it is already there. Do not invent a person, an ending, a date, or a cause. The final sentence is one question that only this story could ask, so the viewer stays to hear the answer. Choose a fresh shape that fits this event: how, why, who, or where. Do not use imagine, could you imagine, can you imagine, or ever imagine. Repeat one concrete phrase from scene 1 inside the question.>\nHASHTAGS:\n")
-    .replace("One hook. One caption.", "One hook. One caption. One close.");
-}
-
-function reelTakeClose(raw) {
-  const s = String(raw || "").replace(/\r/g, "");
-  const re = /(?:^|\n)\s*(?:\*\*|__)?\s*CLOSE\b\s*(?:\*\*|__)?\s*:?\s*([\s\S]*?)(?=\n\s*(?:\*\*|__)?\s*(?:HOOK|CAPTION|HASHTAGS?)\b|$)/i;
-  const found = s.match(re);
-  if (!found) return { close: "", rest: s };
-  const close = found[1].split("\n").map((line) => line.replace(/^[-*•]+\s*/, "").trim()).filter(Boolean).join(" ").trim();
-  const rest = (s.slice(0, found.index) + "\n" + s.slice(found.index + found[0].length)).trim();
-  return { close: close, rest: rest };
-}
-
-function applyReelClose(scenes) {
-  const close = String((document.getElementById("reelFrameClose") || {}).value || "").trim();
-  const next = (scenes || []).map((scene) => Object.assign({}, scene));
-  if (!close || !next.length) return next;
-  const last = Object.assign({}, next[next.length - 1]);
-  last.narration = close;
-  last.image_prompt = "";
-  last.anchor_words = "";
-  next[next.length - 1] = last;
-  return next;
 }
 
 async function reelApplyFrame() {

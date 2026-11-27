@@ -42,7 +42,7 @@ test('the measured hutcherson narration fails the reel structure', () => {
     }
   });
   assert.equal(review.pass, false);
-  ['hook_no_subject', 'redundant_beat', 'missing_aftermath', 'missing_loop_closer', 'vague_location', 'no_human_shots', 'time_of_day_mismatch', 'vehicle_inconsistency', 'uniform_cadence'].forEach((issue) => {
+  ['hook_no_subject', 'redundant_beat', 'missing_aftermath', 'vague_location', 'no_human_shots', 'time_of_day_mismatch', 'vehicle_inconsistency', 'uniform_cadence'].forEach((issue) => {
     assert.ok(review.issues.includes(issue), issue);
   });
 });
@@ -78,7 +78,7 @@ test('an article or a name counts as a hook subject', () => {
   assert.match(quality.issueNote(['word count 60']), /60 words/);
   assert.match(quality.issueNote(['word count 60']), /ordinary moment/);
   assert.match(quality.trueEventPrompt({ shock: 'a', ending: 'b', events: ['c'] }, 'English', ''), /helicopter lost altitude/);
-  assert.match(quality.trueEventPrompt({ shock: 'a', ending: 'b', events: ['c'] }, 'English', ''), /do not use imagine/i);
+  assert.match(quality.trueEventPrompt({ shock: 'a', ending: 'b', events: ['c'] }, 'English', ''), /stock phrase/);
 });
 
 test('the default name policy keeps a victim surname out', () => {
