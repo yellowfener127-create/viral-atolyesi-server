@@ -2016,14 +2016,19 @@ async function attachReelTranslation(plan, authored, apiKey) {
 async function buildStoryReel(source, language, apiKey) {
   const text = String(source || '').trim();
   if (text.length < 40) throw new DocumentaryError('Hikâye en az birkaç cümle olsun.', 400);
-  let reading = null;
-  for (let pass = 0; pass < 2 && !reading; pass++) {
-    const rawReading = await askGeminiJson(apiKey, storyLib.reelReadPrompt(text), storyLib.REEL_READ_SCHEMA);
-    const events = Array.isArray(rawReading && rawReading.events) ? rawReading.events.map((item) => String(item || '').trim()).filter(Boolean) : [];
-    if (events.length >= 3 && String(rawReading.shock || '').trim() && String(rawReading.ending || '').trim()) {
-      reading = { shock: String(rawReading.shock).trim(), ending: String(rawReading.ending).trim(), events };
+  let partial = null;
+  for (let pass = 0; pass < 2 && !(partial && partial.events.length >= 3 && partial.shock && partial.ending); pass++) {
+    try {
+      const rawReading = await askGeminiJson(apiKey, storyLib.reelReadPrompt(text), storyLib.REEL_READ_SCHEMA);
+      const events = Array.isArray(rawReading && rawReading.events) ? rawReading.events.map((item) => String(item || '').trim()).filter(Boolean) : [];
+      const shock = String(rawReading && rawReading.shock || '').trim();
+      const ending = String(rawReading && rawReading.ending || '').trim();
+      if (events.length || shock || ending) partial = { shock, ending, events };
+    } catch (err) {
+      if (pass === 1 && !partial) throw err;
     }
   }
+  const reading = storyLib.fallbackReelReading(partial, text);
   if (!reading) throw new DocumentaryError('Hikâye okunamadı. Metni biraz daha açık yapıştır.', 422);
   const authored = storyLib.reelSourceLanguage(text) === 'tr' ? 'Turkish' : 'English';
   const reelConfig = loadDocConfig();

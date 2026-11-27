@@ -27,6 +27,17 @@ test('a pasted story is read before the reel prompt', () => {
   assert.match(prompt, /Do not invent a name/);
   assert.match(prompt, /returns to the tension of the first sentence/);
   assert.match(read, /person name/);
+  assert.match(read, /short source is still a story/);
+  const thin = story.fallbackReelReading(
+    { shock: '', ending: '', events: ['A dog bit him.'] },
+    'John Doe. 1999, Ireland.\n\nA dog bit him after the date.'
+  );
+  assert.ok(thin.events.length >= 2);
+  assert.equal(thin.shock, 'A dog bit him.');
+  assert.ok(thin.ending);
+  const onlySource = story.fallbackReelReading(null, 'He was walking home when the helicopter fell on the road.');
+  assert.equal(onlySource.events.length, 1);
+  assert.equal(story.fallbackReelReading(null, '   '), null);
   assert.doesNotMatch(story.biblePrompt('Mary Celeste', 'chaos', 'English'), /Do not invent a name/);
   const factory = require('../documentary-factory');
   const custom = factory.resolveDocVoice('AbCdEfGhIj1234567890');

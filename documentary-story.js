@@ -184,6 +184,7 @@ function reelReadPrompt(source) {
     'ending is the last real event.',
     'Each event is one short sentence. Keep every person name, place name, ship or location name, date, and clock time the source uses.',
     'Do not add a cause, a dream, a coincidence, a person, a place, or a date that the source does not contain.',
+    'A short source is still a story. If it is one or two sentences, return those sentences. Put the outcome in shock and the last fact in ending. Do not return an empty list.',
     `Source:\n${source}`
   ].join('\n');
 }
@@ -207,6 +208,32 @@ function reelPrompt(reading, language, note) {
     note ? `Fix: ${note}` : '',
     `Reading:\n${JSON.stringify(reading)}`
   ].filter(Boolean).join('\n');
+}
+
+function fallbackReelReading(partial, source) {
+  const events = [];
+  const seen = new Set();
+  function add(line) {
+    const clean = String(line || '').replace(/\s+/g, ' ').trim();
+    if (clean.length < 8 || events.length >= 8) return;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    events.push(clean);
+  }
+  const given = partial && Array.isArray(partial.events) ? partial.events : [];
+  given.forEach(add);
+  String(source || '').split(/\n+|(?<=[.!?])\s+/).forEach(add);
+  if (!events.length) {
+    const whole = String(source || '').replace(/\s+/g, ' ').trim();
+    if (whole.length >= 40) events.push(whole.slice(0, 500));
+  }
+  if (!events.length) return null;
+  return {
+    shock: String(partial && partial.shock || '').trim() || events[0],
+    ending: String(partial && partial.ending || '').trim() || events[events.length - 1],
+    events
+  };
 }
 
 function reelSourceLanguage(text) {
@@ -447,6 +474,7 @@ module.exports = {
   scriptPrompt,
   criticPrompt,
   reelReadPrompt,
+  fallbackReelReading,
   reelPrompt,
   reelSourceLanguage,
   reelTranslatePrompt,
