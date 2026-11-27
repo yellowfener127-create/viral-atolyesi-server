@@ -7,6 +7,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const facebook = require('./facebook-reels');
 
 const BRANDS = ['facebook', 'instagram', 'youtube'];
@@ -14,7 +15,7 @@ const BRANDS = ['facebook', 'instagram', 'youtube'];
 function statePath(options) {
   return (options && options.stateFile)
     || process.env.BRAND_PUBLISH_STATE
-    || path.join(__dirname, 'output', 'publish', 'brand-reels.json');
+    || path.join(__dirname, 'output', 'publish', 'state.json');
 }
 
 function logPath() {
@@ -25,6 +26,7 @@ function logPath() {
 function scrub(text) {
   return String(text || '')
     .replace(/access_token=[^&\s"']+/gi, 'access_token=***')
+    .replace(/refresh_token=[^&\s"']+/gi, 'refresh_token=***')
     .replace(/Bearer\s+[A-Za-z0-9\-._~+/=]+/gi, 'Bearer ***')
     .replace(/ya29\.[A-Za-z0-9\-._]+/g, 'ya29.***')
     .slice(0, 500);
@@ -88,9 +90,26 @@ function targetLabel(name, key, via) {
       ? `INSTAGRAM_${key}_ACCOUNT_ID ve INSTAGRAM_${key}_ACCESS_TOKEN birlikte dolu olmalı.`
       : `INSTAGRAM_${key}_ACCOUNT_ID / INSTAGRAM_${key}_ACCESS_TOKEN boş. Ortak INSTAGRAM_ACCOUNT_ID ve INSTAGRAM_ACCESS_TOKEN veya META_ACCESS_TOKEN de boş.`;
   }
-  return via === 'incomplete'
-    ? `YOUTUBE_${key}_ACCOUNT_ID ve YOUTUBE_${key}_ACCESS_TOKEN birlikte dolu olmalı.`
-    : `YOUTUBE_${key}_ACCOUNT_ID / YOUTUBE_${key}_ACCESS_TOKEN boş. Ortak YOUTUBE_ACCOUNT_ID / YOUTUBE_ACCESS_TOKEN de boş.`;
+  return `YOUTUBE_${key}_REFRESH_TOKEN boş. YouTube atlandı.`;
+}
+
+function tokenKey(value) {
+  return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 16);
+}
+
+function youtubeFor(key) {
+  const own = readCredential(`YOUTUBE_${key}_REFRESH_TOKEN`);
+  const shared = readCredential('YOUTUBE_REFRESH_TOKEN');
+  const refreshToken = own || shared;
+  if (!refreshToken) return { ready: false, via: 'missing', refreshToken: '', id: '', clientId: '', clientSecret: '' };
+  return {
+    ready: platformOn('youtube'),
+    via: own ? 'brand' : 'fallback',
+    refreshToken,
+    id: tokenKey(refreshToken),
+    clientId: readCredential('YOUTUBE_CLIENT_ID'),
+    clientSecret: readCredential('YOUTUBE_CLIENT_SECRET')
+  };
 }
 
 function decorate(page) {
@@ -108,16 +127,8 @@ function decorate(page) {
     'INSTAGRAM_ACCOUNT_ID',
     ['INSTAGRAM_ACCESS_TOKEN', 'META_ACCESS_TOKEN']
   );
-  const youtube = pairFor(
-    'YOUTUBE',
-    page.key,
-    'ACCOUNT_ID',
-    ['ACCESS_TOKEN'],
-    'YOUTUBE_ACCOUNT_ID',
-    ['YOUTUBE_ACCESS_TOKEN']
-  );
+  const youtube = youtubeFor(page.key);
   instagram.ready = (instagram.via === 'brand' || instagram.via === 'fallback') && platformOn('instagram');
-  youtube.ready = (youtube.via === 'brand' || youtube.via === 'fallback') && platformOn('youtube');
   if (!platformOn('facebook')) facebookCreds.ready = false;
   return {
     key: page.key,
@@ -144,11 +155,52 @@ function loadState(file) {
     return {
       posted: data.posted || {},
       fired: data.fired || {},
-      sent: data.sent || {}
+      chosen: data.chosen || {}
     };
   } catch {
-    return { posted: {}, fired: {}, sent: {} };
+    return { posted: {}, fired: {}, chosen: {} };
   }
+}
+
+function sidePath(file) {
+  return `${file}.state.json`;
+}
+
+function loadSide(file) {
+  try {
+    const data = JSON.parse(fs.readFileSync(sidePath(file), 'utf8'));
+    if (!data || typeof data !== 'object') throw new Error('bad');
+    data.platforms = data.platforms || {};
+    return data;
+  } catch {
+    return { file: path.basename(file), platforms: {} };
+  }
+}
+
+function saveSide(file, data) {
+  const dest = sidePath(file);
+  const tmp = `${dest}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+  fs.renameSync(tmp, dest);
+}
+
+function isDone(data, name) {
+  return Boolean(data.platforms[name] && data.platforms[name].status === 'done');
+}
+
+function markPlatform(file, name, entry) {
+  const data = loadSide(file);
+  data.file = path.basename(file);
+  data.platforms[name] = entry;
+  saveSide(file, data);
+  return data;
+}
+
+function moveWithState(file) {
+  const side = sidePath(file);
+  const dest = facebook.moveToPublished(file);
+  if (fs.existsSync(side)) fs.renameSync(side, `${dest}.state.json`);
+  return dest;
 }
 
 function saveState(file, state) {
@@ -190,34 +242,41 @@ async function tick(options = {}) {
     for (const page of built.pages) {
       if (parts.hour !== page.slot.hour || parts.minute !== page.slot.minute) continue;
       const fireKey = `${page.key}|${parts.date}|${page.slot.label}`;
-      if (state.fired[fireKey]) continue;
-      state.fired[fireKey] = new Date().toISOString();
-      saveState(file, state);
       const targets = BRANDS.map((name) => Object.assign({ name }, page[name]));
-      targets.forEach((target) => {
-        if (target.ready) return;
-        if (!platformOn(target.name)) return;
-        emit({
-          event: 'skipped',
-          platform: target.name,
-          message: `${page.folder} ${page.slot.label} atlandı. ${targetLabel(target.name, page.key, target.via)}`
-        });
-      });
       const ready = targets.filter((target) => target.ready);
-      if (!ready.length) continue;
-      const video = facebook.nextMp4(page.dir, now.getTime());
+      let video = state.chosen[fireKey] && fs.existsSync(state.chosen[fireKey]) ? state.chosen[fireKey] : '';
       if (!video) {
-        emit({ event: 'empty', platform: 'publish', message: `${page.folder} klasöründe hazır mp4 yok.` });
-        continue;
+        if (state.fired[fireKey]) continue;
+        targets.forEach((target) => {
+          if (target.ready || !platformOn(target.name)) return;
+          emit({
+            event: 'skipped',
+            platform: target.name,
+            message: `${page.folder} ${page.slot.label} atlandı. ${targetLabel(target.name, page.key, target.via)}`
+          });
+        });
+        if (!ready.length) {
+          state.fired[fireKey] = new Date().toISOString();
+          saveState(file, state);
+          continue;
+        }
+        video = facebook.nextMp4(page.dir, now.getTime());
+        state.fired[fireKey] = new Date().toISOString();
+        if (video) state.chosen[fireKey] = video;
+        saveState(file, state);
+        if (!video) {
+          emit({ event: 'empty', platform: 'publish', message: `${page.folder} klasöründe hazır mp4 yok.` });
+          continue;
+        }
       }
       const caption = facebook.captionFromFile(video);
-      state.sent[video] = state.sent[video] || {};
+      const side = loadSide(video);
       let failed = false;
       let blocked = false;
       let postedNow = 0;
       for (const target of ready) {
+        if (isDone(side, target.name)) continue;
         const dayKey = `${target.name}:${target.id}`;
-        if (state.sent[video][target.name]) continue;
         if (state.posted[dayKey] === parts.date) {
           blocked = true;
           emit({ event: 'day-limit', platform: target.name, message: `${page.folder} bugün bu hesapta zaten paylaştı.` });
@@ -235,13 +294,18 @@ async function tick(options = {}) {
             videoPath: video,
             caption,
             pageId: target.name === 'facebook' ? target.id : '',
-            accountId: target.id,
-            token: target.token
+            accountId: target.name === 'instagram' ? target.id : '',
+            token: target.token || '',
+            refreshToken: target.refreshToken || '',
+            clientId: target.clientId || '',
+            clientSecret: target.clientSecret || ''
           });
-          state.sent[video][target.name] = {
+          const marked = markPlatform(video, target.name, {
+            status: 'done',
             id: result && result.id ? String(result.id) : '',
             at: new Date().toISOString()
-          };
+          });
+          side.platforms = marked.platforms;
           state.posted[dayKey] = parts.date;
           saveState(file, state);
           postedNow += 1;
@@ -252,7 +316,8 @@ async function tick(options = {}) {
           });
         } catch (err) {
           failed = true;
-          const message = err && err.message ? err.message : String(err);
+          const message = scrub(err && err.message ? err.message : String(err));
+          markPlatform(video, target.name, { status: 'failed', at: new Date().toISOString(), error: message });
           emit({
             event: err && err.skip ? 'skipped' : 'failed',
             platform: target.name,
@@ -260,10 +325,11 @@ async function tick(options = {}) {
           });
         }
       }
-      const done = ready.every((target) => state.sent[video] && state.sent[video][target.name]);
+      const current = loadSide(video);
+      const done = ready.every((target) => isDone(current, target.name));
       if (!failed && !blocked && done) {
         try {
-          const dest = facebook.moveToPublished(video);
+          const dest = moveWithState(video);
           emit({ event: 'moved', platform: 'publish', message: dest });
         } catch (err) {
           emit({ event: 'move-failed', platform: 'publish', message: `${path.basename(video)} paylaşıldı ama taşınamadı. ${err && err.message ? err.message : err}` });

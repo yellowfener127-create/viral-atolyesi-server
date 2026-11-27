@@ -60,6 +60,7 @@ function saveState(state) {
 function scrub(text) {
   return String(text || '')
     .replace(/access_token=[^&\s"']+/gi, 'access_token=***')
+    .replace(/refresh_token=[^&\s"']+/gi, 'refresh_token=***')
     .replace(/Bearer\s+[A-Za-z0-9\-._~+/=]+/gi, 'Bearer ***')
     .slice(0, 500);
 }
@@ -160,13 +161,10 @@ function configured(name) {
     );
   }
   if (name === 'youtube') {
-    return brandPairReady(
-      'YOUTUBE',
-      'ACCOUNT_ID',
-      ['ACCESS_TOKEN'],
-      'YOUTUBE_ACCOUNT_ID',
-      ['YOUTUBE_ACCESS_TOKEN']
-    );
+    const client = String(process.env.YOUTUBE_CLIENT_ID || '').trim() && String(process.env.YOUTUBE_CLIENT_SECRET || '').trim();
+    const own = ['EPOCH', 'CHAOS', 'THERAPY'].some((key) => String(process.env[`YOUTUBE_${key}_REFRESH_TOKEN`] || '').trim());
+    const shared = String(process.env.YOUTUBE_REFRESH_TOKEN || '').trim();
+    return Boolean(client && (own || shared));
   }
   if (name === 'facebook') {
     const brands = ['EPOCH', 'CHAOS', 'THERAPY'];
@@ -313,16 +311,48 @@ async function postFacebook(item) {
   return { id: started.json.video_id };
 }
 
-async function postYouTube(item) {
-  const token = String((item && item.token) || process.env.YOUTUBE_ACCESS_TOKEN || '').trim();
-  const channelId = String((item && item.accountId) || process.env.YOUTUBE_ACCOUNT_ID || '').trim();
-  if (!channelId || !token) {
-    throw new PublishError('YouTube kanalı ayarlı değil (YOUTUBE_ACCOUNT_ID, YOUTUBE_ACCESS_TOKEN).', { skip: true });
-  }
-  const caption = String(item.caption || '').replace(/\s+/g, ' ').trim();
-  const title = caption.slice(0, 100) || 'Short';
-  let description = caption.slice(0, 4800);
+function youtubePrivacy() {
+  const raw = String(process.env.YOUTUBE_PRIVACY_STATUS || 'public').trim().toLowerCase();
+  if (raw === 'public' || raw === 'unlisted' || raw === 'private') return raw;
+  return 'public';
+}
+
+function youtubeCopy(caption) {
+  const text = String(caption || '').replace(/\s+/g, ' ').trim();
+  const title = text.slice(0, 100) || 'Short';
+  let description = text.slice(0, 4800);
   if (!/#shorts\b/i.test(description)) description = `${description} #Shorts`.trim();
+  return { title, description, privacyStatus: youtubePrivacy() };
+}
+
+async function youtubeAccessToken(item) {
+  const clientId = String((item && item.clientId) || process.env.YOUTUBE_CLIENT_ID || '').trim();
+  const clientSecret = String((item && item.clientSecret) || process.env.YOUTUBE_CLIENT_SECRET || '').trim();
+  const refreshToken = String((item && item.refreshToken) || process.env.YOUTUBE_REFRESH_TOKEN || '').trim();
+  if (!refreshToken) {
+    throw new PublishError('YouTube refresh token boş. Bu marka atlandı.', { skip: true });
+  }
+  if (!clientId || !clientSecret) {
+    throw new PublishError('YouTube uygulama bilgisi boş (YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET).', { skip: true });
+  }
+  const { OAuth2Client } = require('google-auth-library');
+  const client = new OAuth2Client(clientId, clientSecret);
+  client.setCredentials({ refresh_token: refreshToken });
+  let access;
+  try {
+    access = await client.getAccessToken();
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    throw new PublishError(`YouTube erişim anahtarı alınamadı: ${message}`);
+  }
+  const token = typeof access === 'string' ? access : (access && access.token);
+  if (!token) throw new PublishError('YouTube erişim anahtarı alınamadı.');
+  return token;
+}
+
+async function postYouTube(item) {
+  const copy = youtubeCopy(item && item.caption);
+  const token = await youtubeAccessToken(item);
   const video = await fs.promises.readFile(item.videoPath);
   const start = await fetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', {
     method: 'POST',
@@ -333,8 +363,8 @@ async function postYouTube(item) {
       'X-Upload-Content-Length': String(video.length)
     },
     body: JSON.stringify({
-      snippet: { title, description, categoryId: '22' },
-      status: { privacyStatus: 'public', selfDeclaredMadeForKids: false }
+      snippet: { title: copy.title, description: copy.description, categoryId: '22' },
+      status: { privacyStatus: copy.privacyStatus, selfDeclaredMadeForKids: false }
     }),
     signal: AbortSignal.timeout(30000)
   });
@@ -697,5 +727,6 @@ module.exports = {
   PublishError,
   postFacebook,
   postInstagram,
-  postYouTube
+  postYouTube,
+  youtubeCopy
 };
