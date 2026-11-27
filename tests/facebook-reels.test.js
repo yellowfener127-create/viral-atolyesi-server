@@ -75,7 +75,7 @@ test('a missing token skips the slot and leaves the file', async () => {
     downloadDir: root,
     stateFile: path.join(root, 'state.json'),
     parts: slotParts('22:00', '2026-11-27'),
-    now: new Date('2026-11-27T19:00:00Z'),
+    now: new Date(),
     post: async () => { posted += 1; return { id: 'x' }; }
   });
   Object.assign(process.env, {
@@ -108,7 +108,7 @@ test('a failed post stays in place and the next page still runs', async () => {
     downloadDir: root,
     stateFile: path.join(root, 'state.json'),
     parts: slotParts('22:00', '2026-11-27'),
-    now: new Date('2026-11-27T19:00:00Z'),
+    now: new Date(),
     post: async (item) => {
       seen.push(item.caption);
       if (item.pageId === '111') throw new Error('graph down');
@@ -121,7 +121,7 @@ test('a failed post stays in place and the next page still runs', async () => {
     downloadDir: root,
     stateFile: path.join(root, 'state.json'),
     parts: slotParts('22:30', '2026-11-27'),
-    now: new Date('2026-11-27T19:30:00Z'),
+    now: new Date(),
     post: async (item) => {
       seen.push(item.caption);
       return { id: 'ok-1' };
@@ -177,7 +177,7 @@ test('each brand uses its own page and a half-filled brand is skipped', async ()
   process.env.FACEBOOK_THERAPY_PAGE_TOKEN = 'therapy-token';
   const seen = [];
   const stateFile = path.join(root, 'state.json');
-  const base = { force: true, silent: true, downloadDir: root, stateFile, now: new Date('2026-11-27T19:00:00Z') };
+  const base = { force: true, silent: true, downloadDir: root, stateFile, now: new Date() };
   await reels.tick({ ...base, parts: slotParts('22:00', '2026-11-27'), post: async (item) => { seen.push(item.pageId); return { id: 'e' }; } });
   const skipped = await reels.tick({ ...base, parts: slotParts('22:30', '2026-11-27'), post: async (item) => { seen.push(item.pageId); return { id: 'c' }; } });
   await reels.tick({ ...base, parts: slotParts('23:00', '2026-11-27'), post: async (item) => { seen.push(item.pageId); return { id: 't' }; } });
@@ -207,7 +207,7 @@ test('one page id posts only one video in a day', async () => {
     downloadDir: root,
     stateFile,
     parts: slotParts('22:00', '2026-11-27'),
-    now: new Date('2026-11-27T19:00:00Z'),
+    now: new Date(),
     post: async () => { calls += 1; return { id: '1' }; }
   });
   const later = await reels.tick({
@@ -216,7 +216,7 @@ test('one page id posts only one video in a day', async () => {
     downloadDir: root,
     stateFile,
     parts: slotParts('22:30', '2026-11-27'),
-    now: new Date('2026-11-27T19:30:00Z'),
+    now: new Date(),
     post: async () => { calls += 1; return { id: '2' }; }
   });
   assert.equal(calls, 1);

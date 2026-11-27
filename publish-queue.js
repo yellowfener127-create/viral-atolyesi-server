@@ -1,7 +1,8 @@
 /**
  * Kancalı videoyu kuyruğa alır.
- * Otomatik paylaşım yalnızca Facebook Sayfa Reels'tir: marka klasöründeki sıradaki mp4.
- * Instagram ve X kodu durur, zamanlayıcı onları çağırmaz.
+ * Otomatik paylaşım marka klasöründeki sıradaki mp4 içindir:
+ * Facebook Sayfa Reels, Instagram Reels ve YouTube Shorts.
+ * X kodu durur, zamanlayıcı onu çağırmaz.
  *
  *   const q = require('./publish-queue');
  *   await q.finishHookedPublish({ videoPath, hookText, caption });
@@ -135,13 +136,45 @@ async function attempt(fn, { retryDelays, sleepFn }) {
   throw last;
 }
 
+function brandPairReady(prefix, idName, tokenNames, fallbackId, fallbackTokens) {
+  const brands = ['EPOCH', 'CHAOS', 'THERAPY'];
+  const own = brands.some((key) => {
+    const id = String(process.env[`${prefix}_${key}_${idName}`] || '').trim();
+    const token = tokenNames.map((name) => String(process.env[`${prefix}_${key}_${name}`] || '').trim()).find(Boolean);
+    return Boolean(id && token);
+  });
+  if (own) return true;
+  const id = String(process.env[fallbackId] || '').trim();
+  const token = fallbackTokens.map((name) => String(process.env[name] || '').trim()).find(Boolean);
+  return Boolean(id && token);
+}
+
 function configured(name) {
   if (name === 'instagram') {
-    return !!(process.env.META_ACCESS_TOKEN && process.env.INSTAGRAM_ACCOUNT_ID);
+    return brandPairReady(
+      'INSTAGRAM',
+      'ACCOUNT_ID',
+      ['ACCESS_TOKEN'],
+      'INSTAGRAM_ACCOUNT_ID',
+      ['INSTAGRAM_ACCESS_TOKEN', 'META_ACCESS_TOKEN']
+    );
+  }
+  if (name === 'youtube') {
+    return brandPairReady(
+      'YOUTUBE',
+      'ACCOUNT_ID',
+      ['ACCESS_TOKEN'],
+      'YOUTUBE_ACCOUNT_ID',
+      ['YOUTUBE_ACCESS_TOKEN']
+    );
   }
   if (name === 'facebook') {
     const brands = ['EPOCH', 'CHAOS', 'THERAPY'];
-    const own = brands.some((key) => process.env[`FACEBOOK_${key}_PAGE_ID`] && process.env[`FACEBOOK_${key}_PAGE_TOKEN`]);
+    const own = brands.some((key) => {
+      const id = process.env[`FACEBOOK_${key}_PAGE_ID`];
+      const token = process.env[`FACEBOOK_${key}_PAGE_TOKEN`] || process.env[`FACEBOOK_${key}_ACCESS_TOKEN`];
+      return id && token;
+    });
     return own || !!(process.env.FACEBOOK_PAGE_ID && (process.env.FACEBOOK_PAGE_TOKEN || process.env.META_ACCESS_TOKEN));
   }
   if (name === 'x') {
@@ -169,11 +202,11 @@ function httpError(prefix, res) {
 }
 
 async function postInstagram(item) {
-  if (!configured('instagram')) {
-    throw new PublishError('Instagram hesabı ayarlı değil (META_ACCESS_TOKEN, INSTAGRAM_ACCOUNT_ID).', { skip: true });
+  const token = String((item && item.token) || process.env.INSTAGRAM_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN || '').trim();
+  const igId = String((item && item.accountId) || process.env.INSTAGRAM_ACCOUNT_ID || '').trim();
+  if (!igId || !token) {
+    throw new PublishError('Instagram hesabı ayarlı değil (INSTAGRAM_ACCOUNT_ID, INSTAGRAM_ACCESS_TOKEN).', { skip: true });
   }
-  const token = process.env.META_ACCESS_TOKEN;
-  const igId = process.env.INSTAGRAM_ACCOUNT_ID;
   const version = GRAPH_VERSION();
   const video = await fs.promises.readFile(item.videoPath);
   const open = await fetch(`https://graph.facebook.com/${version}/${encodeURIComponent(igId)}/media`, {
@@ -278,6 +311,49 @@ async function postFacebook(item) {
     throw new PublishError(`Facebook yayınlanamadı: ${finished.text || finish.status}`, { status: finish.status, uncertain: true });
   }
   return { id: started.json.video_id };
+}
+
+async function postYouTube(item) {
+  const token = String((item && item.token) || process.env.YOUTUBE_ACCESS_TOKEN || '').trim();
+  const channelId = String((item && item.accountId) || process.env.YOUTUBE_ACCOUNT_ID || '').trim();
+  if (!channelId || !token) {
+    throw new PublishError('YouTube kanalı ayarlı değil (YOUTUBE_ACCOUNT_ID, YOUTUBE_ACCESS_TOKEN).', { skip: true });
+  }
+  const caption = String(item.caption || '').replace(/\s+/g, ' ').trim();
+  const title = caption.slice(0, 100) || 'Short';
+  let description = caption.slice(0, 4800);
+  if (!/#shorts\b/i.test(description)) description = `${description} #Shorts`.trim();
+  const video = await fs.promises.readFile(item.videoPath);
+  const start = await fetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json; charset=UTF-8',
+      'X-Upload-Content-Type': 'video/mp4',
+      'X-Upload-Content-Length': String(video.length)
+    },
+    body: JSON.stringify({
+      snippet: { title, description, categoryId: '22' },
+      status: { privacyStatus: 'public', selfDeclaredMadeForKids: false }
+    }),
+    signal: AbortSignal.timeout(30000)
+  });
+  const started = await readResponse(start);
+  if (!start.ok) throw httpError('YouTube yükleme açılmadı', started);
+  const location = start.headers.get('location');
+  if (!location) throw new PublishError('YouTube yükleme adresi dönmedi.');
+  const upload = await fetch(location, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'video/mp4',
+      'Content-Length': String(video.length)
+    },
+    body: video,
+    signal: AbortSignal.timeout(180000)
+  });
+  const uploaded = await readResponse(upload);
+  if (!upload.ok || !uploaded.json || !uploaded.json.id) throw httpError('YouTube video yüklenemedi', uploaded);
+  return { id: uploaded.json.id };
 }
 
 function rfc3986(value) {
@@ -560,38 +636,45 @@ let timer = null;
 
 function startScheduler(options = {}) {
   if (timer) return;
-  const facebookReels = require('./facebook-reels');
+  const brandPublish = require('./brand-publish');
   const downloadDir = options.downloadDir;
   const run = () => {
-    facebookReels.tick({
+    brandPublish.tick({
       downloadDir,
-      post: (item) => postFacebook(item)
-    }).catch((err) => logEvent({ event: 'tick-error', platform: 'facebook', message: err && err.message ? err.message : String(err) }));
+      gapMs: gapMs(),
+      postFacebook: (item) => postFacebook(item),
+      postInstagram: (item) => postInstagram(item),
+      postYouTube: (item) => postYouTube(item)
+    }).catch((err) => logEvent({ event: 'tick-error', platform: 'publish', message: err && err.message ? err.message : String(err) }));
   };
   timer = setInterval(run, 15000);
   if (timer.unref) timer.unref();
   run();
-  logEvent({ event: 'scheduler', platform: 'facebook', message: 'Yalnızca Facebook Sayfa Reels. Saatler FACEBOOK_POST_SLOTS.' });
+  logEvent({ event: 'scheduler', platform: 'publish', message: 'Facebook, Instagram ve YouTube. Saatler 22:00, 22:30, 23:00.' });
 }
 
 function snapshot() {
   const state = loadState();
   const parts = trtParts();
   let facebook = null;
+  let brands = null;
   try { facebook = require('./facebook-reels').snapshot({ downloadDir: process.env.VA_DOWNLOAD_DIR }); } catch {}
+  try { brands = require('./brand-publish').snapshot({ downloadDir: process.env.VA_DOWNLOAD_DIR }); } catch {}
   return {
     timezone: 'Europe/Istanbul',
-    slot: 'FACEBOOK_POST_SLOTS',
+    slot: '22:00, 22:30, 23:00',
     today: parts.date,
     clock: `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}`,
     slotUsedToday: state.slotDate === parts.date,
     gapMs: gapMs(),
     accounts: {
-      instagram: false,
+      instagram: configured('instagram'),
       facebook: configured('facebook'),
+      youtube: configured('youtube'),
       x: false
     },
     facebook,
+    brands,
     items: (state.items || []).map((item) => ({
       id: item.id,
       file: path.basename(item.videoPath || ''),
@@ -612,5 +695,7 @@ module.exports = {
   shouldStartSlot,
   configured,
   PublishError,
-  postFacebook
+  postFacebook,
+  postInstagram,
+  postYouTube
 };
