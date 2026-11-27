@@ -300,6 +300,7 @@ function momentShotPrompt(narration, count) {
     'A driving line shows the driver as a normal person in the driver seat, doing what the line says. A passenger who is in that line sits beside them and does what the line says.',
     'A discovery line shows the person who finds the scene, a normal person, doing that discovery.',
     'Never depict blood, a corpse, a wound, or a severed body. If the spoken action is the injury, show the people just before the impact, still whole, doing the action that leads to it.',
+    'The photograph must be allowed on Instagram Reels, X, and YouTube. No nudity, no sexual content, no slur, and no instructions for self-harm or weapons.',
     'If the stretch has no person, do not add one.',
     'Do not add an object, a place, or an action the stretch does not contain.',
     'One continuous vertical photograph of that one moment.',

@@ -79,6 +79,7 @@ test('an article or a name counts as a hook subject', () => {
   assert.match(quality.issueNote(['word count 60']), /ordinary moment/);
   assert.match(quality.trueEventPrompt({ shock: 'a', ending: 'b', events: ['c'] }, 'English', ''), /helicopter lost altitude/);
   assert.match(quality.trueEventPrompt({ shock: 'a', ending: 'b', events: ['c'] }, 'English', ''), /stock phrase/);
+  assert.match(quality.trueEventPrompt({ shock: 'a', ending: 'b', events: ['c'] }, 'English', ''), /Instagram Reels, X, and YouTube/);
 });
 
 test('the default name policy keeps a victim surname out', () => {
@@ -114,5 +115,11 @@ test('human ratio, vehicle lock and graphic wording stay nonviolent', () => {
   assert.doesNotMatch(quality.calmText('a headless corpse in blood'), /headless|corpse|blood/);
   assert.match(quality.mapCardSvg(12, 'August 2004 · Georgia'), /12 miles/);
   assert.equal(quality.tailPlan(38.3).tail, 0.65);
+  assert.deepEqual(quality.communityIssues([{ narration: 'He died instantly on the dark road.' }]), []);
+  assert.ok(quality.communityIssues([{ narration: 'Blood covered the corpse.' }]).includes('community_graphic'));
+  assert.ok(quality.communityIssues([{ narration: 'The boy drove the truck home.' }]).length === 0);
+  assert.ok(quality.communityIssues([{ narration: 'A naked child stood in the room.' }]).includes('community_minor'));
+  assert.ok(quality.communityIssues([{ image_prompt: 'how to make a bomb in a kitchen' }]).includes('community_harm'));
+  assert.match(quality.issueNote(['community_graphic']), /killed instantly/);
   assert.equal(quality.hookVariants('He drove home.').length, 3);
 });

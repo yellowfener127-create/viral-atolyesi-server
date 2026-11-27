@@ -225,6 +225,10 @@ async function produceRecipe(opts, config, deps) {
     plan = job.readJson(dir, 'script.json');
     bible = job.readJson(dir, 'bible.json');
   }
+  const spokenCommunity = reelQuality.communityIssues(plan && plan.scenes);
+  if (spokenCommunity.length) {
+    throw new deps.DocumentaryError(`Topluluk kuralları geçilmedi (${spokenCommunity.join(', ')}). Reels, X ve YouTube için bu video üretilemez.`, 422);
+  }
 
   const ffmpegBin = opts.ffmpegPath || 'ffmpeg';
   const ffprobe = opts.ffprobePath || 'ffprobe';
@@ -340,6 +344,10 @@ async function produceRecipe(opts, config, deps) {
     reelQuality.lockLighting(plan.scenes);
     reelQuality.lockVehicle(plan.scenes);
     reelQuality.ensureHumanRatio(plan.scenes, 0.4);
+  }
+  const pictureCommunity = reelQuality.communityIssues(plan.scenes);
+  if (pictureCommunity.length) {
+    throw new deps.DocumentaryError(`Topluluk kuralları geçilmedi (${pictureCommunity.join(', ')}). Reels, X ve YouTube için bu video üretilemez.`, 422);
   }
   const clock = timeline.buildTimeline(plan.scenes, sceneAudio);
   if (reelCut && config.reel_variable_cuts !== false) reelQuality.applyVariableCuts(clock.shots, spokenDur);

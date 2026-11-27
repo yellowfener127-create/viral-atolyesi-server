@@ -7,6 +7,11 @@ const VAGUE_PLACE = /\bto atlanta\b/i;
 const TONE = /\b(lol|haha|hilarious|stupid|idiot|dumb)\b/i;
 const HUMAN = /\b(person|people|man|woman|boy|girl|silhouette|hand|hands|driver|passenger|neighbor)\b/i;
 const GRAPHIC = /\b(blood|corpse|gore|wound|decapitat\w*|headless|severed|dismember\w*)\b/gi;
+const COMMUNITY_GRAPHIC = /\b(blood|bloody|corpse|gore|guts|entrails|wound|decapitat\w*|headless|severed|dismember\w*|mutilat\w*|beheading)\b/i;
+const COMMUNITY_SEXUAL = /\b(nude|naked|porn|pornograph\w*|intercourse|genitals?|sex tape|orgasm)\b/i;
+const COMMUNITY_CHILD = /\b(child|children|minor|underage|kid|toddler|infant|baby|boy|girl)\b/i;
+const COMMUNITY_HATE = /\b(nigger|nigga|faggot|kike|spic|chink|tranny)\b/i;
+const COMMUNITY_HARM = /\bhow to (kill yourself|commit suicide|cut (your|their) wrists?|make (a |an )?(bomb|explosive|gun|firearm|weapon)|build (a |an )?(bomb|explosive|gun|firearm|weapon))\b|\b(suicide method|best way to die)\b/i;
 
 function contentWords(text) {
   return story.spokenTokens(text).filter((word) => word.length > 3 && !STOP.has(word));
@@ -83,6 +88,7 @@ function trueEventPrompt(reading, language, note, options) {
     'Do not repeat the same claim in two sentences in a row. The second sentence must add a new fact.',
     'Do not say "to Atlanta" unless the reading says the destination was Atlanta.',
     'Read the event again before each sentence. Use the fact that is already in the reading. Do not reach for a stock phrase. Do not end on imagine, could you imagine, can you imagine, or ever imagine.',
+    'The finished video must be allowed on Instagram Reels, X, and YouTube. No graphic injury, no sexual content, no nudity, no slur, and no instructions for self-harm or weapons. Say that someone was killed instantly. If the moment is the injury, the picture shows the people still whole, just before impact.',
     nameLine(opts.name_policy),
     'image_prompt shows exactly the people that scene names, as ordinary people doing the action the narration gives them. Not silhouettes. A scene with no person does not gain one. No blood, no corpse, no wound, no severed body.',
     'anchor_words are 2 to 4 words copied from that scene narration.',
@@ -117,6 +123,11 @@ function issueNote(issues) {
     new_info_by_6s: 'Sentence 2 must add a new fact. Do not repeat the opening claim.',
     missing_aftermath: 'Add the court result or family response that is already in the reading.',
     missing_loop_closer: 'The last sentence must stay with this event. Do not use imagine.',
+    community_graphic: 'Remove graphic injury from the words and the picture. Say the person was killed instantly. Do not show blood, a corpse, a wound, or a severed body. Instagram Reels, X, and YouTube reject that.',
+    community_sexual: 'Remove sexual content and nudity. This video must be allowed on Instagram Reels, X, and YouTube.',
+    community_minor: 'Remove any sexual content involving a child. Do not produce the video.',
+    community_hate: 'Remove slurs and attacks on a group. This video must be allowed on Instagram Reels, X, and YouTube.',
+    community_harm: 'Do not give instructions for self-harm, suicide, or making a weapon. You may say that the event happened, without explaining how to do it.',
     vague_location: 'Do not say "to Atlanta" unless the reading says that was the destination.',
     victim_full_name: 'Use only the victim\'s first name.',
     victim_named: 'Leave the victim\'s name out.',
@@ -170,6 +181,26 @@ function structureIssues(scenes, options) {
   list.forEach((scene, index) => {
     if (!String(scene && scene.narration || '').trim()) issues.push(`empty scene ${index + 1}`);
   });
+  communityIssues(list).forEach((code) => issues.push(code));
+  return issues;
+}
+
+function sceneText(scenes) {
+  return (scenes || []).flatMap((scene) => [
+    scene && scene.narration,
+    scene && scene.image_prompt,
+    ...(Array.isArray(scene && scene.shots) ? scene.shots.map((shot) => shot && shot.visual_prompt) : [])
+  ]).filter(Boolean).join(' ');
+}
+
+function communityIssues(scenes) {
+  const text = sceneText(scenes);
+  const issues = [];
+  if (COMMUNITY_GRAPHIC.test(text)) issues.push('community_graphic');
+  if (COMMUNITY_SEXUAL.test(text) && COMMUNITY_CHILD.test(text)) issues.push('community_minor');
+  else if (COMMUNITY_SEXUAL.test(text)) issues.push('community_sexual');
+  if (COMMUNITY_HATE.test(text)) issues.push('community_hate');
+  if (COMMUNITY_HARM.test(text)) issues.push('community_harm');
   return issues;
 }
 
@@ -322,6 +353,7 @@ module.exports = {
   isReveal,
   trueEventPrompt,
   structureIssues,
+  communityIssues,
   reviewTrueEvent,
   durationStats,
   applyVariableCuts,
