@@ -1,7 +1,7 @@
 /**
  * Kancalı videoyu kuyruğa alır.
- * Her gün 21:30 TRT'de hesap başına 1 video: Instagram, sonra Facebook, sonra X.
- * Platformlar arasında beklenir. Resmi API; anahtar yoksa paylaşım yapılmaz.
+ * Otomatik paylaşım yalnızca Facebook Sayfa Reels'tir: marka klasöründeki sıradaki mp4.
+ * Instagram ve X kodu durur, zamanlayıcı onları çağırmaz.
  *
  *   const q = require('./publish-queue');
  *   await q.finishHookedPublish({ videoPath, hookText, caption });
@@ -230,11 +230,11 @@ async function postInstagram(item) {
 }
 
 async function postFacebook(item) {
-  if (!configured('facebook')) {
+  const token = String((item && item.token) || process.env.FACEBOOK_PAGE_TOKEN || process.env.META_ACCESS_TOKEN || '').trim();
+  const pageId = String((item && item.pageId) || process.env.FACEBOOK_PAGE_ID || '').trim();
+  if (!pageId || !token) {
     throw new PublishError('Facebook sayfası ayarlı değil (FACEBOOK_PAGE_ID, FACEBOOK_PAGE_TOKEN).', { skip: true });
   }
-  const token = process.env.FACEBOOK_PAGE_TOKEN || process.env.META_ACCESS_TOKEN;
-  const pageId = process.env.FACEBOOK_PAGE_ID;
   const version = GRAPH_VERSION();
   const video = await fs.promises.readFile(item.videoPath);
   const start = await fetch(`https://graph.facebook.com/${version}/${encodeURIComponent(pageId)}/video_reels`, {
@@ -432,6 +432,10 @@ async function runPublishSlot(options = {}) {
   for (const name of PLATFORMS) {
     const entry = item.platforms[name] || { status: 'pending' };
     item.platforms[name] = entry;
+    if (name !== 'facebook') {
+      logEvent({ event: 'skipped', platform: name, itemId: item.id, message: 'Şimdilik yalnızca Facebook Sayfa Reels açık.' });
+      continue;
+    }
     if (entry.status === 'posted') continue;
     if (state.postedDays[name] === today) {
       logEvent({ event: 'day-limit', platform: name, itemId: item.id, message: 'Bu hesap bugün zaten paylaştı.' });
@@ -550,21 +554,42 @@ async function finishHookedPublish({ videoPath, hookText, caption }) {
   return { ok: true, queued: row.id, videoPath: abs };
 }
 
+let timer = null;
+
+function startScheduler(options = {}) {
+  if (timer) return;
+  const facebookReels = require('./facebook-reels');
+  const downloadDir = options.downloadDir;
+  const run = () => {
+    facebookReels.tick({
+      downloadDir,
+      post: (item) => postFacebook(item)
+    }).catch((err) => logEvent({ event: 'tick-error', platform: 'facebook', message: err && err.message ? err.message : String(err) }));
+  };
+  timer = setInterval(run, 15000);
+  if (timer.unref) timer.unref();
+  run();
+  logEvent({ event: 'scheduler', platform: 'facebook', message: 'Yalnızca Facebook Sayfa Reels. Saatler FACEBOOK_POST_SLOTS.' });
+}
+
 function snapshot() {
   const state = loadState();
   const parts = trtParts();
+  let facebook = null;
+  try { facebook = require('./facebook-reels').snapshot({ downloadDir: process.env.VA_DOWNLOAD_DIR }); } catch {}
   return {
     timezone: 'Europe/Istanbul',
-    slot: '21:30',
+    slot: 'FACEBOOK_POST_SLOTS',
     today: parts.date,
     clock: `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}`,
     slotUsedToday: state.slotDate === parts.date,
     gapMs: gapMs(),
     accounts: {
-      instagram: configured('instagram'),
+      instagram: false,
       facebook: configured('facebook'),
-      x: configured('x')
+      x: false
     },
+    facebook,
     items: (state.items || []).map((item) => ({
       id: item.id,
       file: path.basename(item.videoPath || ''),
@@ -573,46 +598,6 @@ function snapshot() {
       platforms: item.platforms
     }))
   };
-}
-
-let timer = null;
-let running = false;
-
-async function tick() {
-  if (running) return;
-  const parts = trtParts();
-  const state = loadState();
-  if (!shouldStartSlot(parts, state)) {
-    const past = parts.hour > SLOT_HOUR || (parts.hour === SLOT_HOUR && parts.minute > SLOT_MINUTE);
-    if (past && nextItem(state) && state.slotDate !== parts.date && state.missedDate !== parts.date) {
-      state.missedDate = parts.date;
-      saveState(state);
-      logEvent({ event: 'missed-slot', message: '21:30 geçti, bugün paylaşım yok. Sıradaki video yarın 21:30\'da gider.' });
-    }
-    return;
-  }
-  if (!nextItem(state)) return;
-  running = true;
-  try {
-    state.slotDate = parts.date;
-    saveState(state);
-    await runPublishSlot({ today: parts.date });
-  } catch (err) {
-    logEvent({ event: 'slot-error', message: err && err.message ? err.message : String(err) });
-  } finally {
-    running = false;
-  }
-}
-
-function startScheduler() {
-  if (timer) return;
-  const run = () => {
-    tick().catch((err) => logEvent({ event: 'tick-error', message: err.message }));
-  };
-  timer = setInterval(run, 15000);
-  if (timer.unref) timer.unref();
-  run();
-  logEvent({ event: 'scheduler', message: 'Her gün 21:30 TRT, hesap başına 1 video.' });
 }
 
 module.exports = {
@@ -624,5 +609,6 @@ module.exports = {
   trtParts,
   shouldStartSlot,
   configured,
-  PublishError
+  PublishError,
+  postFacebook
 };

@@ -3492,7 +3492,7 @@ if (require.main === module) {
     console.log(`Local Downloader running on http://127.0.0.1:${PORT}`);
     console.log('Download dir:', DOWNLOAD_DIR);
     console.log('yt-dlp:', YTDLP_BIN);
-    publishQueue.startScheduler();
+    publishQueue.startScheduler({ downloadDir: DOWNLOAD_DIR });
   });
   server.requestTimeout = 0;
   server.headersTimeout = 0;
