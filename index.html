@@ -2630,7 +2630,7 @@ function wikiQueueButtonLabel(item) {
   if (!item) return "Kuyruğa ekle";
   if (item.status === "done") return "✓";
   if (item.status === "error") return "Tekrar dene";
-  if (item.status === "script") return item.order + " · Senaryo" + (item.try > 1 ? " · tekrar " + (item.try - 1) + "/3" : "");
+  if (item.status === "script") return item.order + " · Senaryo" + (item.try > 1 ? " · tekrar " + (item.try - 1) + "/10" : "");
   if (item.status === "hook") return item.order + " · Hook";
   if (item.status === "render") return item.order + " · Üretim";
   return String(item.order);
@@ -2646,7 +2646,7 @@ function paintWikiQueueButtons() {
     note.textContent = item.status === "error"
       ? item.error
       : item.try > 1 && item.status !== "done"
-        ? ("Ölçü tutmadı, tekrar " + (item.try - 1) + "/3")
+        ? ("Ölçü tutmadı, tekrar " + (item.try - 1) + "/10")
         : item.status === "done"
           ? ("İndi" + (item.saved ? ": " + item.saved : ""))
           : "";
@@ -2829,7 +2829,7 @@ function wikiMeasureMiss(err) {
 
 async function produceWikiQueueItem(item) {
   let last;
-  for (let attempt = 1; attempt <= 4; attempt++) {
+  for (let attempt = 1; attempt <= 11; attempt++) {
     while (reelBusy) await new Promise((resolve) => setTimeout(resolve, 400));
     reelBusy = true;
     item.try = attempt;
@@ -2839,7 +2839,7 @@ async function produceWikiQueueItem(item) {
       return;
     } catch (err) {
       last = err;
-      if (!wikiMeasureMiss(err) || attempt === 4) throw err;
+      if (!wikiMeasureMiss(err) || attempt === 11) throw err;
       item.status = "script";
       item.error = "";
       paintWikiQueueButtons();
