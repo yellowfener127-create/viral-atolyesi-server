@@ -298,8 +298,12 @@
   .wiki-name{font-weight:700}
   .wiki-meta{color:var(--muted);white-space:nowrap}
   .wiki-story{min-width:240px}
-  .wiki-actions{display:flex;flex-direction:column;gap:8px;min-width:180px}
+  .wiki-actions{display:flex;flex-direction:column;gap:8px;min-width:210px}
   .wiki-actions .tool-btn{width:100%;padding:8px 10px;font-size:12px}
+  .wiki-queue-channel,.wiki-queue-opening{width:100%;margin:0}
+  .wiki-queue-opening{min-height:52px;resize:vertical}
+  .wiki-queue-error{margin-top:2px;font-size:11px;line-height:1.35;color:#ffb4b4}
+  .wiki-queue-ok{margin-top:2px;font-size:11px;line-height:1.35;color:#b7f5c8}
   .wiki-used-pill{display:inline-block;margin-top:6px;padding:2px 8px;border-radius:999px;background:rgba(124,107,255,.28);color:#e4e0ff;font-size:11px;font-weight:700}
 
 </style>
@@ -725,6 +729,7 @@
     </div>
     <div class="wiki-picks" id="wikiPicks"></div>
     <label class="wiki-filter"><input type="checkbox" id="wikiUnusedOnly" onchange="renderWikiRows()" /> Sadece Kullanılmayanları Göster</label>
+    <div id="wikiQueueLine" style="font-size:12px;color:var(--muted);min-height:18px"></div>
     <div id="wikiMsg" style="font-size:12px;color:var(--muted);min-height:18px"></div>
     <div id="wikiLinks" class="wiki-links"></div>
     <div class="wiki-table-wrap" id="wikiTableWrap" style="display:none">
@@ -2402,8 +2407,20 @@ function wireWikiTable() {
   body.addEventListener("click", (event) => {
     const mark = event.target.closest("[data-wiki-mark]");
     const send = event.target.closest("[data-wiki-send]");
+    const queue = event.target.closest("[data-wiki-queue]");
     if (mark) toggleWikiMark(mark.getAttribute("data-wiki-mark"));
     if (send) sendWikiToReel(send.getAttribute("data-wiki-send"));
+    if (queue) enqueueWikiRow(queue.getAttribute("data-wiki-queue"));
+  });
+  body.addEventListener("change", (event) => {
+    const channel = event.target.closest("[data-wiki-channel]");
+    if (!channel) return;
+    rememberWikiDraft(channel.getAttribute("data-wiki-channel"), { channel: channel.value });
+  });
+  body.addEventListener("input", (event) => {
+    const opening = event.target.closest("[data-wiki-opening]");
+    if (!opening) return;
+    rememberWikiDraft(opening.getAttribute("data-wiki-opening"), { opening: opening.value });
   });
 }
 
@@ -2512,7 +2529,8 @@ function renderWikiRows() {
   wikiRows.forEach((row) => {
     const state = wikiState(row.id);
     const used = Boolean(state && state.video);
-    if (unusedOnly && used) return;
+    const queued = wikiQueueItem(row.id);
+    if (unusedOnly && used && !queued) return;
     if (row.section && row.section !== section) {
       section = row.section;
       const head = document.createElement("tr");
@@ -2524,12 +2542,17 @@ function renderWikiRows() {
     const tr = document.createElement("tr");
     tr.className = "wiki-row" + (state && state.marked ? " marked" : "") + (used ? " used" : "");
     const markLabel = state && state.marked ? "İşareti kaldır" : "İşaretle / Kaldığım Yer";
+    const draft = wikiDraftOf(row.id);
     tr.innerHTML =
       "<td class=\"wiki-name\">" + wikiEsc(row.name) + (used ? "<div class=\"wiki-used-pill\">Kullanıldı</div>" : "") + "</td>" +
       "<td class=\"wiki-meta\">" + wikiEsc(row.date) + "</td>" +
       "<td class=\"wiki-meta\">" + wikiEsc(row.place) + "</td>" +
       "<td class=\"wiki-story\">" + wikiEsc(row.story) + "</td>" +
       "<td><div class=\"wiki-actions\">" +
+        wikiChannelSelect(row.id, draft.channel) +
+        "<textarea class=\"tool-input wiki-queue-opening\" data-wiki-opening=\"" + wikiEsc(row.id) + "\" maxlength=\"500\" placeholder=\"Başta söylenecek söz\">" + wikiEsc(draft.opening) + "</textarea>" +
+        "<button type=\"button\" class=\"tool-btn\" data-wiki-queue=\"" + wikiEsc(row.id) + "\">" + wikiEsc(wikiQueueButtonLabel(queued)) + "</button>" +
+        "<div class=\"wiki-queue-note\" data-wiki-note=\"" + wikiEsc(row.id) + "\"></div>" +
         "<button type=\"button\" class=\"tool-btn\" data-wiki-mark=\"" + wikiEsc(row.id) + "\">" + markLabel + "</button>" +
         "<button type=\"button\" class=\"tool-btn\" data-wiki-send=\"" + wikiEsc(row.id) + "\">Videoya Aktar</button>" +
       "</div></td>";
@@ -2541,6 +2564,7 @@ function renderWikiRows() {
     tr.innerHTML = "<td colspan=\"5\" style=\"color:var(--muted)\">Kullanılmayan hikâye kalmadı.</td>";
     body.appendChild(tr);
   }
+  paintWikiQueueButtons();
 }
 
 async function saveWikiFlag(row, patch) {
@@ -2571,6 +2595,302 @@ async function toggleWikiMark(id) {
   } catch (e) {
     const msg = document.getElementById("wikiMsg");
     if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
+  }
+}
+
+const wikiDraft = {};
+const wikiQueue = [];
+let wikiQueueSeq = 0;
+let wikiQueueRunning = false;
+const wikiQueuePending = {};
+
+function wikiDraftOf(id) {
+  return Object.assign({ channel: "epoch", opening: "" }, wikiDraft[id]);
+}
+
+function rememberWikiDraft(id, patch) {
+  if (!id) return;
+  wikiDraft[id] = Object.assign(wikiDraftOf(id), patch);
+  const item = wikiQueueItem(id);
+  if (item && item.status === "queued") Object.assign(item, patch);
+}
+
+function wikiQueueItem(id) {
+  return wikiQueue.find((item) => item && item.id === id) || null;
+}
+
+function wikiChannelSelect(id, channel) {
+  const options = [["epoch", "Epoch Lab"], ["chaos", "Chaos Lab"], ["therapy", "Therapy Lab"]];
+  return "<select class=\"tool-input wiki-queue-channel\" data-wiki-channel=\"" + wikiEsc(id) + "\">" +
+    options.map((opt) => "<option value=\"" + opt[0] + "\"" + (channel === opt[0] ? " selected" : "") + ">" + opt[1] + "</option>").join("") +
+    "</select>";
+}
+
+function wikiQueueButtonLabel(item) {
+  if (!item) return "Kuyruğa ekle";
+  if (item.status === "done") return "✓";
+  if (item.status === "error") return "Tekrar dene";
+  if (item.status === "script") return item.order + " · Senaryo";
+  if (item.status === "hook") return item.order + " · Hook";
+  if (item.status === "render") return item.order + " · Üretim";
+  return String(item.order);
+}
+
+function paintWikiQueueButtons() {
+  wikiQueue.forEach((item) => {
+    const btn = document.querySelector("[data-wiki-queue=\"" + item.id + "\"]");
+    if (btn) btn.textContent = wikiQueueButtonLabel(item);
+    const note = document.querySelector("[data-wiki-note=\"" + item.id + "\"]");
+    if (!note) return;
+    note.className = item.status === "error" ? "wiki-queue-error" : item.status === "done" ? "wiki-queue-ok" : "wiki-queue-note";
+    note.textContent = item.status === "error"
+      ? item.error
+      : item.status === "done"
+        ? ("İndi" + (item.saved ? ": " + item.saved : ""))
+        : "";
+  });
+  paintWikiQueueLine();
+}
+
+function paintWikiQueueLine() {
+  const line = document.getElementById("wikiQueueLine");
+  if (!line) return;
+  if (!wikiQueue.length) {
+    line.textContent = "Kuyruğa eklenen vaka, bu sayfa açıkken sırayla üretilir.";
+    return;
+  }
+  const current = wikiQueue.find((item) => item.status === "script" || item.status === "hook" || item.status === "render");
+  const waiting = wikiQueue.filter((item) => item.status === "queued").length;
+  const failed = wikiQueue.filter((item) => item.status === "error").length;
+  const done = wikiQueue.filter((item) => item.status === "done").length;
+  const step = !current ? "" : current.status === "script" ? "senaryo" : current.status === "hook" ? "hook" : "üretim";
+  line.textContent = "Kuyruk · bitti " + done + " · bekleyen " + waiting +
+    (current ? " · şimdi " + current.order + " (" + step + ")" : "") +
+    (failed ? " · hata " + failed : "");
+}
+
+function wikiQueueVoice() {
+  const picked = reelSelectedVoiceId();
+  if (picked === "random") return REEL_BUILTIN_VOICES[Math.floor(Math.random() * REEL_BUILTIN_VOICES.length)];
+  if (picked === "auq43ws1oslv0tO4BDa7" || !reelVoiceOk(picked)) return "pNInz6obpgDQGcFmaJgB";
+  return picked;
+}
+
+function wikiStoryText(row) {
+  const heading = [row.name, [row.date, row.place].filter(Boolean).join(", ")].filter(Boolean).join(". ");
+  return [heading, row.story].filter(Boolean).join("\n\n");
+}
+
+function wikiBrand(channel) {
+  if (channel === "chaos") return "kaos";
+  if (channel === "therapy") return "terapi";
+  return "umut";
+}
+
+async function waitDocumentaryIdle() {
+  for (let i = 0; i < 800; i++) {
+    const res = await fetch(LOCAL_API + "/documentary-active");
+    const data = await res.json().catch(() => ({}));
+    if (!data.running) return;
+    paintReelProgress(data.percent || 4, data.label || "Üretim sürüyor");
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  throw new Error("Üretim kilidi açılmadı.");
+}
+
+async function enqueueWikiRow(id) {
+  const row = wikiRows.find((item) => item.id === id);
+  if (!row || wikiQueuePending[id]) return;
+  const existing = wikiQueueItem(id);
+  if (existing && existing.status !== "error") return;
+  wikiQueuePending[id] = true;
+  const draft = wikiDraftOf(id);
+  const openingBox = document.querySelector("[data-wiki-opening=\"" + id + "\"]");
+  const channelBox = document.querySelector("[data-wiki-channel=\"" + id + "\"]");
+  const opening = String((openingBox && openingBox.value) || draft.opening || "").trim().slice(0, 500);
+  const channel = String((channelBox && channelBox.value) || draft.channel || "epoch");
+  rememberWikiDraft(id, { channel: channel, opening: opening });
+  const story = wikiStoryText(row);
+  if (story.length < 40) {
+    delete wikiQueuePending[id];
+    const msg = document.getElementById("wikiMsg");
+    if (msg) msg.textContent = "Bu satır kuyruğa eklenemedi: hikâye çok kısa.";
+    return;
+  }
+  const keys = geminiKeysInOrder();
+  if (!keys.length) {
+    delete wikiQueuePending[id];
+    alert("Üstteki Viral Atölyesi yazısına tıklayıp bir Gemini anahtarını aktif yap.");
+    return;
+  }
+  const priorError = existing ? existing.error : "";
+  if (existing) {
+    existing.status = "queued";
+    existing.error = "";
+    existing.saved = "";
+    existing.order = ++wikiQueueSeq;
+    existing.channel = channel;
+    existing.opening = opening;
+    existing.story = story;
+    existing.voiceId = wikiQueueVoice();
+    wikiQueue.splice(wikiQueue.indexOf(existing), 1);
+    wikiQueue.push(existing);
+  } else {
+    wikiQueue.push({
+      id: row.id,
+      order: ++wikiQueueSeq,
+      story: story,
+      channel: channel,
+      opening: opening,
+      voiceId: wikiQueueVoice(),
+      status: "queued",
+      error: "",
+      saved: ""
+    });
+  }
+  try {
+    await saveWikiFlag(row, { video: true, marked: true });
+  } catch (e) {
+    if (existing) {
+      existing.status = "error";
+      existing.error = priorError;
+    } else {
+      const added = wikiQueueItem(id);
+      if (added) wikiQueue.splice(wikiQueue.indexOf(added), 1);
+    }
+    delete wikiQueuePending[id];
+    renderWikiRows();
+    const msg = document.getElementById("wikiMsg");
+    if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
+    return;
+  }
+  delete wikiQueuePending[id];
+  renderWikiRows();
+  runWikiQueue();
+}
+
+async function postWikiDocumentary(item, scenes, musicMood, hookText, captionText) {
+  const keys = geminiKeysInOrder();
+  let res;
+  let data = {};
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await waitDocumentaryIdle();
+    for (let i = 0; i < keys.length; i++) {
+      res = await fetch(LOCAL_API + "/documentary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: String(scenes[0].narration || item.story).slice(0, 90),
+          story_text: item.story,
+          opening_text: item.opening || "",
+          script_scenes: scenes,
+          music_mood: musicMood || "",
+          lang: "en",
+          channel: item.channel,
+          voice_id: item.voiceId,
+          gemini_api_key: keys[i],
+          elevenlabs_api_key: docElevenKeySaved(),
+          frame_after: true,
+          brand: wikiBrand(item.channel),
+          hook_text: hookText,
+          caption_text: captionText
+        })
+      });
+      data = await res.json().catch(() => ({}));
+      const errText = (data && data.error) ? data.error : "";
+      if ((res.ok && data.ok) || !docGeminiRetryable(res.status, errText) || i === keys.length - 1) break;
+    }
+    if (!(res && res.status === 409 && data.running)) break;
+  }
+  if (res && res.status === 409) throw new Error("Başka bir üretim sürüyordu. Bu vaka atlandı.");
+  if (!res || !res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + (res ? res.status : 0)));
+  if (data.framed && data.absPath) return data.file || data.absPath;
+  const localPath = data.absPath || "";
+  if (!localPath) throw new Error("Video yolu gelmedi.");
+  const framed = await fetch(LOCAL_API + "/crush", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      local_path: localPath,
+      brand: wikiBrand(item.channel),
+      frame_only: true,
+      hook_text: hookText,
+      caption_text: captionText,
+      manual_start_sec: 0
+    })
+  });
+  const framedData = await framed.json().catch(() => ({}));
+  if (!framed.ok || !framedData.ok) throw new Error((framedData && framedData.error) ? framedData.error : "Çerçeve basılamadı.");
+  return framedData.file || framedData.absPath || "";
+}
+
+async function produceWikiQueueItem(item) {
+  while (reelBusy) await new Promise((resolve) => setTimeout(resolve, 400));
+  reelBusy = true;
+  try {
+  await produceWikiQueueItemBody(item);
+  } finally {
+    reelBusy = false;
+  }
+}
+
+async function produceWikiQueueItemBody(item) {
+  const keys = geminiKeysInOrder();
+  if (!keys.length) throw new Error("Gemini anahtarı yok.");
+  item.status = "script";
+  item.error = "";
+  paintWikiQueueButtons();
+  let scriptRes;
+  let script = {};
+  for (let i = 0; i < keys.length; i++) {
+    scriptRes = await fetch(LOCAL_API + "/story-reel-script", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ story: item.story, gemini_api_key: keys[i] })
+    });
+    script = await scriptRes.json().catch(() => ({}));
+    const errText = (script && script.error) ? script.error : "";
+    if ((scriptRes.ok && script.ok) || !docGeminiRetryable(scriptRes.status, errText) || i === keys.length - 1) break;
+  }
+  if (!scriptRes.ok || !script.ok) throw new Error((script && script.error) ? script.error : "Senaryo yazılamadı.");
+  const scenes = script.scenes_en;
+  if (!Array.isArray(scenes) || scenes.length !== 5) throw new Error("Senaryo 5 sahne gelmedi.");
+  item.status = "hook";
+  paintWikiQueueButtons();
+  const spoken = scenes.map((scene, index) => (index + 1) + ". " + scene.narration).join("\n");
+  const ask = "The spoken script:\n" + spoken + "\nWrite the HOOK, the CAPTION sentences, and exactly 5 hashtags. Do not add any words after the caption emoji.";
+  const reply = await geminiGenerate(keys[0], GEMINI_HOOK_SYSTEM, [{ role: "user", parts: [{ text: ask }] }]);
+  const split = geminiSplitCopy(reply || "");
+  if (!split) throw new Error("Hook ve açıklama ayrılamadı.");
+  const captionText = (split.caption + " " + split.hashtags).trim();
+  if (!split.hook || !captionText) throw new Error("Hook ve açıklama boş.");
+  item.status = "render";
+  paintWikiQueueButtons();
+  paintReelProgress(4, "Hazırlanıyor");
+  item.saved = await postWikiDocumentary(item, scenes, script.music_mood, split.hook, captionText);
+  paintReelProgress(100, "İndi");
+}
+
+async function runWikiQueue() {
+  if (wikiQueueRunning) return;
+  wikiQueueRunning = true;
+  try {
+    while (true) {
+      const item = wikiQueue.find((row) => row.status === "queued");
+      if (!item) break;
+      try {
+        await produceWikiQueueItem(item);
+        item.status = "done";
+        item.error = "";
+      } catch (e) {
+        item.status = "error";
+        item.error = (e && e.message) ? e.message : String(e);
+      }
+      paintWikiQueueButtons();
+    }
+  } finally {
+    wikiQueueRunning = false;
+    if (wikiQueue.some((row) => row.status === "queued")) runWikiQueue();
   }
 }
 
@@ -4043,7 +4363,6 @@ function stopReelPoll() {
 
 async function runReel() {
   if (reelBusy) return;
-  reelBusy = true;
   const btn = document.getElementById("reelBuildBtn");
   const msg = document.getElementById("reelMsg");
   const spokenScenes = reelPlan && reelPlan.scenes_en;
@@ -4082,6 +4401,7 @@ async function runReel() {
   }
   paintReelProgress(4, "Hazırlanıyor");
   startReelPoll();
+  reelBusy = true;
   try {
     let res;
     let data = {};
@@ -4193,7 +4513,7 @@ async function sendReelGemini() {
   }
   const note = String((document.getElementById("reelGeminiInput") || {}).value || "").trim();
   const script = spoken.map((scene, index) => (index + 1) + ". " + scene.narration).join("\n");
-  const ask = "The spoken script:\n" + script + (note ? "\n\nNote:\n" + note : "") + "\nWrite the HOOK, CAPTION, and 5 subject hashtags.";
+  const ask = "The spoken script:\n" + script + (note ? "\n\nNote:\n" + note : "") + "\nWrite the HOOK, the CAPTION sentences, and exactly 5 hashtags. Do not add any words after the caption emoji.";
   if (btn) btn.disabled = true;
   if (msg) { msg.style.display = "block"; msg.textContent = "Hook yazılıyor…"; }
   reelGeminiLine(note || "Senaryodan hook yaz.");
@@ -4249,7 +4569,7 @@ function showMccTab(id) {
 
 const GEMINI_CHAT_MODEL = "gemini-3.5-flash-lite";
 const GEMINI_STORY_SYSTEM = "You are a senior short-form story editor. The uploaded video is one compilation cut from TWO DIFFERENT ranking videos, not a single clip. Watch the file from the first moment to the last. Do not judge it from one frame or one freeze. Keep the two rankings separate. Write a beat sheet in order: who does what, what changes, and how each ranking pays off. Then one short paragraph on how the two rankings sit together as one video. No hook, no caption, no hashtags.";
-const GEMINI_HOOK_SYSTEM = "You are a professional retention writer for Reels, TikTok, and Shorts. These videos are compilations of TWO different ranking videos. You are given the full beat sheet of both rankings. Read that entire beat sheet before you write. The hook must come from the whole video, both rankings together, not from a single frame or a single clip. It has to stop a stranger in the first 3 seconds.\n\nOutput exactly this shape and nothing else:\nHOOK:\n<one English line, 53 characters MAXIMUM including spaces and the emoji. Count every character. Include exactly one fitting emoji inside the line. No hashtags. No quotes.>\nCAPTION:\n<one or two English sentences that carry both rankings without spoiling the last beat. Include at least one fitting emoji. No hashtags in this block. The caption plus the 5 hashtags, joined by one space, must be at most 180 characters, including spaces, the emoji, and every hashtag. There is no minimum count. Write one or two complete sentences, not a stub of a few words. Never add a hashtag to make the line longer. Each of the 5 hashtags is one short subject word.>\nHASHTAGS:\n<exactly 5 English hashtags, no more and no less. Every tag names the subject, genre, or audience of THIS video so YouTube and Instagram can categorize it and show it to people who watch this kind of story. One short word each. Do not use #chaos #therapy #epoch #viral #fyp #trending>\n\nAlways use emojis. Never skip the emoji on the hook or the caption. English only. One hook. One caption. No alternatives.";
+const GEMINI_HOOK_SYSTEM = "You are a professional retention writer for Reels, TikTok, and Shorts. These videos are compilations of TWO different ranking videos. You are given the full beat sheet of both rankings. Read that entire beat sheet before you write. The hook must come from the whole video, both rankings together, not from a single frame or a single clip. It has to stop a stranger in the first 3 seconds.\n\nOutput exactly this shape and nothing else:\nHOOK:\n<one English line, 53 characters MAXIMUM including spaces and the emoji. Count every character. Include exactly one fitting emoji inside the line. No hashtags. No quotes.>\nCAPTION:\n<one or two English sentences that carry both rankings without spoiling the last beat. Include at least one fitting emoji. No hashtags in this block. The caption plus the 5 hashtags, joined by one space, must be at most 180 characters, including spaces, the emoji, and every hashtag. There is no minimum count. Write one or two complete sentences, not a stub of a few words. Never add a hashtag to make the line longer. Each of the 5 hashtags is one short subject word.>\nHASHTAGS:\n<exactly 5 English hashtags, no more and no less. Every tag names the subject, genre, or audience of THIS video so YouTube and Instagram can categorize it and show it to people who watch this kind of story. One short word each. Do not use #chaos #therapy #epoch #viral #fyp #trending>\n\nAlways use emojis. Never skip the emoji on the hook or the caption. After the caption emoji, stop. Do not add keywords, a subject list, or any plain words. Those words belong only in the 5 hashtags. English only. One hook. One caption. No alternatives.";
 const GEMINI_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
 let geminiChatHistory = [];
 let geminiChatVideoFile = null;
@@ -4797,9 +5117,15 @@ function geminiFiveTags(raw, caption) {
   return tags.slice(0, 5).join(" ");
 }
 
+function geminiStripKeywordTail(body) {
+  const text = String(body || "").replace(/\s+/g, " ").trim();
+  const cut = text.match(/^(.*(?:[.!?…]|[\p{Extended_Pictographic}\uFE0F]))(?:\s+[a-z][a-z0-9]{1,16},?){2,}\s*$/u);
+  return cut ? cut[1].trim() : text;
+}
+
 function geminiBoundCaption(caption, tags) {
   const tagText = String(tags || "").replace(/\s+/g, " ").trim();
-  let body = String(caption || "").replace(/#[^\s#]+/g, " ").replace(/\s+/g, " ").trim();
+  let body = geminiStripKeywordTail(String(caption || "").replace(/#[^\s#]+/g, " ").replace(/\s+/g, " ").trim());
   const suffixLen = tagText ? Array.from(" " + tagText).length : 0;
   const maxBody = 180 - suffixLen;
   if (maxBody < 1) return geminiClipChars(body, 180);
