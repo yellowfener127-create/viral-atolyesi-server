@@ -138,6 +138,25 @@ test('a failed post stays in place and the next page still runs', async () => {
   delete process.env.FACEBOOK_POST_SLOTS;
 });
 
+test('a brand access token is used when the page token name is empty', () => {
+  const root = tempDir();
+  process.env.FACEBOOK_SOURCE_DIRS = 'Epoch Lab';
+  process.env.FACEBOOK_POST_SLOTS = '22:00';
+  delete process.env.FACEBOOK_EPOCH_PAGE_TOKEN;
+  delete process.env.FACEBOOK_PAGE_ID;
+  delete process.env.FACEBOOK_PAGE_TOKEN;
+  process.env.FACEBOOK_EPOCH_PAGE_ID = 'epoch-id';
+  process.env.FACEBOOK_EPOCH_ACCESS_TOKEN = 'epoch-access';
+  const built = reels.pages(root);
+  assert.equal(built.pages[0].ready, true);
+  assert.equal(built.pages[0].pageId, 'epoch-id');
+  assert.equal(built.pages[0].via, 'brand');
+  delete process.env.FACEBOOK_EPOCH_PAGE_ID;
+  delete process.env.FACEBOOK_EPOCH_ACCESS_TOKEN;
+  delete process.env.FACEBOOK_SOURCE_DIRS;
+  delete process.env.FACEBOOK_POST_SLOTS;
+});
+
 test('each brand uses its own page and a half-filled brand is skipped', async () => {
   const root = tempDir();
   const epoch = path.join(root, 'Epoch Lab');

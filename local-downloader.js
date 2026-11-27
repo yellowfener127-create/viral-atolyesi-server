@@ -1,10 +1,31 @@
+const fs = require('fs');
+const path = require('path');
+
+function logProcessFault(kind, err) {
+  const detail = err && err.stack ? err.stack : String(err);
+  const line = `[${new Date().toISOString()}] ${kind}\n${detail}\n`;
+  try {
+    const dir = path.join(__dirname, 'output');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(path.join(dir, 'downloader-process.log'), line);
+  } catch {}
+  console.error(line);
+}
+
+process.on('unhandledRejection', (reason) => {
+  logProcessFault('unhandledRejection', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  logProcessFault('uncaughtException', err);
+  setTimeout(() => process.exit(1), 300);
+});
+
 const express = require('express');
 const cors = require('cors');
 const { spawn } = require('child_process');
-const fs = require('fs');
 const https = require('https');
 const os = require('os');
-const path = require('path');
 const crypto = require('crypto');
 const crush = require('./crush-pipeline');
 const compilationMixer = require('./compilation-mixer');

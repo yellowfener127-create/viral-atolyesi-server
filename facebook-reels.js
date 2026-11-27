@@ -131,7 +131,7 @@ function readCredential(name) {
 
 function credentialsFor(key) {
   const ownId = readCredential(`FACEBOOK_${key}_PAGE_ID`);
-  const ownToken = readCredential(`FACEBOOK_${key}_PAGE_TOKEN`);
+  const ownToken = readCredential(`FACEBOOK_${key}_PAGE_TOKEN`) || readCredential(`FACEBOOK_${key}_ACCESS_TOKEN`);
   if (ownId && ownToken) return { pageId: ownId, token: ownToken, via: 'brand' };
   if (ownId || ownToken) return { pageId: '', token: '', via: 'incomplete' };
   const pageId = readCredential('FACEBOOK_PAGE_ID');
