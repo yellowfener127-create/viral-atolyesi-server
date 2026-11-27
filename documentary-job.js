@@ -73,6 +73,14 @@ function markStage(dir, stage, patch) {
   if (patch.state === 'failed') status.attempts = (status.attempts || 0) + 1;
   status.stages[stage] = Object.assign({}, status.stages[stage], patch, { at: new Date().toISOString() });
   writeStatus(dir, status);
+  try {
+    fs.writeFileSync(path.join(path.dirname(dir), 'active.json'), JSON.stringify({
+      job: path.basename(dir),
+      stage: status.stage,
+      state: status.state,
+      updated_at: status.updated_at
+    }));
+  } catch {}
   return status;
 }
 

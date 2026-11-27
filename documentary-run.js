@@ -422,6 +422,7 @@ async function produceRecipe(opts, config, deps) {
     }
   }
   job.markStage(dir, 'images', { state: 'done' });
+  job.markStage(dir, 'render', { state: 'running' });
 
   const segments = [];
   for (let i = 0; i < clock.shots.length; i++) {
@@ -552,6 +553,7 @@ async function produceRecipe(opts, config, deps) {
     await fs.promises.copyFile(current, finalFile);
     current = finalFile;
   }
+  job.markStage(dir, 'render', { state: 'done' });
   const measure = await measureFile(current, { ffmpeg: ffmpegBin, ffprobe });
   const durations = clock.shots.map((shot) => (shot.end || 0) - (shot.start || 0));
   const cutStats = reelQuality.durationStats(durations);

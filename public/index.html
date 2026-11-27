@@ -682,6 +682,15 @@
       </div>
       <div class="tool-desc" style="margin-top:10px">ElevenLabs anahtarı Belgesel Fabrikası kutusundaki kayıtlı anahtardır.</div>
       <button class="tool-btn" type="button" id="reelBuildBtn" onclick="runReel()" style="margin-top:12px">Reels videosunu üret ve kaydet</button>
+      <div id="reelProgress" style="display:none;margin-top:12px">
+        <div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--muted);margin-bottom:6px">
+          <span id="reelProgressLabel">Hazırlanıyor</span>
+          <span id="reelProgressPct">0%</span>
+        </div>
+        <div style="height:8px;border-radius:99px;background:#1c1c22;overflow:hidden">
+          <div id="reelProgressBar" style="height:100%;width:0%;background:#8b7cff;transition:width .4s ease"></div>
+        </div>
+      </div>
       <div class="tool-result" id="reelMsg" style="display:none;margin-top:10px;font-size:12px;color:var(--muted);white-space:pre-wrap"></div>
     </div>
     <div class="mcc-panel" id="reel-frame">
@@ -4012,7 +4021,42 @@ async function previewReelVoice() {
   }
 }
 
+let reelBusy = false;
+let reelPoll = 0;
+
+function paintReelProgress(percent, label) {
+  const box = document.getElementById("reelProgress");
+  const bar = document.getElementById("reelProgressBar");
+  const pct = document.getElementById("reelProgressPct");
+  const name = document.getElementById("reelProgressLabel");
+  const value = Math.max(0, Math.min(100, Number(percent) || 0));
+  if (box) box.style.display = "block";
+  if (bar) bar.style.width = value + "%";
+  if (pct) pct.textContent = Math.round(value) + "%";
+  if (name) name.textContent = label || "Hazırlanıyor";
+}
+
+async function pollReelProgress() {
+  const res = await fetch(LOCAL_API + "/documentary-active");
+  const data = await res.json().catch(() => ({}));
+  paintReelProgress(data.percent || 0, data.label || "Hazırlanıyor");
+  return data;
+}
+
+function startReelPoll() {
+  if (reelPoll) clearInterval(reelPoll);
+  reelPoll = setInterval(() => { pollReelProgress().catch(() => {}); }, 1200);
+  pollReelProgress().catch(() => {});
+}
+
+function stopReelPoll() {
+  if (reelPoll) clearInterval(reelPoll);
+  reelPoll = 0;
+}
+
 async function runReel() {
+  if (reelBusy) return;
+  reelBusy = true;
   const btn = document.getElementById("reelBuildBtn");
   const msg = document.getElementById("reelMsg");
   const spokenScenes = reelPlan && reelPlan.scenes_en;
@@ -4043,11 +4087,14 @@ async function runReel() {
   }
   rememberReelVoice(picked);
   const voiceId = picked;
+  const reelBrandName = channel === "chaos" ? "kaos" : channel === "therapy" ? "terapi" : "umut";
   if (btn) { btn.disabled = true; btn.textContent = "Reels üretiliyor…"; }
   if (msg) {
     msg.style.display = "block";
-    msg.textContent = "Onaylanan senaryo, görseller, ses ve montaj sırayla çalışıyor.";
+    msg.textContent = "";
   }
+  paintReelProgress(4, "Hazırlanıyor");
+  startReelPoll();
   try {
     let res;
     let data = {};
@@ -4065,7 +4112,11 @@ async function runReel() {
           channel: channel,
           voice_id: voiceId,
           gemini_api_key: keys[i],
-          elevenlabs_api_key: docElevenKeySaved()
+          elevenlabs_api_key: docElevenKeySaved(),
+          frame_after: true,
+          brand: reelBrandName,
+          hook_text: hookReady,
+          caption_text: captionReady
         })
       });
       data = await res.json().catch(() => ({}));
@@ -4073,16 +4124,39 @@ async function runReel() {
       if ((res.ok && data.ok) || !docGeminiRetryable(res.status, errText) || i === keys.length - 1) break;
       if (msg) msg.textContent = "Bu Gemini anahtarı dolu. Sıradaki anahtarla sürdürülüyor…";
     }
+    if (res.status === 409 && data.running) {
+      paintReelProgress(data.percent || 4, data.label || "Üretim sürüyor");
+      let active = data;
+      for (let wait = 0; wait < 800; wait++) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        active = await pollReelProgress();
+        if (!active.running && active.outPath) break;
+        if (!active.running) break;
+      }
+      if (active && active.outPath) {
+        paintReelProgress(100, "İndi");
+        if (msg) msg.textContent = "İndi: " + active.outPath;
+        return;
+      }
+    }
     if (!res.ok || !data.ok) throw new Error((data && data.error) ? data.error : ("HTTP " + res.status));
+    if (data.framed && data.absPath) {
+      paintReelProgress(100, "İndi");
+      if (msg) msg.textContent = "İndi: " + data.absPath;
+      return;
+    }
     reelOutPath = data.absPath || "";
     if (!reelOutPath) throw new Error("Video yolu gelmedi.");
-    if (msg) msg.textContent = "Çerçeve basılıyor. Bulanık zemin, kart, üstteki hook ve seçtiğin kanalın profil fotoğrafı ekleniyor.";
+    paintReelProgress(97, "Çerçeve basılıyor");
     if (btn) btn.textContent = "Çerçeve basılıyor…";
     const saved = await reelApplyFrame();
+    paintReelProgress(100, "İndi");
     if (msg) msg.textContent = "İndi: " + saved;
   } catch (e) {
     if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
   } finally {
+    reelBusy = false;
+    stopReelPoll();
     if (btn) { btn.disabled = false; btn.textContent = "Reels videosunu üret ve kaydet"; }
   }
 }

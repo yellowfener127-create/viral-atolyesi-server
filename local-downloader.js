@@ -2553,6 +2553,97 @@ app.post('/story-reel-script', async (req, res) => {
   }
 });
 
+function writeDocActive(patch) {
+  try {
+    const file = path.join(JOBS_ROOT, 'active.json');
+    let prev = {};
+    try { prev = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
+    fs.mkdirSync(JOBS_ROOT, { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(Object.assign({}, prev, patch, { updated_at: new Date().toISOString() })));
+  } catch {}
+}
+
+function readDocActive() {
+  try { return JSON.parse(fs.readFileSync(path.join(JOBS_ROOT, 'active.json'), 'utf8')); } catch { return {}; }
+}
+
+const DOC_PROGRESS = {
+  topic: [8, 'Konu hazırlanıyor'],
+  bible: [16, 'Hikâye iskeleti kuruluyor'],
+  script: [24, 'Senaryo işleniyor'],
+  critic: [30, 'Senaryo kontrol ediliyor'],
+  tts: [46, 'Ses üretiliyor'],
+  images: [68, 'Görseller üretiliyor'],
+  timeline: [78, 'Montaj kuruluyor'],
+  render: [88, 'Video birleştiriliyor'],
+  qc: [94, 'Ses ölçülüyor'],
+  metadata: [96, 'Kayıt hazırlanıyor'],
+  frame: [98, 'Çerçeve basılıyor']
+};
+
+app.get('/documentary-active', (req, res) => {
+  const active = readDocActive();
+  const row = DOC_PROGRESS[active.stage] || [4, 'Hazırlanıyor'];
+  const running = __docInProgress;
+  res.json({
+    running,
+    stage: active.stage || '',
+    percent: !running && active.outPath ? 100 : row[0],
+    label: !running && active.outPath ? 'İndi' : row[1],
+    outPath: active.outPath || ''
+  });
+});
+
+async function frameReelToBrand(inFile, brand, hookText, captionText) {
+  const brandDir = getBrandDir(brand);
+  fs.mkdirSync(brandDir, { recursive: true });
+  const rawDur = await probeDurationSec(inFile);
+  const inDur = Math.max(1, Math.min(Number(rawDur) || 20, 600));
+  const hasAudio = await probeHasAudio(inFile);
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'va-reel-frame-'));
+  const stem = captionAsFileStem(captionText) || String(captionText || '').trim() || `reel_${Date.now()}`;
+  const filenameBase = (safeName(stem).replace(/[. ]+$/g, '') || `reel_${Date.now()}`).slice(0, 160);
+  let framed = path.join(brandDir, filenameBase.toLowerCase().endsWith('.mp4') ? filenameBase : `${filenameBase}.mp4`);
+  if (fs.existsSync(framed)) {
+    framed = path.join(brandDir, `${filenameBase.replace(/\.mp4$/i, '')}_${Date.now()}.mp4`);
+  }
+  const hook = {
+    text: String(hookText || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+    bannerY: 0,
+    y: 95,
+    boxOpacity: 1,
+    color: null
+  };
+  try {
+    const plan = await crush.buildCrushRenderPlan({
+      inFile,
+      wmFile: '',
+      frameOnly: true,
+      musicFile: null,
+      brand,
+      outW: 1080,
+      outH: 1920,
+      sourceDurSec: inDur,
+      maxDurationSec: 600,
+      hook,
+      coverBox: null,
+      manual_blur_rects: [],
+      manual_start_sec: 0,
+      manualBlurRefW: crush.MANUAL_BLUR_REF_W,
+      manualBlurRefH: crush.MANUAL_BLUR_REF_H,
+      hasAudio,
+      ffmpegPath: 'ffmpeg',
+      ffprobePath: 'ffprobe',
+      useRubberband: false,
+      tmpDir
+    });
+    await run('ffmpeg', [...plan.ffmpegArgsTail, framed], { timeoutMs: 8 * 60 * 1000 });
+    return { savedTo: brandDir, file: path.basename(framed), absPath: framed };
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  }
+}
+
 app.post('/documentary', async (req, res) => {
   res.setTimeout(25 * 60 * 1000);
   const storyText = String(req.body?.story_text || req.body?.storyText || '').trim();
@@ -2572,11 +2663,16 @@ app.post('/documentary', async (req, res) => {
     return res.status(400).json({ error: 'Konu en az birkaç kelime olsun.' });
   }
   if (!storyText && !scriptScenes && channel === 'chaos' && topic.length > 300) return res.status(400).json({ error: 'Arama 300 karakterden kısa olsun.' });
-  if (__docInProgress) return res.status(409).json({ error: 'Bir belgesel zaten üretiliyor.' });
+  if (__docInProgress) {
+    const active = readDocActive();
+    const row = DOC_PROGRESS[active.stage] || [4, 'Hazırlanıyor'];
+    return res.status(409).json({ error: 'Bir belgesel zaten üretiliyor.', running: true, stage: active.stage || '', percent: row[0], label: row[1] });
+  }
   const hasFfmpeg = await existsOnPath('ffmpeg');
   const hasFfprobe = await existsOnPath('ffprobe');
   if (!hasFfmpeg || !hasFfprobe) return res.status(500).json({ error: 'ffmpeg/ffprobe bulunamadı.' });
   __docInProgress = true;
+  writeDocActive({ stage: 'topic', state: 'running', outPath: '' });
   const docDir = getMixDir();
   const stamp = Date.now();
   let fileName = fileNameFor(stampDay(new Date()), channel, topic || channel);
@@ -2585,6 +2681,7 @@ app.post('/documentary', async (req, res) => {
     fileName = fileName.replace(/\.mp4$/, `_${stamp}.mp4`);
     outFile = path.join(docDir, fileName);
   }
+  let producedOk = false;
   try {
     const info = await documentaryFactory.produceDocumentary({
       topic: topic || storyText.slice(0, 90),
@@ -2605,15 +2702,39 @@ app.post('/documentary', async (req, res) => {
       ffprobePath: 'ffprobe',
       outFile
     });
+    producedOk = true;
+    const wantFrame = req.body?.frame_after === true && Array.isArray(scriptScenes);
+    if (!wantFrame) {
+      writeDocActive({ stage: 'metadata', state: 'done', outPath: outFile });
+      return res.json({
+        ok: true,
+        savedTo: docDir,
+        file: path.basename(outFile),
+        absPath: outFile,
+        documentary: info
+      });
+    }
+    writeDocActive({ stage: 'frame', state: 'running', outPath: '' });
+    const framed = await frameReelToBrand(
+      outFile,
+      normBrand(req.body?.brand || channel),
+      req.body?.hook_text,
+      req.body?.caption_text
+    );
+    try { fs.unlinkSync(outFile); } catch {}
+    writeDocActive({ stage: 'frame', state: 'done', outPath: framed.absPath });
     return res.json({
       ok: true,
-      savedTo: docDir,
-      file: path.basename(outFile),
-      absPath: outFile,
+      framed: true,
+      savedTo: framed.savedTo,
+      file: framed.file,
+      absPath: framed.absPath,
       documentary: info
     });
   } catch (e) {
-    try { if (fs.existsSync(outFile)) fs.unlinkSync(outFile); } catch {}
+    if (!producedOk) {
+      try { if (fs.existsSync(outFile)) fs.unlinkSync(outFile); } catch {}
+    }
     const code = e && e.statusCode ? e.statusCode : 500;
     return res.status(code).json({ error: (e && e.message) ? e.message : String(e) });
   } finally {
