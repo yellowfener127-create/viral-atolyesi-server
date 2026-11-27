@@ -250,7 +250,8 @@ async function produceRecipe(opts, config, deps) {
     try {
       return await deps.synthesizeSpeechAligned(request);
     } catch (err) {
-      if (!deps.isVoiceFallbackError(err) || narratorVoice.id === deps.DOC_VOICES.adam) throw err;
+      const builtinVoices = Object.values(deps.DOC_VOICES || {});
+      if (!deps.isVoiceFallbackError(err) || narratorVoice.id === deps.DOC_VOICES.adam || builtinVoices.indexOf(narratorVoice.id) < 0) throw err;
       const failed = narratorVoice;
       narratorVoice = deps.resolveDocVoice(deps.DOC_VOICES.adam);
       const detailStatus = String(err.details && err.details.detailStatus || '');

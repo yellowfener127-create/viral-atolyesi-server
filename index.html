@@ -2672,10 +2672,7 @@ function paintWikiQueueLine() {
 }
 
 function wikiQueueVoice() {
-  const picked = reelSelectedVoiceId();
-  if (picked === "random") return REEL_BUILTIN_VOICES[Math.floor(Math.random() * REEL_BUILTIN_VOICES.length)];
-  if (picked === "auq43ws1oslv0tO4BDa7" || !reelVoiceOk(picked)) return "pNInz6obpgDQGcFmaJgB";
-  return picked;
+  return reelDownloadVoiceId();
 }
 
 function wikiStoryText(row) {
@@ -2789,7 +2786,7 @@ async function postWikiDocumentary(item, scenes, musicMood, hookText, captionTex
           music_mood: musicMood || "",
           lang: "en",
           channel: item.channel,
-          voice_id: item.voiceId,
+          voice_id: reelDownloadVoiceId(),
           gemini_api_key: keys[i],
           elevenlabs_api_key: docElevenKeySaved(),
           frame_after: true,
@@ -4234,6 +4231,11 @@ async function writeReelScript() {
 }
 
 const REEL_BUILTIN_VOICES = ["pNInz6obpgDQGcFmaJgB", "JBFqnCBsd6RMkjVDRZzb", "nPczCjzI2devNBz1zQrb", "SAxJUlDKRc79XAyeWyMu", "fCxG8OHm4STbIsWe4aT9"];
+const REEL_SPECIAL_VOICE = "G4MBEL8urIiRY12lcDzS";
+
+function reelDownloadVoiceId() {
+  return REEL_SPECIAL_VOICE;
+}
 
 function reelVoiceOk(id) {
   return /^[A-Za-z0-9]{10,40}$/.test(String(id || "").trim());
@@ -4251,14 +4253,17 @@ function reelCustomVoices() {
 function paintReelCustomVoices(selectId) {
   const select = document.getElementById("reelVoice");
   if (!select) return;
-  reelCustomVoices().forEach((id) => {
+  const voices = reelCustomVoices();
+  if (voices.indexOf(REEL_SPECIAL_VOICE) < 0) voices.push(REEL_SPECIAL_VOICE);
+  voices.forEach((id) => {
     if (id === "auq43ws1oslv0tO4BDa7" || select.querySelector('option[value="' + id + '"]')) return;
     const option = document.createElement("option");
     option.value = id;
     option.textContent = "Özel ses " + id.slice(0, 4) + "…" + id.slice(-4);
     select.appendChild(option);
   });
-  if (selectId && select.querySelector('option[value="' + selectId + '"]')) select.value = selectId;
+  const chosen = selectId || REEL_SPECIAL_VOICE;
+  if (select.querySelector('option[value="' + chosen + '"]')) select.value = chosen;
 }
 
 function rememberReelVoice(id) {
@@ -4405,13 +4410,7 @@ async function runReel() {
   const story = String((document.getElementById("reelStory") || {}).value || "").trim();
   const channelEl = document.getElementById("reelChannel");
   const channel = channelEl ? channelEl.value : "epoch";
-  const picked = reelSelectedVoiceId();
-  if (picked === "auq43ws1oslv0tO4BDa7" || (picked !== "random" && !reelVoiceOk(picked))) {
-    alert("Ses ID 10-40 harf ve rakam olmalı.");
-    return;
-  }
-  rememberReelVoice(picked);
-  const voiceId = picked;
+  const voiceId = reelDownloadVoiceId();
   const reelBrandName = channel === "chaos" ? "kaos" : channel === "therapy" ? "terapi" : "umut";
   if (btn) { btn.disabled = true; btn.textContent = "Reels üretiliyor…"; }
   if (msg) {

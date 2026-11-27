@@ -1850,7 +1850,8 @@ async function produceDocumentaryLegacy({
       return await synthesizeSpeechAligned(request);
     } catch (err) {
       const fallbackId = DOC_VOICES.adam;
-      if (!isVoiceFallbackError(err) || narratorVoice.id === fallbackId) throw err;
+      const builtinVoices = Object.values(DOC_VOICES);
+      if (!isVoiceFallbackError(err) || narratorVoice.id === fallbackId || builtinVoices.indexOf(narratorVoice.id) < 0) throw err;
       const failed = narratorVoice;
       const detail = String(err && err.message || '')
         .replace(/sk_[A-Za-z0-9_-]+/g, 'sk_REDACTED')
