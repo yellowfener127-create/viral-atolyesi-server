@@ -281,8 +281,10 @@
 
   /* (Transcript yıldızı kaldırıldı) */
 
+  .wiki-lists{display:flex;flex-direction:column;gap:8px}
   .wiki-bar{display:flex;gap:8px;align-items:center}
   .wiki-bar .tool-input{margin:0;flex:1}
+  .wiki-list-label{width:96px;flex:0 0 96px;font-size:12px;font-weight:700}
   .wiki-picks,.wiki-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
   .wiki-pick{padding:7px 12px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;font-family:'Outfit',sans-serif;font-size:12px;font-weight:600}
   .wiki-pick:hover{color:var(--text);border-color:rgba(124,107,255,.45)}
@@ -720,12 +722,25 @@
 <div class="wrap">
   <div style="margin-bottom:18px">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;margin-bottom:6px">Wikipedia Vaka Okuyucu</div>
-    <div style="font-size:13px;color:var(--muted)">Bir Wikipedia başlığı veya linki yaz. Kişi, tarih, yer ve hikâye burada listelenir.</div>
+    <div style="font-size:13px;color:var(--muted)">Epoch, Therapy ve Chaos için ayrı Wikipedia listesi yaz. Kişi, tarih, yer ve hikâye burada listelenir.</div>
   </div>
   <div class="tool-card">
-    <div class="wiki-bar">
-      <input class="tool-input" id="wikiQuery" placeholder="Wikipedia linki veya başlık" />
-      <button class="tool-btn" type="button" id="wikiLoadBtn" style="width:auto;white-space:nowrap" onclick="loadWikiPage()">Listeyi getir</button>
+    <div class="wiki-lists">
+      <div class="wiki-bar">
+        <span class="wiki-list-label">Epoch Lab</span>
+        <input class="tool-input" id="wikiQuery" placeholder="Epoch liste linki" />
+        <button class="tool-btn" type="button" id="wikiLoadBtn" style="width:auto;white-space:nowrap" onclick="loadWikiPage('', 'epoch')">Listeyi getir</button>
+      </div>
+      <div class="wiki-bar">
+        <span class="wiki-list-label">Therapy Lab</span>
+        <input class="tool-input" id="wikiQueryTherapy" placeholder="Therapy liste linki" />
+        <button class="tool-btn" type="button" id="wikiLoadTherapy" style="width:auto;white-space:nowrap" onclick="loadWikiPage('', 'therapy')">Listeyi getir</button>
+      </div>
+      <div class="wiki-bar">
+        <span class="wiki-list-label">Chaos Lab</span>
+        <input class="tool-input" id="wikiQueryChaos" placeholder="Chaos liste linki" />
+        <button class="tool-btn" type="button" id="wikiLoadChaos" style="width:auto;white-space:nowrap" onclick="loadWikiPage('', 'chaos')">Listeyi getir</button>
+      </div>
     </div>
     <div class="wiki-picks" id="wikiPicks"></div>
     <label class="wiki-filter"><input type="checkbox" id="wikiUnusedOnly" onchange="renderWikiRows()" /> Sadece Kullanılmayanları Göster</label>
@@ -2353,6 +2368,12 @@ let wikiLinks = [];
 let wikiOpenQuery = "";
 let wikiBooted = false;
 let wikiLoading = false;
+let wikiActiveChannel = "epoch";
+const WIKI_LISTS = {
+  epoch: { input: "wikiQuery", button: "wikiLoadBtn", label: "Epoch Lab" },
+  therapy: { input: "wikiQueryTherapy", button: "wikiLoadTherapy", label: "Therapy Lab" },
+  chaos: { input: "wikiQueryChaos", button: "wikiLoadChaos", label: "Chaos Lab" }
+};
 
 function wikiEsc(text) {
   return String(text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -2367,9 +2388,7 @@ function paintWikiPicks() {
     btn.className = "wiki-pick";
     btn.textContent = title;
     btn.onclick = () => {
-      const input = document.getElementById("wikiQuery");
-      if (input) input.value = title;
-      loadWikiPage(title);
+      loadWikiPage(title, wikiActiveChannel || "epoch");
     };
     box.appendChild(btn);
   });
@@ -2403,14 +2422,41 @@ async function openWikiReader() {
   paintWikiPicks();
   wireWikiTable();
   try { await loadWikiUsed(); } catch (e) {}
-  if (wikiBooted || wikiLoading || wikiRows.length || !wikiOpenQuery) {
+  paintWikiListSlots();
+  if (wikiBooted || wikiLoading || wikiRows.length) {
     wikiBooted = true;
     return;
   }
   wikiBooted = true;
-  const input = document.getElementById("wikiQuery");
-  if (input && !String(input.value || "").trim()) input.value = wikiOpenQuery;
-  if (!input || String(input.value || "").trim() === wikiOpenQuery) loadWikiPage(wikiOpenQuery);
+  const saved = readWikiListSlots();
+  const active = WIKI_LISTS[saved.active] ? saved.active : "epoch";
+  const input = document.getElementById(WIKI_LISTS[active].input);
+  const query = String((input && input.value) || "").trim();
+  if (query) loadWikiPage(query, active);
+}
+
+function readWikiListSlots() {
+  try {
+    const data = JSON.parse(localStorage.getItem("wiki_list_slots") || "{}");
+    return data && typeof data === "object" ? data : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveWikiListSlots(patch) {
+  try {
+    localStorage.setItem("wiki_list_slots", JSON.stringify(Object.assign(readWikiListSlots(), patch)));
+  } catch (e) {}
+}
+
+function paintWikiListSlots() {
+  const saved = readWikiListSlots();
+  if (!saved.epoch && wikiOpenQuery) saved.epoch = wikiOpenQuery;
+  Object.keys(WIKI_LISTS).forEach((channel) => {
+    const input = document.getElementById(WIKI_LISTS[channel].input);
+    if (input && !String(input.value || "").trim() && saved[channel]) input.value = saved[channel];
+  });
 }
 
 async function loadWikiUsed() {
@@ -2430,19 +2476,25 @@ function rememberWikiOpen(query) {
   }).catch(() => {});
 }
 
-async function loadWikiPage(title) {
-  const input = document.getElementById("wikiQuery");
+async function loadWikiPage(title, channel) {
+  const key = WIKI_LISTS[channel] ? channel : (wikiActiveChannel || "epoch");
+  const slot = WIKI_LISTS[key];
+  const input = document.getElementById(slot.input);
   const query = String(title || (input && input.value) || "").trim();
   const msg = document.getElementById("wikiMsg");
-  const btn = document.getElementById("wikiLoadBtn");
+  const buttons = Object.keys(WIKI_LISTS).map((name) => document.getElementById(WIKI_LISTS[name].button)).filter(Boolean);
   if (!query) {
-    if (msg) msg.textContent = "Bir Wikipedia başlığı veya linki yaz.";
+    if (msg) msg.textContent = slot.label + " için bir Wikipedia başlığı veya linki yaz.";
     return;
   }
   if (wikiLoading) return;
   wikiLoading = true;
-  if (btn) { btn.disabled = true; btn.textContent = "Getiriliyor…"; }
-  if (msg) msg.textContent = "Wikipedia okunuyor.";
+  wikiActiveChannel = key;
+  if (input && String(input.value || "").trim() !== query) input.value = query;
+  buttons.forEach((btn) => { btn.disabled = true; });
+  const own = document.getElementById(slot.button);
+  if (own) own.textContent = "Getiriliyor…";
+  if (msg) msg.textContent = slot.label + " listesi okunuyor.";
   try {
     const res = await fetch(LOCAL_API + "/wikipedia/page", {
       method: "POST",
@@ -2454,19 +2506,25 @@ async function loadWikiPage(title) {
     wikiPageTitle = data.title || query;
     wikiRows = Array.isArray(data.rows) ? data.rows : [];
     wikiLinks = Array.isArray(data.links) ? data.links : [];
+    wikiRows.forEach((row) => {
+      const queued = wikiQueueItem(row.id);
+      if (queued && queued.status !== "error") return;
+      wikiDraft[row.id] = Object.assign(wikiDraftOf(row.id), { channel: key });
+    });
     if (msg) {
       msg.textContent = wikiRows.length
-        ? (wikiPageTitle + " · " + wikiRows.length + " hikâye")
-        : (wikiPageTitle + " tablosuz bir dizin. Aşağıdan bir liste aç.");
+        ? (slot.label + " · " + wikiPageTitle + " · " + wikiRows.length + " hikâye")
+        : (slot.label + " · " + wikiPageTitle + " tablosuz bir dizin. Aşağıdan bir liste aç.");
     }
     renderWikiLinks();
     renderWikiRows();
+    saveWikiListSlots({ [key]: query, active: key });
     rememberWikiOpen(query);
   } catch (e) {
     if (msg) msg.textContent = "Hata: " + ((e && e.message) ? e.message : String(e));
   } finally {
     wikiLoading = false;
-    if (btn) { btn.disabled = false; btn.textContent = "Listeyi getir"; }
+    buttons.forEach((btn) => { btn.disabled = false; btn.textContent = "Listeyi getir"; });
   }
 }
 
@@ -2481,9 +2539,7 @@ function renderWikiLinks() {
     btn.className = "wiki-pick";
     btn.textContent = link.label || link.title;
     btn.onclick = () => {
-      const input = document.getElementById("wikiQuery");
-      if (input) input.value = link.title;
-      loadWikiPage(link.title);
+      loadWikiPage(link.title, wikiActiveChannel || "epoch");
     };
     box.appendChild(btn);
   });
