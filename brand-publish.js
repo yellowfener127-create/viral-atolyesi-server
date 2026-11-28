@@ -233,6 +233,16 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function lastFiredMs(state, date) {
+  let latest = 0;
+  Object.entries((state && state.fired) || {}).forEach(([key, iso]) => {
+    if (String(key).split('|')[1] !== date) return;
+    const ms = Date.parse(iso);
+    if (Number.isFinite(ms) && ms > latest) latest = ms;
+  });
+  return latest;
+}
+
 let ticking = false;
 let warned = false;
 
@@ -261,14 +271,20 @@ async function tick(options = {}) {
     const retryMs = Number.isFinite(options.retryMs) ? options.retryMs : 0;
     const nowMs = now.getTime();
     for (const page of built.pages) {
-      const inSlot = parts.hour === page.slot.hour && parts.minute === page.slot.minute;
       const fireKey = `${page.key}|${parts.date}|${page.slot.label}`;
       const targets = BRANDS.map((name) => Object.assign({ name }, page[name]));
       const ready = targets.filter((target) => target.ready);
       let video = state.open[page.key] && fs.existsSync(state.open[page.key]) ? state.open[page.key] : '';
       if (!video && state.open[page.key]) delete state.open[page.key];
       if (!video) {
-        if (!inSlot || state.fired[fireKey]) continue;
+        const due = parts.hour * 60 + parts.minute >= page.slot.hour * 60 + page.slot.minute;
+        const exact = parts.hour === page.slot.hour && parts.minute === page.slot.minute;
+        if (!due || state.fired[fireKey]) continue;
+        if (!exact) {
+          const slotGap = Number.isFinite(options.slotGapMs) ? options.slotGapMs : 30 * 60 * 1000;
+          const last = lastFiredMs(state, parts.date);
+          if (last && nowMs < last + slotGap) continue;
+        }
         targets.forEach((target) => {
           if (target.ready || !platformOn(target.name)) return;
           emit({
@@ -278,12 +294,12 @@ async function tick(options = {}) {
           });
         });
         if (!ready.length) {
-          state.fired[fireKey] = new Date().toISOString();
+          state.fired[fireKey] = now.toISOString();
           saveState(file, state);
           continue;
         }
         video = facebook.nextMp4(page.dir, now.getTime());
-        state.fired[fireKey] = new Date().toISOString();
+        state.fired[fireKey] = now.toISOString();
         if (video) {
           state.chosen[fireKey] = video;
           state.open[page.key] = video;

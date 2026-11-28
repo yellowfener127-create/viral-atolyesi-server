@@ -2631,7 +2631,9 @@ function paintWikiQueueButtons() {
     const note = document.querySelector("[data-wiki-note=\"" + item.id + "\"]");
     if (!note) return;
     note.className = item.status === "error" ? "wiki-queue-error" : item.status === "done" ? "wiki-queue-ok" : "wiki-queue-note";
-    note.textContent = item.status === "error"
+    note.textContent = item.hold
+      ? item.hold
+      : item.status === "error"
       ? item.error
       : item.try > 1 && item.status !== "done"
         ? ("Ölçü tutmadı, tekrar " + (item.try - 1) + "/10")
@@ -2815,6 +2817,11 @@ function wikiMeasureMiss(err) {
   return /ölçüsüne inemedi/i.test(String((err && err.message) || err || ""));
 }
 
+function wikiDownloaderDown(err) {
+  const text = String((err && err.message) || err || "");
+  return /failed to fetch|networkerror|load failed|econnrefused|econnreset|socket|bir belgesel zaten/i.test(text);
+}
+
 async function produceWikiQueueItem(item) {
   let last;
   for (let attempt = 1; attempt <= 11; attempt++) {
@@ -2883,10 +2890,18 @@ async function runWikiQueue() {
       const item = wikiQueue.find((row) => row.status === "queued");
       if (!item) break;
       try {
+        item.hold = "";
         await produceWikiQueueItem(item);
         item.status = "done";
         item.error = "";
       } catch (e) {
+        if (wikiDownloaderDown(e)) {
+          item.status = "queued";
+          item.hold = "İndirici yeniden açılıyor. Aynı video bekletildi.";
+          paintWikiQueueButtons();
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          continue;
+        }
         item.status = "error";
         item.error = (e && e.message) ? e.message : String(e);
       }

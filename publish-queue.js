@@ -683,7 +683,6 @@ function startScheduler(options = {}) {
     }).catch((err) => logEvent({ event: 'tick-error', platform: 'publish', message: err && err.message ? err.message : String(err) }));
   };
   timer = setInterval(run, 15000);
-  if (timer.unref) timer.unref();
   run();
   logEvent({ event: 'scheduler', platform: 'publish', message: 'Facebook, Instagram ve YouTube. Saatler 22:00, 22:30, 23:00.' });
 }

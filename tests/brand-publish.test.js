@@ -305,3 +305,53 @@ test('a later run retries only the unfinished platform and does not move the fil
   assert.equal(fs.existsSync(path.join(epoch, 'paylasildi', 'half story.mp4')), true);
   clearEnv();
 });
+
+test('a missed evening slot still posts later and the next brand waits half an hour', async () => {
+  clearEnv();
+  const root = tempDir();
+  const epoch = path.join(root, 'Epoch Lab');
+  const chaos = path.join(root, 'Chaos Lab');
+  const first = writeMp4(epoch, 'first.mp4');
+  const second = writeMp4(chaos, 'second.mp4');
+  process.env.FACEBOOK_SOURCE_DIRS = `${epoch}|${chaos}`;
+  process.env.FACEBOOK_POST_SLOTS = '22:00,22:30';
+  process.env.FACEBOOK_EPOCH_PAGE_ID = 'epoch-page';
+  process.env.FACEBOOK_EPOCH_ACCESS_TOKEN = 'epoch-token';
+  process.env.FACEBOOK_CHAOS_PAGE_ID = 'chaos-page';
+  process.env.FACEBOOK_CHAOS_ACCESS_TOKEN = 'chaos-token';
+  const stateFile = path.join(root, 'state.json');
+  const seen = [];
+  const base = {
+    force: true,
+    silent: true,
+    downloadDir: root,
+    stateFile,
+    gapMs: 0,
+    retryMs: 0,
+    slotGapMs: 30 * 60 * 1000,
+    postFacebook: async (item) => { seen.push(item.pageId); return { id: 'fb' }; },
+    postInstagram: async () => { throw new Error('instagram should stay inactive'); },
+    postYouTube: async () => { throw new Error('youtube should stay inactive'); }
+  };
+  await publish.tick({ ...base, now: new Date(), parts: { date: '2026-11-28', hour: 21, minute: 0 } });
+  assert.deepEqual(seen, []);
+  const evening = new Date();
+  await publish.tick({ ...base, now: evening, parts: { date: '2026-11-28', hour: 23, minute: 10 } });
+  assert.deepEqual(seen, ['epoch-page']);
+  assert.equal(fs.existsSync(first), false);
+  assert.equal(fs.existsSync(second), true);
+  await publish.tick({
+    ...base,
+    now: new Date(evening.getTime() + 60 * 1000),
+    parts: { date: '2026-11-28', hour: 23, minute: 11 }
+  });
+  assert.deepEqual(seen, ['epoch-page']);
+  await publish.tick({
+    ...base,
+    now: new Date(evening.getTime() + 31 * 60 * 1000),
+    parts: { date: '2026-11-28', hour: 23, minute: 41 }
+  });
+  assert.deepEqual(seen, ['epoch-page', 'chaos-page']);
+  assert.equal(fs.existsSync(second), false);
+  clearEnv();
+});

@@ -3515,6 +3515,10 @@ if (require.main === module) {
     console.log('yt-dlp:', YTDLP_BIN);
     publishQueue.startScheduler({ downloadDir: DOWNLOAD_DIR });
   });
+  server.on('error', (err) => {
+    logProcessFault('listen', err);
+    setTimeout(() => process.exit(1), 300);
+  });
   server.requestTimeout = 0;
   server.headersTimeout = 0;
   server.timeout = 0;
