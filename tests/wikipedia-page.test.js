@@ -109,3 +109,38 @@ test('marked stories stay in the json file', () => {
   assert.equal(wiki.readUsedStories(file).length, 0);
   fs.rmSync(file, { force: true });
 });
+
+test('a topic search keeps incident stories and drops a bare definition', () => {
+  const rows = wiki.rowsFromTopicResults('psychological experiments', [
+    {
+      title: 'List of social psychology experiments',
+      rows: [{
+        name: 'Milgram experiment',
+        date: '1961',
+        place: 'United States',
+        story: 'Participants were told to administer electric shocks to a learner.',
+        section: 'Obedience',
+        id: 'milgram-row'
+      }]
+    },
+    {
+      title: 'Stanford prison experiment',
+      extract: 'The Stanford prison experiment was a psychological experiment conducted in 1971 at Stanford University. Volunteers were assigned to be guards or prisoners. The planned two-week study was stopped after six days because the guards became abusive and the prisoners became distressed.'
+    },
+    {
+      title: 'Psychology',
+      extract: 'Psychology is the scientific study of mind and behavior. It includes many different approaches and fields of research. Researchers observe how people think, feel, and act in ordinary life.'
+    },
+    {
+      title: 'Milgram experiment',
+      extract: 'This page may refer to: several different studies.'
+    }
+  ]);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].name, 'Milgram experiment');
+  assert.equal(rows[0].id, 'milgram-row');
+  assert.equal(rows[1].name, 'Stanford prison experiment');
+  assert.match(rows[1].story, /1971/);
+  assert.equal(rows[1].section, 'psychological experiments');
+  assert.equal(wiki.storyFromArticle('Psychology', 'Psychology is the scientific study of mind and behavior. It includes many different approaches and fields of research across ordinary life and learning.', 'psychological experiments'), null);
+});

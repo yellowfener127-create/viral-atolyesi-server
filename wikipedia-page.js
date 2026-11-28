@@ -80,6 +80,28 @@ async function wikiGet(url) {
 
 async function fetchWikipedia(input) {
   const target = resolveWikiTarget(input);
+  const typed = String(input || '').trim();
+  if (/^https?:\/\//i.test(typed)) return loadWikiPage(target);
+  try {
+    const page = await loadWikiPage(target);
+    if (page.rows.length) return page;
+    try {
+      const gathered = await gatherTopicStories(target.lang, target.title, page);
+      return gathered.rows.length ? gathered : page;
+    } catch {
+      return page;
+    }
+  } catch (err) {
+    if (!err || err.statusCode !== 404) throw err;
+    try {
+      const gathered = await gatherTopicStories(target.lang, target.title, null);
+      if (gathered.rows.length) return gathered;
+    } catch {}
+    throw err;
+  }
+}
+
+async function loadWikiPage(target) {
   const api = `https://${target.lang}.wikipedia.org/w/api.php`;
   const parseUrl = new URL(api);
   parseUrl.search = new URLSearchParams({
@@ -124,6 +146,161 @@ async function fetchWikipedia(input) {
     rows: built.rows,
     links: built.links
   };
+}
+
+async function gatherTopicStories(lang, query, directPage) {
+  const titles = await searchWikiTitles(lang, query);
+  const ordered = [];
+  const seenTitles = new Set();
+  const addTitle = (title) => {
+    const name = String(title || '').trim();
+    const key = name.toLowerCase();
+    if (!name || seenTitles.has(key)) return;
+    seenTitles.add(key);
+    ordered.push(name);
+  };
+  if (directPage && directPage.title) addTitle(directPage.title);
+  titles.forEach(addTitle);
+  const items = [];
+  if (directPage) {
+    items.push({
+      title: directPage.title,
+      extract: directPage.extract,
+      rows: directPage.rows,
+      sections: directPage.sections
+    });
+  }
+  let lists = 0;
+  for (const title of ordered) {
+    if (items.length >= 8) break;
+    if (directPage && title.toLowerCase() === String(directPage.title || '').toLowerCase()) continue;
+    if (/^list of /i.test(title) && lists < 2) {
+      lists += 1;
+      try {
+        const page = await loadWikiPage({ lang, title });
+        items.push({ title: page.title, extract: page.extract, rows: page.rows, sections: page.sections });
+      } catch {}
+      continue;
+    }
+    if (/^list of /i.test(title)) continue;
+  }
+  const articleTitles = ordered.filter((title) => {
+    if (/^list of /i.test(title)) return false;
+    if (directPage && title.toLowerCase() === String(directPage.title || '').toLowerCase()) return false;
+    return !items.some((item) => item.title.toLowerCase() === title.toLowerCase());
+  }).slice(0, 6);
+  const extracts = await fetchWikiExtracts(lang, articleTitles);
+  extracts.forEach((item) => items.push(item));
+  const rows = rowsFromTopicResults(query, items).slice(0, 50);
+  return {
+    ok: true,
+    topic: true,
+    lang,
+    title: query,
+    pageid: null,
+    url: `https://${lang}.wikipedia.org/w/index.php?${new URLSearchParams({ search: query }).toString()}`,
+    redirected_from: null,
+    extract: '',
+    sections: [],
+    tables: [],
+    rows,
+    links: ordered.slice(0, 12).map((title) => ({ title, label: title }))
+  };
+}
+
+async function searchWikiTitles(lang, query) {
+  const url = new URL(`https://${lang}.wikipedia.org/w/api.php`);
+  url.search = new URLSearchParams({
+    action: 'query',
+    list: 'search',
+    srsearch: query,
+    srlimit: '8',
+    srnamespace: '0',
+    format: 'json',
+    formatversion: '2'
+  }).toString();
+  const data = await wikiGet(url);
+  return (((data.query || {}).search) || []).map((hit) => hit && hit.title).filter(Boolean);
+}
+
+async function fetchWikiExtracts(lang, titles) {
+  const list = (titles || []).map((title) => String(title || '').trim()).filter(Boolean);
+  if (!list.length) return [];
+  const url = new URL(`https://${lang}.wikipedia.org/w/api.php`);
+  url.search = new URLSearchParams({
+    action: 'query',
+    prop: 'extracts',
+    explaintext: '1',
+    exintro: '1',
+    exchars: '900',
+    redirects: '1',
+    titles: list.join('|'),
+    format: 'json',
+    formatversion: '2'
+  }).toString();
+  const data = await wikiGet(url);
+  return (((data.query || {}).pages) || []).map((page) => ({
+    title: page.title,
+    extract: page.extract || '',
+    rows: [],
+    sections: []
+  })).filter((page) => page.title && !page.title.startsWith('Missing:'));
+}
+
+function rowsFromTopicResults(query, items) {
+  const rows = [];
+  const seen = new Set();
+  (items || []).forEach((item) => {
+    const tableRows = Array.isArray(item.rows) ? item.rows.filter((row) => row && String(row.story || '').trim()) : [];
+    if (tableRows.length) {
+      tableRows.slice(0, 40).forEach((row) => pushTopicRow(rows, seen, row));
+      return;
+    }
+    if (/^list of /i.test(item.title || '')) {
+      storiesFromSections(item.title, item.sections, query).forEach((row) => pushTopicRow(rows, seen, row));
+      return;
+    }
+    const story = storyFromArticle(item.title, item.extract, query);
+    if (story) pushTopicRow(rows, seen, story);
+  });
+  return rows;
+}
+
+function storiesFromSections(pageTitle, sections, query) {
+  return (sections || [])
+    .filter((section) => section && section.kind !== 'meta' && section.title && section.text)
+    .map((section) => storyFromArticle(section.title, section.text, query || pageTitle))
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function storyFromArticle(title, extract, query) {
+  const name = cleanInline(title);
+  if (!name || /^(list of|index of|outline of|timeline of|glossary of|portal:|category:|wikipedia:|file:|help:)/i.test(name)) return null;
+  let text = String(extract || '').replace(/\s+/g, ' ').trim();
+  if (!text || /may refer to[:.]/i.test(text) || /bu bir anlam ayr[ıi]m[ıi]/i.test(text)) return null;
+  text = text.split(/\s+(?=References\b|See also\b|External links\b|Kaynakça\b)/)[0];
+  const sentences = text.split(/(?<=[.!?])\s+/).map((part) => part.trim()).filter(Boolean);
+  const story = sentences.slice(0, 4).join(' ').slice(0, 900).trim();
+  if (story.split(/\s+/).filter(Boolean).length < 25) return null;
+  if (!/\b(?:1[5-9]\d{2}|20\d{2})\b/.test(story) && !/\b(died|killed|murdered|disappeared|arrested|sentenced|experiment|accident|explosion|escaped|convicted|vanished|missing|discovered|collapsed|sank|crashed|outbreak|hostage|kidnapped|trial|prison|attacked|survived)\b/i.test(story)) return null;
+  const dateMatch = story.match(/\b(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}|(?:1[5-9]\d{2}|20\d{2}))\b/);
+  const date = dateMatch ? dateMatch[0] : '';
+  return {
+    name: name.slice(0, 200),
+    date,
+    place: '',
+    story,
+    section: String(query || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+    id: storyId(name, query || name, name, date)
+  };
+}
+
+function pushTopicRow(rows, seen, row) {
+  const key = `${String(row.name || '').toLowerCase()}|${String(row.date || '').toLowerCase()}`;
+  if (!row || !row.name || seen.has(key)) return;
+  seen.add(key);
+  rows.push(row);
 }
 
 function parseWikitext(wikitext, pageTitle) {
@@ -477,6 +654,8 @@ module.exports = {
   resolveWikiTarget,
   parseWikitext,
   fetchWikipedia,
+  rowsFromTopicResults,
+  storyFromArticle,
   readUsedStories,
   readOpenPage,
   saveOpenPage,

@@ -722,23 +722,23 @@
 <div class="wrap">
   <div style="margin-bottom:18px">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;margin-bottom:6px">Wikipedia Vaka Okuyucu</div>
-    <div style="font-size:13px;color:var(--muted)">Epoch, Therapy ve Chaos için ayrı Wikipedia listesi yaz. Kişi, tarih, yer ve hikâye burada listelenir.</div>
+    <div style="font-size:13px;color:var(--muted)">Epoch, Therapy ve Chaos için liste linki ya da bir konu yaz. Konunun sonuçlarından video çıkarılacak hikâyeler liste olur.</div>
   </div>
   <div class="tool-card">
     <div class="wiki-lists">
       <div class="wiki-bar">
         <span class="wiki-list-label">Epoch Lab</span>
-        <input class="tool-input" id="wikiQuery" placeholder="Epoch liste linki" />
+        <input class="tool-input" id="wikiQuery" placeholder="Epoch liste linki veya konu" />
         <button class="tool-btn" type="button" id="wikiLoadBtn" style="width:auto;white-space:nowrap" onclick="loadWikiPage('', 'epoch')">Listeyi getir</button>
       </div>
       <div class="wiki-bar">
         <span class="wiki-list-label">Therapy Lab</span>
-        <input class="tool-input" id="wikiQueryTherapy" placeholder="Therapy liste linki" />
+        <input class="tool-input" id="wikiQueryTherapy" placeholder="Therapy liste linki veya konu" />
         <button class="tool-btn" type="button" id="wikiLoadTherapy" style="width:auto;white-space:nowrap" onclick="loadWikiPage('', 'therapy')">Listeyi getir</button>
       </div>
       <div class="wiki-bar">
         <span class="wiki-list-label">Chaos Lab</span>
-        <input class="tool-input" id="wikiQueryChaos" placeholder="Chaos liste linki" />
+        <input class="tool-input" id="wikiQueryChaos" placeholder="Chaos liste linki veya konu" />
         <button class="tool-btn" type="button" id="wikiLoadChaos" style="width:auto;white-space:nowrap" onclick="loadWikiPage('', 'chaos')">Listeyi getir</button>
       </div>
     </div>
@@ -2526,7 +2526,7 @@ async function loadWikiPage(title, channel) {
     });
     if (msg) {
       msg.textContent = wikiRows.length
-        ? (slot.label + " · " + wikiPageTitle + " · " + wikiRows.length + " hikâye")
+        ? (slot.label + " · " + (data.topic ? ("“" + query + "” konusundan ") : (wikiPageTitle + " · ")) + wikiRows.length + " hikâye")
         : (slot.label + " · " + wikiPageTitle + " tablosuz bir dizin. Aşağıdan bir liste aç.");
     }
     renderWikiLinks();
