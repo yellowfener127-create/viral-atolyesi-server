@@ -155,11 +155,30 @@ function loadState(file) {
     return {
       posted: data.posted || {},
       fired: data.fired || {},
-      chosen: data.chosen || {}
+      chosen: data.chosen || {},
+      open: data.open || {},
+      videos: data.videos || {},
+      nextTry: data.nextTry || {}
     };
   } catch {
-    return { posted: {}, fired: {}, chosen: {} };
+    return { posted: {}, fired: {}, chosen: {}, open: {}, videos: {}, nextTry: {} };
   }
+}
+
+function rememberVideo(state, video, page, ready) {
+  const side = loadSide(video);
+  const platforms = {};
+  ready.forEach((target) => {
+    const row = side.platforms[target.name];
+    platforms[target.name] = row && row.status ? row.status : 'pending';
+  });
+  state.videos[video] = {
+    folder: page.folder,
+    slot: page.slot.label,
+    platforms,
+    updatedAt: new Date().toISOString()
+  };
+  state.open[page.key] = video;
 }
 
 function sidePath(file) {
@@ -239,14 +258,17 @@ async function tick(options = {}) {
     const state = loadState(file);
     const wait = options.sleepFn || sleep;
     const pause = Number.isFinite(options.gapMs) ? options.gapMs : 0;
+    const retryMs = Number.isFinite(options.retryMs) ? options.retryMs : 0;
+    const nowMs = now.getTime();
     for (const page of built.pages) {
-      if (parts.hour !== page.slot.hour || parts.minute !== page.slot.minute) continue;
+      const inSlot = parts.hour === page.slot.hour && parts.minute === page.slot.minute;
       const fireKey = `${page.key}|${parts.date}|${page.slot.label}`;
       const targets = BRANDS.map((name) => Object.assign({ name }, page[name]));
       const ready = targets.filter((target) => target.ready);
-      let video = state.chosen[fireKey] && fs.existsSync(state.chosen[fireKey]) ? state.chosen[fireKey] : '';
+      let video = state.open[page.key] && fs.existsSync(state.open[page.key]) ? state.open[page.key] : '';
+      if (!video && state.open[page.key]) delete state.open[page.key];
       if (!video) {
-        if (state.fired[fireKey]) continue;
+        if (!inSlot || state.fired[fireKey]) continue;
         targets.forEach((target) => {
           if (target.ready || !platformOn(target.name)) return;
           emit({
@@ -262,15 +284,20 @@ async function tick(options = {}) {
         }
         video = facebook.nextMp4(page.dir, now.getTime());
         state.fired[fireKey] = new Date().toISOString();
-        if (video) state.chosen[fireKey] = video;
+        if (video) {
+          state.chosen[fireKey] = video;
+          state.open[page.key] = video;
+        }
         saveState(file, state);
         if (!video) {
           emit({ event: 'empty', platform: 'publish', message: `${page.folder} klasöründe hazır mp4 yok.` });
           continue;
         }
       }
+      if (state.nextTry[video] && nowMs < state.nextTry[video]) continue;
       const caption = facebook.captionFromFile(video);
       const side = loadSide(video);
+      rememberVideo(state, video, page, ready);
       let failed = false;
       let blocked = false;
       let postedNow = 0;
@@ -307,6 +334,7 @@ async function tick(options = {}) {
           });
           side.platforms = marked.platforms;
           state.posted[dayKey] = parts.date;
+          rememberVideo(state, video, page, ready);
           saveState(file, state);
           postedNow += 1;
           emit({
@@ -318,6 +346,9 @@ async function tick(options = {}) {
           failed = true;
           const message = scrub(err && err.message ? err.message : String(err));
           markPlatform(video, target.name, { status: 'failed', at: new Date().toISOString(), error: message });
+          state.nextTry[video] = nowMs + retryMs;
+          rememberVideo(state, video, page, ready);
+          saveState(file, state);
           emit({
             event: err && err.skip ? 'skipped' : 'failed',
             platform: target.name,
@@ -330,6 +361,10 @@ async function tick(options = {}) {
       if (!failed && !blocked && done) {
         try {
           const dest = moveWithState(video);
+          if (state.open[page.key] === video) delete state.open[page.key];
+          delete state.videos[video];
+          delete state.nextTry[video];
+          saveState(file, state);
           emit({ event: 'moved', platform: 'publish', message: dest });
         } catch (err) {
           emit({ event: 'move-failed', platform: 'publish', message: `${path.basename(video)} paylaşıldı ama taşınamadı. ${err && err.message ? err.message : err}` });

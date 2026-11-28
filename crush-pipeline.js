@@ -441,9 +441,8 @@ function splitHookIntoLines55(text) {
 }
 
 /**
- * Terapi/Umut: kesin dikey tuval (outW×outH, tipik 1080×1920).
- * Üstte 120px beyaz başlık şeridi + emojili hook, altta pastel tuval üzerinde video.
- * Arka planda 45° çapraz marka pattern sadece boşluklarda görünür (video üstüne binmez).
+ * Dikey tuval (outW×outH). Video kadrajın tamamını doldurur.
+ * Üstte profil, isim ve hook yazısı videonun üstüne biner.
  * Girdi [v0], çıkış [v1].
  */
 function buildReelsInstagramCanvasFilters({
@@ -468,22 +467,13 @@ function buildReelsInstagramCanvasFilters({
   const sy = outH / 1920;
   const sx = outW / 1080;
   const s = Math.min(sx, sy);
-  // Frame window geometry (1080×1920 referans).
-  // Therapy (terapi): mevcut “düzgün” yerleşimi bozma — eski sabit pencere.
-  // Chaos/Hope: video tam beyaz pencerenin içine otursun (taşma yok) — gerçek pencere bbox.
-  // Kaos/Terapi aynı video penceresi (beyaz boşluk / farklı bbox kaynaklı çerçeve farkını kapatır).
-  const winTerapi = { x: 78, y: 348, w: 924, h: 1428 };
-  const win = winTerapi;
-  const wx = Math.round(win.x * sx);
-  const wy = Math.round(win.y * sy);
-  const ww = Math.round(win.w * sx);
-  const wh = Math.round(win.h * sy);
-  const fontSize = Math.max(22, Math.round(46 * s));
+  const wy = Math.round(348 * sy);
+  const fontSize = Math.max(26, Math.round(54 * s));
+  const hookBorder = Math.max(2, Math.round(3 * s));
   const handleSize = Math.max(20, Math.round(42 * s));
   const avatarSize = Math.max(44, Math.round(100 * s));
   const avatarX = Math.round(64 * sx);
   const avatarY = Math.round(108 * sy);
-  const radius = Math.max(16, Math.round(46 * s));
   const ink = 'white';
   const handleInk = 'white@0.75';
   const lineStep = Math.max(Math.round(fontSize * 1.30), fontSize + 4);
@@ -491,9 +481,7 @@ function buildReelsInstagramCanvasFilters({
   const lines = (escapedLines || []).slice(0, maxCapLines);
   const padX = Math.max(18, Math.round(52 * sx));
   const blockH = lines.length ? ((lines.length - 1) * lineStep + Math.round(fontSize * 1.08)) : Math.round(fontSize * 1.08);
-  // Hook'u video penceresinin üstündeki boşlukta ortala (eski/kompakt alan)
-  // Hook alanını çok az yukarı genişlet (kenarlara değil, sadece üstten).
-  // (Therapy/Hope/Chaos hepsinde aynı davranış.)
+  // Hook, eski kart boşluğunun biraz üstünde durur.
   const hookAreaTop = Math.round(72 * sy) + Math.max(36, Math.round(84 * s)) + Math.round(18 * sy);
   const hookAreaBottom = Math.max(hookAreaTop + 1, Math.round(wy - 18 * sy));
   const hxOff = Math.round(
@@ -502,24 +490,17 @@ function buildReelsInstagramCanvasFilters({
   const hyOff = Math.round(
     parseManualReelsHookOffsetPx(hookYOffsetRefPx) * (outH / MANUAL_BLUR_REF_H)
   );
-  const hookYTop =
-    Math.max(hookAreaTop, Math.round(((hookAreaTop + hookAreaBottom) / 2) - (blockH / 2))) + hyOff;
+  const hookLift = Math.round(40 * sy);
+  const hookYTop = Math.max(
+    Math.round(112 * sy),
+    Math.max(hookAreaTop, Math.round(((hookAreaTop + hookAreaBottom) / 2) - (blockH / 2))) + hyOff - hookLift
+  );
 
   const nudge = Number.isFinite(Number(cropYNudgeRefPx)) ? Math.round(Number(cropYNudgeRefPx)) : 0;
-  // 2. slider: pencere içindeki videonun kendisini (overlay) yukarı/aşağı kaydır.
-  const winShift = parseManualReelsWindowShiftYPx(windowShiftYRefPx);
-  const winShiftPx = Math.round(winShift * (outH / MANUAL_BLUR_REF_H));
   const nudgeRatio = nudge / MANUAL_BLUR_REF_H;
   const cropYExpr =
     `max(0\\,min(ih-oh\\,max(0\\,(ih-oh)*0.42)+ih*${nudgeRatio.toFixed(8)}))`;
 
-  const blurSigma = Math.max(8, Math.round(20 * s));
-  const vww = Math.max(2, ww);
-  const vwh = Math.max(2, wh);
-  const vx = wx;
-  const vy = wy + winShiftPx;
-  const roundA =
-    `if(lte(hypot(max(abs(X-W/2)-(W/2-${radius})\\,0)\\,max(abs(Y-H/2)-(H/2-${radius})\\,0))\\,${radius})\\,255\\,0)`;
   const circleA = `if(lte(hypot(X-W/2\\,Y-H/2)\\,W/2-1)\\,255\\,0)`;
   const nameX = avatarX + (profileExists ? avatarSize + Math.round(18 * sx) : Math.round(8 * sx));
   const nameY = avatarY + Math.max(0, Math.round((avatarSize - handleSize) * 0.38));
@@ -528,10 +509,7 @@ function buildReelsInstagramCanvasFilters({
   const handleFont = handleFontPart || fontPart;
 
   const parts = [
-    `[v0]scale=${vww}:${vwh}:force_original_aspect_ratio=increase:flags=lanczos,crop=${vww}:${vwh}:(iw-ow)/2:${cropYExpr},setsar=1,split=2[sharpBox][frostCrop]`,
-    `[frostCrop]scale=${outW}:${outH}:force_original_aspect_ratio=increase,crop=${outW}:${outH},gblur=sigma=${blurSigma}[frost]`,
-    `[sharpBox]format=rgba,geq=r='r(X\\,Y)':g='g(X\\,Y)':b='b(X\\,Y)':a='${roundA}'[sharpRound]`,
-    `[frost][sharpRound]overlay=x=${vx}:y=${Math.max(0, vy)}:shortest=1[vtWin]`
+    `[v0]scale=${outW}:${outH}:force_original_aspect_ratio=increase:flags=lanczos,crop=${outW}:${outH}:(iw-ow)/2:${cropYExpr},setsar=1[vtWin]`
   ];
   let cur = 'vtWin';
   if (profileExists) {
@@ -560,6 +538,7 @@ function buildReelsInstagramCanvasFilters({
       const y = hookYTop + i * lineStep;
       parts.push(
         `[${cur}]drawtext=text='${escapeDrawtextText(line)}'${hookFont}:fontsize=${fontSize}:fontcolor=${ink}:` +
+          `borderw=${hookBorder}:bordercolor=black@0.85:shadowcolor=black@0.45:shadowx=2:shadowy=2:` +
           `fix_bounds=1:text_shaping=1:` +
           `x='max(${padX}\\,min((w-text_w)/2+${hxOff}\\,w-text_w-${padX}))':y=${y}:enable='${hookEnable}'[${next}]`
       );
@@ -609,6 +588,7 @@ function buildReelsInstagramCanvasFilters({
         } else if (String(p.text || '').length) {
           parts.push(
             `[${cur}]drawtext=text='${escapeDrawtextText(p.text)}'${hookFont}:fontsize=${fontSize}:fontcolor=${ink}:` +
+              `borderw=${hookBorder}:bordercolor=black@0.85:shadowcolor=black@0.45:shadowx=2:shadowy=2:` +
               `fix_bounds=1:text_shaping=1:x=${Math.round(x)}:y=${y}:enable='${hookEnable}'[${next}]`
           );
           cur = next;

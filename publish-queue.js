@@ -514,7 +514,7 @@ function nextItem(state) {
 }
 
 function rollup(item) {
-  const statuses = PLATFORMS.map((name) => item.platforms[name] && item.platforms[name].status);
+  const statuses = PLATFORMS.filter((name) => name !== 'x').map((name) => item.platforms[name] && item.platforms[name].status);
   if (statuses.every((status) => status === 'posted')) item.status = 'posted';
   else if (statuses.some((status) => status === 'posted')) item.status = 'partial';
   else item.status = 'queued';
@@ -540,8 +540,12 @@ async function runPublishSlot(options = {}) {
   for (const name of PLATFORMS) {
     const entry = item.platforms[name] || { status: 'pending' };
     item.platforms[name] = entry;
+    if (name === 'x') {
+      entry.status = 'skipped';
+      continue;
+    }
     if (name !== 'facebook') {
-      logEvent({ event: 'skipped', platform: name, itemId: item.id, message: 'Şimdilik yalnızca Facebook Sayfa Reels açık.' });
+      logEvent({ event: 'skipped', platform: name, itemId: item.id, message: 'Eski kanca kuyruğu bu platformu çağırmaz. Klasör yayını ayrı çalışır.' });
       continue;
     }
     if (entry.status === 'posted') continue;
@@ -672,6 +676,7 @@ function startScheduler(options = {}) {
     brandPublish.tick({
       downloadDir,
       gapMs: gapMs(),
+      retryMs: Number(process.env.PUBLISH_RETRY_MS) > 0 ? Number(process.env.PUBLISH_RETRY_MS) : 120000,
       postFacebook: (item) => postFacebook(item),
       postInstagram: (item) => postInstagram(item),
       postYouTube: (item) => postYouTube(item)

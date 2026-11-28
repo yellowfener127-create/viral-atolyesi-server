@@ -234,3 +234,74 @@ test('youtube short text comes from the file name', () => {
   assert.equal(queue.youtubeCopy('Street story').privacyStatus, 'unlisted');
   delete process.env.YOUTUBE_PRIVACY_STATUS;
 });
+
+test('an empty old youtube token does not override the brand refresh token', () => {
+  clearEnv();
+  const root = tempDir();
+  process.env.FACEBOOK_SOURCE_DIRS = path.join(root, 'Epoch Lab');
+  process.env.FACEBOOK_POST_SLOTS = '22:00';
+  process.env.YOUTUBE_EPOCH_ACCOUNT_ID = '';
+  process.env.YOUTUBE_EPOCH_ACCESS_TOKEN = '';
+  process.env.YOUTUBE_CLIENT_ID = 'client';
+  process.env.YOUTUBE_CLIENT_SECRET = 'secret';
+  process.env.YOUTUBE_EPOCH_REFRESH_TOKEN = 'epoch-refresh';
+  process.env.YOUTUBE_REFRESH_TOKEN = '';
+  const built = publish.brandPages(root);
+  assert.equal(built.pages[0].youtube.ready, true);
+  assert.equal(built.pages[0].youtube.via, 'brand');
+  assert.equal(built.pages[0].youtube.refreshToken, 'epoch-refresh');
+  assert.equal(built.pages[0].youtube.clientId, 'client');
+  assert.equal(built.pages[0].youtube.clientSecret, 'secret');
+  clearEnv();
+  delete process.env.YOUTUBE_EPOCH_ACCOUNT_ID;
+  delete process.env.YOUTUBE_EPOCH_ACCESS_TOKEN;
+});
+
+test('a later run retries only the unfinished platform and does not move the file', async () => {
+  clearEnv();
+  const root = tempDir();
+  const epoch = path.join(root, 'Epoch Lab');
+  const file = writeMp4(epoch, 'half story.mp4');
+  process.env.FACEBOOK_SOURCE_DIRS = epoch;
+  process.env.FACEBOOK_POST_SLOTS = '22:00';
+  process.env.FACEBOOK_EPOCH_PAGE_ID = 'epoch-page';
+  process.env.FACEBOOK_EPOCH_PAGE_TOKEN = 'epoch-token';
+  process.env.YOUTUBE_EPOCH_REFRESH_TOKEN = 'epoch-refresh';
+  const stateFile = path.join(root, 'state.json');
+  const seen = [];
+  let youtubeFails = true;
+  const options = {
+    force: true,
+    silent: true,
+    downloadDir: root,
+    stateFile,
+    gapMs: 0,
+    retryMs: 0,
+    now: new Date(),
+    postFacebook: async () => { seen.push('facebook'); return { id: 'fb' }; },
+    postInstagram: async () => { throw new Error('instagram should stay inactive'); },
+    postYouTube: async () => {
+      seen.push('youtube');
+      if (youtubeFails) throw new Error('yt down');
+      return { id: 'yt' };
+    }
+  };
+  await publish.tick({ ...options, parts: slotParts('22:00') });
+  assert.deepEqual(seen, ['facebook', 'youtube']);
+  assert.equal(fs.existsSync(file), true);
+  assert.equal(fs.existsSync(path.join(epoch, 'paylasildi', 'half story.mp4')), false);
+  const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  assert.equal(saved.videos[file].platforms.facebook, 'done');
+  assert.equal(saved.videos[file].platforms.youtube, 'failed');
+  seen.length = 0;
+  await publish.tick({ ...options, parts: { date: '2026-11-27', hour: 22, minute: 15 } });
+  assert.deepEqual(seen, ['youtube']);
+  assert.equal(fs.existsSync(file), true);
+  youtubeFails = false;
+  seen.length = 0;
+  await publish.tick({ ...options, parts: { date: '2026-11-27', hour: 22, minute: 20 } });
+  assert.deepEqual(seen, ['youtube']);
+  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.existsSync(path.join(epoch, 'paylasildi', 'half story.mp4')), true);
+  clearEnv();
+});
