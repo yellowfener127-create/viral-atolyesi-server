@@ -1410,31 +1410,6 @@ function crushRoundRectPath(ctx, x, y, w, h, r) {
 }
 
 function crushDrawBrandChrome(ctx, W, H) {
-  const m = crushFrostMetrics(W, H);
-  const img = __crushManual.profileImg;
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(m.avatarX + m.avatarSize / 2, m.avatarY + m.avatarSize / 2, m.avatarSize / 2, 0, Math.PI * 2);
-  ctx.closePath();
-  ctx.clip();
-  if (img && img.complete && img.naturalWidth) {
-    ctx.drawImage(img, m.avatarX, m.avatarY, m.avatarSize, m.avatarSize);
-  } else {
-    ctx.fillStyle = "#d7d7d7";
-    ctx.fillRect(m.avatarX, m.avatarY, m.avatarSize, m.avatarSize);
-  }
-  ctx.restore();
-  ctx.save();
-  ctx.font = "700 " + m.handleSize + 'px Arial, sans-serif';
-  ctx.fillStyle = "rgba(255,255,255,0.75)";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  ctx.fillText(
-    crushBrandHandle(),
-    m.avatarX + m.avatarSize + Math.round(18 * m.sx),
-    m.avatarY + m.avatarSize / 2
-  );
-  ctx.restore();
 }
 
 function crushLoadZirhFramePng() {

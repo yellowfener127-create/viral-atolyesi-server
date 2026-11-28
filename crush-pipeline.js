@@ -442,7 +442,7 @@ function splitHookIntoLines55(text) {
 
 /**
  * Dikey tuval (outW×outH). Video kadrajın tamamını doldurur.
- * Üstte profil, isim ve hook yazısı videonun üstüne biner.
+ * Üstte yalnız hook yazısı videonun üstüne biner.
  * Girdi [v0], çıkış [v1].
  */
 function buildReelsInstagramCanvasFilters({
@@ -470,12 +470,7 @@ function buildReelsInstagramCanvasFilters({
   const wy = Math.round(348 * sy);
   const fontSize = Math.max(26, Math.round(54 * s));
   const hookBorder = Math.max(2, Math.round(3 * s));
-  const handleSize = Math.max(20, Math.round(42 * s));
-  const avatarSize = Math.max(44, Math.round(100 * s));
-  const avatarX = Math.round(64 * sx);
-  const avatarY = Math.round(108 * sy);
   const ink = 'white';
-  const handleInk = 'white@0.75';
   const lineStep = Math.max(Math.round(fontSize * 1.30), fontSize + 4);
   const maxCapLines = 2;
   const lines = (escapedLines || []).slice(0, maxCapLines);
@@ -501,30 +496,12 @@ function buildReelsInstagramCanvasFilters({
   const cropYExpr =
     `max(0\\,min(ih-oh\\,max(0\\,(ih-oh)*0.42)+ih*${nudgeRatio.toFixed(8)}))`;
 
-  const circleA = `if(lte(hypot(X-W/2\\,Y-H/2)\\,W/2-1)\\,255\\,0)`;
-  const nameX = avatarX + (profileExists ? avatarSize + Math.round(18 * sx) : Math.round(8 * sx));
-  const nameY = avatarY + Math.max(0, Math.round((avatarSize - handleSize) * 0.38));
-  const handleEsc = escapeDrawtextText(handleText || brandSocialHandle(brandNorm));
   const hookFont = hookFontPart || fontPart;
-  const handleFont = handleFontPart || fontPart;
 
   const parts = [
     `[v0]scale=${outW}:${outH}:force_original_aspect_ratio=increase:flags=lanczos,crop=${outW}:${outH}:(iw-ow)/2:${cropYExpr},setsar=1[vtWin]`
   ];
   let cur = 'vtWin';
-  if (profileExists) {
-    parts.push(
-      `[1:v]scale=${avatarSize}:${avatarSize}:force_original_aspect_ratio=increase,crop=${avatarSize}:${avatarSize},setsar=1,format=rgba,` +
-        `geq=r='r(X\\,Y)':g='g(X\\,Y)':b='b(X\\,Y)':a='${circleA}'[avatar]`
-    );
-    parts.push(`[${cur}][avatar]overlay=x=${avatarX}:y=${avatarY}:shortest=1[vtAv]`);
-    cur = 'vtAv';
-  }
-  parts.push(
-    `[${cur}]drawtext=text='${handleEsc}'${handleFont}:fontsize=${handleSize}:fontcolor=${handleInk}:` +
-      `x=${nameX}:y=${nameY}[vtName]`
-  );
-  cur = 'vtName';
   if (!lines.length) {
     parts.push(`[${cur}]format=yuv420p[v1]`);
     return parts;
@@ -964,8 +941,8 @@ async function buildCrushRenderPlan(o) {
   const useLabFrame =
     frameOnly || ((brandNorm === 'terapi' || brandNorm === 'umut' || brandNorm === 'kaos') && o.useReelsInstagramCanvas !== false);
   const useReelsInstagramCanvas = useLabFrame;
-  const profilePng = useLabFrame ? resolveBrandProfilePng(brandNorm) : null;
-  const profileExists = !!(profilePng && fs.existsSync(profilePng));
+  const profilePng = null;
+  const profileExists = false;
 
   // Watermark boyutu yarıya indir
   const wmSize = outW >= 1080 ? 55 : 48;
